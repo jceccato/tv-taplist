@@ -27,7 +27,7 @@ services:
       # Named volume keeps config.json, taps/ and old_beers/ across restarts.
       # To inspect the data from the host, swap for a bind mount, e.g.:
       #   - ./data:/data
-      - taplist_data:/data
+      - ./taplist_data:/data
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
       interval: 30s
@@ -35,5 +35,5 @@ services:
       retries: 3
       start_period: 10s
 
-volumes:
-  taplist_data:
+# volumes:
+#   taplist_data:
