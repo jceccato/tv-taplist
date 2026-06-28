@@ -1,0 +1,39 @@
+# Single-container deployment for the digital tap list.
+# Copy .env.example to .env and edit the secrets before `docker compose up -d`.
+services:
+  taplist:
+    build: .
+    image: tv-taplist:latest
+    container_name: tv-taplist
+    restart: unless-stopped
+    ports:
+      # host:container — point your reverse proxy / TV at host port 8080.
+      - "8080:8080"
+    environment:
+      # --- secrets (set real values in .env) ---
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-changeme}"
+      SESSION_SECRET: "${SESSION_SECRET:-change-this-long-random-secret}"
+      # --- ops ---
+      TZ: "${TZ:-Australia/Sydney}"
+      # Trust ONLY your Nginx proxy's IP for X-Forwarded-* headers.
+      FORWARDED_ALLOW_IPS: "${FORWARDED_ALLOW_IPS:-127.0.0.1}"
+      PORT: "8080"
+      # Match these to the host user that owns the volume / bind mount.
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+      # Set DEMO_MODE=true on a fresh volume to seed sample taps (offline demo).
+      DEMO_MODE: "${DEMO_MODE:-false}"
+    volumes:
+      # Named volume keeps config.json, taps/ and old_beers/ across restarts.
+      # To inspect the data from the host, swap for a bind mount, e.g.:
+      #   - ./data:/data
+      - taplist_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  taplist_data:

@@ -1,0 +1,268 @@
+/* TV display styles. Dark, high-contrast, landscape 1080p / 4K, no scrolling.
+   Self-hosted system font stack only (no web fonts / CDNs) so the page renders
+   fully offline. The grid is keyed off the current page's card count via a
+   data attribute so a page of 3 and a page of 8 both fill the screen. */
+
+:root {
+  --bg: #0d0f14;
+  --bg-card: #181b23;
+  --bg-card-2: #1f2330;
+  --border: #2a2f3d;
+  --text: #f3f4f7;
+  --text-dim: #aeb4c2;
+  --accent: #ffb627;
+  --vacant: #232633;
+  --ticker-h: 4.5vh;
+  --gap: 1.2vmin;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, "Noto Sans", sans-serif;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Board fills the viewport and reserves a row for the ticker. */
+.board {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  height: 100vh;
+  width: 100vw;
+  padding: var(--gap);
+  gap: var(--gap);
+}
+
+.stage {
+  position: relative;
+  min-height: 0; /* allow grid children to shrink instead of overflowing */
+}
+
+/* The card grid. Columns/rows are set per page-card-count via [data-count]. */
+.page {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  gap: var(--gap);
+  opacity: 0;
+  transition: opacity 600ms ease;
+  pointer-events: none;
+}
+.page.active { opacity: 1; pointer-events: auto; }
+
+/* Responsive layouts: rows x cols chosen to fill a 16:9 screen nicely. */
+.page[data-count="1"] { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.page[data-count="2"] { grid-template-columns: repeat(2, 1fr); grid-template-rows: 1fr; }
+.page[data-count="3"] { grid-template-columns: repeat(3, 1fr); grid-template-rows: 1fr; }
+.page[data-count="4"] { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); }
+.page[data-count="5"],
+.page[data-count="6"] { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); }
+.page[data-count="7"],
+.page[data-count="8"] { grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(2, 1fr); }
+
+/* A 5-card page: let the last card span so the row stays balanced. */
+.page[data-count="5"] .card:nth-child(4) { grid-column: 1 / span 1; }
+
+/* ---- Card ---- */
+.card {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "num  name  swatch"
+    "img  desc  stats"
+    "img  desc  stats";
+  gap: 0.6vmin 1.4vmin;
+  background: linear-gradient(160deg, var(--bg-card), var(--bg-card-2));
+  border: 1px solid var(--border);
+  border-radius: 1.4vmin;
+  padding: 1.6vmin 1.8vmin;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.card .tap-num {
+  grid-area: num;
+  font-weight: 800;
+  font-size: clamp(18px, 3.4vmin, 64px);
+  color: var(--accent);
+  line-height: 1;
+  align-self: center;
+}
+
+.card .name {
+  grid-area: name;
+  font-weight: 800;
+  font-size: clamp(18px, 3.2vmin, 60px);
+  line-height: 1.04;
+  align-self: center;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.card .swatch {
+  grid-area: swatch;
+  width: clamp(28px, 5vmin, 86px);
+  height: clamp(28px, 5vmin, 86px);
+  border-radius: 50%;
+  border: 0.3vmin solid rgba(255,255,255,0.25);
+  display: grid;
+  place-items: center;
+  font-size: clamp(9px, 1.3vmin, 22px);
+  font-weight: 700;
+  align-self: center;
+  justify-self: end;
+}
+
+.card .thumb {
+  grid-area: img;
+  width: clamp(54px, 11vmin, 200px);
+  height: clamp(54px, 11vmin, 200px);
+  object-fit: cover;
+  border-radius: 1vmin;
+  background: #0c0e13;
+  align-self: center;
+}
+
+.card .desc {
+  grid-area: desc;
+  color: var(--text-dim);
+  font-size: clamp(11px, 1.9vmin, 34px);
+  line-height: 1.25;
+  align-self: center;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+}
+
+.card .stats {
+  grid-area: stats;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6vmin;
+  align-self: center;
+  justify-self: end;
+  text-align: right;
+}
+.card .stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1;
+}
+.card .stat .v {
+  font-weight: 800;
+  font-size: clamp(14px, 2.6vmin, 46px);
+  color: var(--text);
+}
+.card .stat .k {
+  font-size: clamp(8px, 1.2vmin, 20px);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* Vacant card */
+.card.vacant {
+  background: repeating-linear-gradient(
+    45deg, var(--vacant), var(--vacant) 12px, #1d212c 12px, #1d212c 24px);
+  border-style: dashed;
+}
+.card.vacant .name { color: var(--text-dim); }
+
+/* Source badge (custom vs brewfather) */
+.card .source-badge {
+  position: absolute;
+  top: 0.9vmin;
+  right: 0.9vmin;
+  font-size: clamp(7px, 1vmin, 16px);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  opacity: 0.45;
+}
+
+/* ---- Page dots ---- */
+.dots {
+  position: absolute;
+  bottom: 0.4vmin;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 1vmin;
+  z-index: 5;
+}
+.dots .dot {
+  width: 1.2vmin;
+  height: 1.2vmin;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.25);
+}
+.dots .dot.on { background: var(--accent); }
+
+/* ---- Ticker ---- */
+.ticker {
+  height: var(--ticker-h);
+  min-height: 28px;
+  background: #07080b;
+  border-top: 1px solid var(--border);
+  border-radius: 1vmin;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ticker-text {
+  display: inline-block;
+  font-size: clamp(13px, 2.3vmin, 40px);
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+/* JS adds .scroll only when the text is wider than the bar (long announcements).
+   Keeping the scroll padding off the base element means scrollWidth reflects the
+   intrinsic text width, so the static-vs-scroll measurement is accurate. */
+.ticker-text.scroll {
+  padding-left: 100%;
+  /* Duration is set inline by JS based on text length for a steady speed. */
+  animation: ticker-scroll linear infinite;
+}
+@keyframes ticker-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-100%); }
+}
+/* Short text is centred and motionless. */
+.ticker-text.static {
+  width: 100%;
+  text-align: center;
+}
+
+.boot-error {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 3vmin;
+  color: var(--text-dim);
+  background: var(--bg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page { transition: none; }
+  /* Don't push scrolling text off-screen when motion is disabled. */
+  .ticker-text.scroll {
+    animation: none;
+    padding-left: 0;
+    width: 100%;
+    text-align: center;
+  }
+}

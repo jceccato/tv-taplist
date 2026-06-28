@@ -1,0 +1,12 @@
+# Pinned for a small, reproducible appliance image.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+APScheduler==3.11.0
+httpx==0.28.1
+PyYAML==6.0.2
+itsdangerous==2.2.0
+python-multipart==0.0.20
+jinja2==3.1.5
+# Provides the IANA tz database to zoneinfo when the host OS lacks one
+# (the Docker image also installs OS tzdata; this is a cross-platform fallback).
+tzdata==2024.2

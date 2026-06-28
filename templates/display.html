@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Tap List</title>
+  <!-- All assets are served locally by the container. No external origins. -->
+  <link rel="icon" href="/static/placeholder.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/display.css">
+</head>
+<body>
+  <div id="board" class="board">
+    <!-- Pages of tap cards are injected here by display.js -->
+    <main id="stage" class="stage" aria-live="polite"></main>
+
+    <!-- Page-dots indicator, only shown when there is more than one page -->
+    <div id="dots" class="dots" hidden></div>
+
+    <!-- Status ticker pinned to the bottom; its row is reserved in the grid -->
+    <footer id="ticker" class="ticker" hidden>
+      <div id="ticker-text" class="ticker-text"></div>
+    </footer>
+  </div>
+
+  <!-- Shown only if the very first board fetch fails (cold start, no cache) -->
+  <div id="boot-error" class="boot-error" hidden>Loading tap list…</div>
+
+  <script src="/static/js/display.js" defer></script>
+</body>
+</html>

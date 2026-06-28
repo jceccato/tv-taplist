@@ -1,0 +1,394 @@
+"""Brewfather API integration and the 10-minute sync job.
+
+IMPORTANT (per the build prompt): the field mapping below is a *starting point*
+verified against the Brewfather v2 API shape as documented at
+https://docs.brewfather.app/api . Because a single payload was not available at
+build time, the extraction helpers defensively try several field-name and unit
+variants and log what they found. Verify against a live payload and tighten the
+mapping if your account returns different names.
+
+Auth: HTTP Basic Auth, username = User ID, password = API key.
+
+Two-step fetch:
+  1. GET /v2/batches?status=Completed  -> trimmed summaries.
+  2. GET /v2/batches/{id}              -> full detail (ABV, IBU, colour,
+     tasting notes, batch notes, image URL).
+
+Tap assignment: parse the batch notes text for a `tap:X` token.
+
+Desired-tap-map / archive: after a successful sync, any Brewfather-managed tap
+whose batch no longer maps to it is archived. Manual overrides are never read,
+written, or archived. A failed sync makes NO destructive changes.
+"""
+from __future__ import annotations
+
+import logging
+import re
+from typing import Any
+
+import httpx
+
+from . import markdown_store as md
+from .archive import archive_tap
+from .atomic import JOB_LOCK, atomic_write_bytes
+from .colors import EBC_PER_SRM
+from .config_store import load_config, update_config
+from .paths import TAPS_DIR, ensure_dirs
+from .timezone import iso_now
+
+log = logging.getLogger("taplist.sync")
+
+API_BASE = "https://api.brewfather.app/v2"
+HTTP_TIMEOUT = httpx.Timeout(20.0, connect=10.0)
+
+# `tap:3`, `tap: 3`, `Tap:3`, etc.
+TAP_TOKEN_RE = re.compile(r"tap\s*:\s*(\d+)", re.IGNORECASE)
+
+CONTENT_TYPE_EXT = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+
+
+# ---- low-level field extraction (defensive) ------------------------------
+
+def _first_number(obj: dict[str, Any], *keys: str) -> float | None:
+    """Return the first present numeric value among keys (measured preferred)."""
+    for key in keys:
+        if key in obj and obj[key] not in (None, ""):
+            try:
+                return float(obj[key])
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _extract_name(batch: dict[str, Any]) -> str:
+    recipe = batch.get("recipe") or {}
+    return (
+        batch.get("name")
+        or recipe.get("name")
+        or f"Batch {batch.get('batchNo', '?')}"
+    )
+
+
+def _extract_abv(batch: dict[str, Any]) -> float | None:
+    recipe = batch.get("recipe") or {}
+    # Prefer measured over estimated/recipe so the board shows reality.
+    return _first_number(batch, "measuredAbv", "abv") or _first_number(recipe, "abv")
+
+
+def _extract_ibu(batch: dict[str, Any]) -> float | None:
+    recipe = batch.get("recipe") or {}
+    return (
+        _first_number(batch, "measuredIbu", "estimatedIbu", "ibu")
+        or _first_number(recipe, "ibu")
+    )
+
+
+def _extract_ebc(batch: dict[str, Any]) -> float | None:
+    """Return colour as EBC.
+
+    Brewfather stores colour in EBC in its data model, so measuredEbc /
+    estimatedColor / recipe.color are treated as EBC. If your account is
+    configured for SRM (rare via the API), set the values via *Srm keys and
+    they are converted with EBC = SRM * 1.97.
+    """
+    recipe = batch.get("recipe") or {}
+    ebc = (
+        _first_number(batch, "measuredEbc", "estimatedColor", "color")
+        or _first_number(recipe, "color", "ebc")
+    )
+    if ebc is not None:
+        return ebc
+    # Fallback: explicit SRM fields -> convert to EBC.
+    srm = _first_number(batch, "measuredSrm", "srm") or _first_number(recipe, "srm")
+    if srm is not None:
+        return round(srm * EBC_PER_SRM, 1)
+    return None
+
+
+def _extract_notes_text(batch: dict[str, Any]) -> str:
+    """Concatenate every free-text notes field we might find a tap token in."""
+    parts: list[str] = []
+    for key in ("batchNotes", "notes", "note", "tasteNotes"):
+        val = batch.get(key)
+        if isinstance(val, str):
+            parts.append(val)
+        elif isinstance(val, list):
+            # Brewfather `notes` can be a list of {note: "..."} objects.
+            for item in val:
+                if isinstance(item, dict) and isinstance(item.get("note"), str):
+                    parts.append(item["note"])
+                elif isinstance(item, str):
+                    parts.append(item)
+    return "\n".join(parts)
+
+
+def _extract_description(batch: dict[str, Any]) -> str:
+    """Tasting notes for the card body; fall back to batch notes."""
+    taste = batch.get("tasteNotes")
+    if isinstance(taste, str) and taste.strip():
+        return taste.strip()
+    notes = batch.get("batchNotes")
+    if isinstance(notes, str) and notes.strip():
+        return notes.strip()
+    return ""
+
+
+def _extract_image_url(batch: dict[str, Any]) -> str | None:
+    recipe = batch.get("recipe") or {}
+    for src in (batch, recipe):
+        for key in ("img_url", "imgUrl", "image", "imageUrl"):
+            val = src.get(key)
+            if isinstance(val, str) and val.startswith("http"):
+                return val
+    return None
+
+
+def _extract_updated_ms(batch: dict[str, Any]) -> int:
+    """A sortable recency value for conflict resolution (newest wins)."""
+    for key in ("_timestamp_ms", "updated", "completedDate", "brewDate", "_created"):
+        val = batch.get(key)
+        if isinstance(val, (int, float)):
+            return int(val)
+        if isinstance(val, dict) and isinstance(val.get("ms"), (int, float)):
+            return int(val["ms"])
+    return 0
+
+
+def _find_tap_number(batch: dict[str, Any]) -> int | None:
+    m = TAP_TOKEN_RE.search(_extract_notes_text(batch))
+    if not m:
+        return None
+    try:
+        n = int(m.group(1))
+        return n if n >= 1 else None
+    except ValueError:
+        return None
+
+
+# ---- HTTP --------------------------------------------------------------
+
+def _client(user_id: str, api_key: str) -> httpx.Client:
+    return httpx.Client(
+        base_url=API_BASE,
+        auth=(user_id, api_key),
+        timeout=HTTP_TIMEOUT,
+        headers={"User-Agent": "tv-taplist/1.0"},
+    )
+
+
+def _list_completed_batches(client: httpx.Client) -> list[dict[str, Any]]:
+    """List Completed batch summaries (status filter applied client+server side)."""
+    resp = client.get("/batches", params={"status": "Completed", "limit": 100})
+    resp.raise_for_status()
+    data = resp.json()
+    if not isinstance(data, list):
+        return []
+    # Defensive: re-filter in case the server ignores the status param.
+    return [b for b in data if str(b.get("status", "")).lower() == "completed"]
+
+
+def _fetch_detail(client: httpx.Client, batch_id: str) -> dict[str, Any] | None:
+    resp = client.get(f"/batches/{batch_id}")
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    data = resp.json()
+    return data if isinstance(data, dict) else None
+
+
+def _download_image(client: httpx.Client, url: str, stem: str) -> str | None:
+    """Download a tap image, preserving the source extension. Returns filename.
+
+    A failed download returns None and must NOT delete an already-good cached
+    image (caller keeps the existing one).
+    """
+    try:
+        resp = client.get(url, timeout=HTTP_TIMEOUT, follow_redirects=True)
+        resp.raise_for_status()
+    except (httpx.HTTPError, OSError) as exc:
+        log.warning("image download failed for %s (%s): %s", stem, url, exc)
+        return None
+
+    # Prefer the URL's own extension; fall back to content-type.
+    ext = None
+    url_path = url.split("?", 1)[0].lower()
+    for known in md.IMAGE_EXTS:
+        if url_path.endswith(known):
+            ext = ".jpg" if known == ".jpeg" else known
+            break
+    if ext is None:
+        ext = CONTENT_TYPE_EXT.get(resp.headers.get("content-type", "").split(";")[0].strip(), ".jpg")
+
+    # Remove any previously cached image of a *different* extension for this stem
+    # so we don't end up with bf_tap_5.jpg AND bf_tap_5.webp.
+    for old in md.IMAGE_EXTS:
+        old_path = TAPS_DIR / f"{stem}{old}"
+        if old_path.exists() and old_path.suffix != ext:
+            from .atomic import safe_unlink
+            safe_unlink(old_path)
+
+    dest = TAPS_DIR / f"{stem}{ext}"
+    atomic_write_bytes(dest, resp.content)
+    return dest.name
+
+
+# ---- sync orchestration --------------------------------------------------
+
+def _build_desired_map(batches: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    """Map tap number -> chosen batch, resolving conflicts (newest wins)."""
+    desired: dict[int, dict[str, Any]] = {}
+    for batch in batches:
+        tap = _find_tap_number(batch)
+        if tap is None:
+            continue
+        candidate = {"batch": batch, "updated_ms": _extract_updated_ms(batch)}
+        existing = desired.get(tap)
+        if existing is None:
+            desired[tap] = candidate
+            continue
+        # Conflict: two Completed batches claim the same tap. Newest wins.
+        winner, loser = (
+            (candidate, existing)
+            if candidate["updated_ms"] >= existing["updated_ms"]
+            else (existing, candidate)
+        )
+        log.warning(
+            "tap:%d conflict between '%s' and '%s'; keeping more recent '%s'",
+            tap,
+            _extract_name(candidate["batch"]),
+            _extract_name(existing["batch"]),
+            _extract_name(winner["batch"]),
+        )
+        desired[tap] = winner
+    return desired
+
+
+def _write_bf_tap(client: httpx.Client, tap: int, batch: dict[str, Any]) -> None:
+    """Write bf_tap_X.md (+ image) for one desired tap."""
+    stem = f"bf_tap_{tap}"
+    ebc = _extract_ebc(batch)
+    image_url = _extract_image_url(batch)
+
+    image_name: str | None = None
+    if image_url:
+        image_name = _download_image(client, image_url, stem)
+    if image_name is None:
+        # Keep any previously cached image; otherwise leave null (placeholder).
+        existing = md.find_image_for(stem)
+        image_name = existing.name if existing else None
+
+    front_matter = {
+        "name": _extract_name(batch),
+        "abv": _extract_abv(batch),
+        "ibu": _extract_ibu(batch),
+        "ebc": ebc,
+        "source": "brewfather",
+        "batch_id": batch.get("_id") or batch.get("id"),
+        "image": image_name,
+        "updated": iso_now(),
+    }
+    md.write_tap_file(md.bf_md_path(tap), front_matter, _extract_description(batch))
+    log.info("wrote %s (name=%r tap=%d image=%s)", stem, front_matter["name"], tap, image_name)
+
+
+def run_sync() -> dict[str, Any]:
+    """Execute one full sync. Returns a small status dict. Never raises."""
+    ensure_dirs()
+    cfg = load_config()
+    user_id = cfg.get("brewfather_user_id", "").strip()
+    api_key = cfg.get("brewfather_api_key", "").strip()
+    num_taps = int(cfg.get("num_taps", 0) or 0)
+
+    if not user_id or not api_key:
+        msg = "sync skipped: Brewfather credentials not configured"
+        log.info(msg)
+        update_config(last_sync_attempt=iso_now())
+        return {"ok": False, "skipped": True, "message": msg}
+
+    # Serialise against cleanup and admin writes for the whole job.
+    with JOB_LOCK:
+        log.info("sync starting")
+        try:
+            with _client(user_id, api_key) as client:
+                summaries = _list_completed_batches(client)
+                log.info("found %d completed batch summaries", len(summaries))
+
+                # Fetch full detail for each completed batch.
+                details: list[dict[str, Any]] = []
+                for summary in summaries:
+                    bid = summary.get("_id") or summary.get("id")
+                    if not bid:
+                        continue
+                    detail = _fetch_detail(client, str(bid))
+                    if detail is not None:
+                        details.append(detail)
+
+                desired = _build_desired_map(details)
+                # Only manage taps within the configured count.
+                desired = {t: v for t, v in desired.items() if 1 <= t <= num_taps}
+                log.info("desired Brewfather tap map: %s", sorted(desired.keys()))
+
+                written = 0
+                skipped_overrides = 0
+                for tap, entry in desired.items():
+                    if md.is_manual_override(tap):
+                        # Never read/write/archive a manual override.
+                        skipped_overrides += 1
+                        continue
+                    _write_bf_tap(client, tap, entry["batch"])
+                    written += 1
+
+                # Archive any existing bf_tap that is no longer desired and is
+                # not a manual override.
+                archived = _archive_undesired(desired, num_taps)
+
+        except httpx.HTTPStatusError as exc:
+            # Auth / API errors: make NO destructive changes.
+            err = f"Brewfather API error {exc.response.status_code}: {exc.response.text[:200]}"
+            log.error("sync failed (no changes made): %s", err)
+            update_config(last_sync_error=err, last_sync_attempt=iso_now())
+            return {"ok": False, "message": err}
+        except (httpx.HTTPError, OSError) as exc:
+            err = f"network/IO error during sync: {exc}"
+            log.error("sync failed (no changes made): %s", err)
+            update_config(last_sync_error=err, last_sync_attempt=iso_now())
+            return {"ok": False, "message": err}
+
+        ts = iso_now()
+        update_config(last_sync_success=ts, last_sync_error=None, last_sync_attempt=ts)
+        log.info(
+            "sync finished: %d written, %d archived, %d override slots skipped",
+            written, archived, skipped_overrides,
+        )
+        return {
+            "ok": True,
+            "written": written,
+            "archived": archived,
+            "skipped_overrides": skipped_overrides,
+            "timestamp": ts,
+        }
+
+
+def _archive_undesired(desired: dict[int, Any], num_taps: int) -> int:
+    """Archive bf_tap_X files whose batch no longer maps to tap X."""
+    archived = 0
+    # Look at every existing bf_tap_*.md, not just 1..num_taps, so shrinking the
+    # tap count also retires orphaned files.
+    for path in TAPS_DIR.glob("bf_tap_*.md"):
+        m = re.match(r"bf_tap_(\d+)\.md$", path.name)
+        if not m:
+            continue
+        tap = int(m.group(1))
+        if md.is_manual_override(tap):
+            continue  # never touch a manual override slot
+        if tap in desired:
+            continue  # still wanted
+        if archive_tap(f"bf_tap_{tap}"):
+            archived += 1
+    return archived

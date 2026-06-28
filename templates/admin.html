@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin · Tap List</title>
+  <link rel="icon" href="/static/placeholder.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Tap List Admin</h1>
+    <div class="topbar-actions">
+      <a class="btn" href="/" target="_blank" rel="noopener">Open Display ↗</a>
+      <form method="post" action="/admin/logout" style="display:inline">
+        <button class="btn" type="submit">Log out</button>
+      </form>
+    </div>
+  </header>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <main class="admin-main">
+    <!-- ===== Status panel ===== -->
+    <section class="card-panel">
+      <h2>Status</h2>
+      <div class="status-grid">
+        <div>
+          <span class="k">Last successful sync</span>
+          <span class="v" id="status-last-sync">{{ cfg.last_sync_success or "never" }}</span>
+        </div>
+        <div>
+          <span class="k">Last sync attempt</span>
+          <span class="v">{{ cfg.last_sync_attempt or "never" }}</span>
+        </div>
+        <div>
+          <span class="k">Last sync error</span>
+          <span class="v {{ 'err' if cfg.last_sync_error else '' }}" id="status-last-error">{{ cfg.last_sync_error or "none" }}</span>
+        </div>
+      </div>
+      <button class="btn primary" id="sync-now">Sync Brewfather now</button>
+    </section>
+
+    <!-- ===== Settings ===== -->
+    <section class="card-panel">
+      <h2>Settings</h2>
+      <form id="settings-form">
+        <fieldset>
+          <legend>Brewfather</legend>
+          <label for="bf_user">User ID</label>
+          <input id="bf_user" name="brewfather_user_id" type="text" value="{{ cfg.brewfather_user_id }}" autocomplete="off">
+          <label for="bf_key">API Key</label>
+          <input id="bf_key" name="brewfather_api_key" type="password" value="{{ cfg.brewfather_api_key }}" autocomplete="off">
+          <p class="hint">Stored in plaintext in <code>config.json</code> on the host (documented appliance trade-off).</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Taps &amp; Display</legend>
+          <label for="num_taps">Number of taps</label>
+          <input id="num_taps" name="num_taps" type="number" min="0" step="1" value="{{ cfg.num_taps }}" required>
+
+          <label class="checkbox">
+            <input type="checkbox" name="hide_vacant_taps" {{ 'checked' if cfg.hide_vacant_taps else '' }}>
+            Hide vacant taps (reflow grid to fill the screen)
+          </label>
+
+          <label for="announcement">Announcement text (bottom ticker)</label>
+          <textarea id="announcement" name="announcement_text" rows="2">{{ cfg.announcement_text }}</textarea>
+        </fieldset>
+
+        <fieldset>
+          <legend>Archive cleanup</legend>
+          <label for="max_age">Max archive age (days)</label>
+          <input id="max_age" name="max_archive_age_days" type="number" min="0" step="1" value="{{ cfg.max_archive_age_days }}" required>
+          <label for="max_size">Max archive storage limit (MB)</label>
+          <input id="max_size" name="max_archive_storage_mb" type="number" min="0" step="1" value="{{ cfg.max_archive_storage_mb }}" required>
+        </fieldset>
+
+        <button class="btn primary" type="submit">Save settings</button>
+        <p class="hint">Changing the tap count adds/removes rows below after saving &amp; reloading.</p>
+      </form>
+    </section>
+
+    <!-- ===== Manual overrides ===== -->
+    <section class="card-panel">
+      <h2>Manual overrides</h2>
+      <p class="hint">A checked tap is controlled manually and is never touched by the Brewfather sync. Unchecking releases the slot back to Brewfather on the next sync.</p>
+      {% if rows|length == 0 %}
+        <p class="muted">Set a tap count above and save to manage individual taps.</p>
+      {% endif %}
+      <div class="overrides">
+        {% for row in rows %}
+        <form class="override-row" data-tap="{{ row.tap }}" enctype="multipart/form-data">
+          <div class="override-head">
+            <span class="tap-chip">Tap {{ row.tap }}</span>
+            <label class="checkbox">
+              <input type="checkbox" name="enabled" class="override-toggle" {{ 'checked' if row.override else '' }}>
+              Manual override
+            </label>
+            <span class="source-tag">{{ 'custom' if row.override else (row.source or 'vacant') }}</span>
+          </div>
+          <div class="override-fields" {{ '' if row.override else 'hidden' }}>
+            <div class="field"><label>Beer name</label><input type="text" name="name" value="{{ row.name }}"></div>
+            <div class="field-row">
+              <div class="field"><label>ABV %</label><input type="number" step="0.1" name="abv" value="{{ row.abv }}"></div>
+              <div class="field"><label>IBU</label><input type="number" step="1" name="ibu" value="{{ row.ibu }}"></div>
+              <div class="field"><label>EBC</label><input type="number" step="1" name="ebc" value="{{ row.ebc }}"></div>
+            </div>
+            <div class="field"><label>Tasting notes</label><textarea name="description" rows="2">{{ row.description }}</textarea></div>
+            <div class="field">
+              <label>Custom image</label>
+              {% if row.image_url and row.override %}<img class="override-thumb" src="{{ row.image_url }}" alt="current image">{% endif %}
+              <input type="file" name="image" accept="image/*">
+            </div>
+            <button class="btn primary save-override" type="submit">Save tap {{ row.tap }}</button>
+          </div>
+        </form>
+        {% endfor %}
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/js/admin.js" defer></script>
+</body>
+</html>

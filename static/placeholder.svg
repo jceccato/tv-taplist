@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300" role="img" aria-label="Beer placeholder">
+  <defs>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f6c453"/>
+      <stop offset="60%" stop-color="#e8a020"/>
+      <stop offset="100%" stop-color="#c9791a"/>
+    </linearGradient>
+  </defs>
+  <rect width="300" height="300" fill="#1b1b22"/>
+  <!-- glass body -->
+  <path d="M104 70 h92 l-10 150 a14 14 0 0 1 -14 12 h-44 a14 14 0 0 1 -14 -12 z" fill="url(#glass)" stroke="#2a2a33" stroke-width="3"/>
+  <!-- foam -->
+  <ellipse cx="150" cy="70" rx="48" ry="18" fill="#fdf3d8"/>
+  <circle cx="124" cy="62" r="14" fill="#fdf3d8"/>
+  <circle cx="150" cy="56" r="17" fill="#fdf3d8"/>
+  <circle cx="176" cy="62" r="14" fill="#fdf3d8"/>
+  <!-- bubbles -->
+  <circle cx="140" cy="150" r="5" fill="#fff3cf" opacity="0.7"/>
+  <circle cx="158" cy="180" r="4" fill="#fff3cf" opacity="0.6"/>
+  <circle cx="148" cy="200" r="6" fill="#fff3cf" opacity="0.6"/>
+  <circle cx="160" cy="130" r="3" fill="#fff3cf" opacity="0.7"/>
+</svg>

@@ -1,0 +1,15 @@
+# Keep the build context (and the image) small.
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+data
+.env
+*.md
+!README.md
+tv_taplist_build_prompt.md
+scratchpad
+.pytest_cache

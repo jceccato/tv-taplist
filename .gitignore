@@ -1,0 +1,42 @@
+# ── Secrets / environment ─────────────────────────────────────────────────
+# Never commit real secrets. Keep the committed template (.env.example) only.
+.env
+.env.*
+!.env.example
+
+# ── Runtime data volume (if bind-mounted locally, e.g. ./data:/data) ───────
+/data/
+
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ── Virtual environments ──────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Editors / IDEs ────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*~
+
+# ── OS cruft ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ── Logs ──────────────────────────────────────────────────────────────────
+*.log

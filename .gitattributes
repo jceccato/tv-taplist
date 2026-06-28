@@ -1,0 +1,28 @@
+# Enforce LF line endings in the working tree on every platform.
+# This image is built and run on Linux: shell scripts (entrypoint.sh) and the
+# Dockerfile MUST stay LF or the container breaks (a CRLF in the shebang fails).
+# Forcing LF project-wide also keeps Windows checkouts from corrupting them.
+* text=auto eol=lf
+
+# Be explicit for the files that matter most.
+*.sh        text eol=lf
+entrypoint.sh text eol=lf
+Dockerfile  text eol=lf
+*.py        text eol=lf
+*.js        text eol=lf
+*.css       text eol=lf
+*.html      text eol=lf
+*.json      text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.md        text eol=lf
+*.svg       text eol=lf
+.env.example text eol=lf
+
+# Binary assets — never normalize.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.webp binary
+*.gif  binary
+*.ico  binary

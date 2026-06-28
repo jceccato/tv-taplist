@@ -1,0 +1,104 @@
+/* Admin UI styles. Local-only assets, system font stack, no CDNs. */
+:root {
+  --bg: #11141b;
+  --panel: #1a1e28;
+  --panel-2: #222735;
+  --border: #2c3242;
+  --text: #eef1f6;
+  --muted: #9aa2b2;
+  --accent: #ffb627;
+  --accent-2: #2f7df6;
+  --danger: #ff5d5d;
+  --ok: #3ecf8e;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  line-height: 1.45;
+}
+h1 { font-size: 1.3rem; margin: 0; }
+h2 { font-size: 1.05rem; margin: 0 0 0.8rem; }
+a { color: var(--accent-2); }
+code { background: #0c0e13; padding: 0.1em 0.35em; border-radius: 4px; }
+.muted { color: var(--muted); }
+.hint { color: var(--muted); font-size: 0.85rem; margin: 0.4rem 0 0; }
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.9rem 1.4rem; background: #0c0e13; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 10;
+}
+.topbar-actions { display: flex; gap: 0.6rem; }
+
+.admin-main {
+  max-width: 980px; margin: 0 auto; padding: 1.4rem;
+  display: grid; gap: 1.4rem;
+}
+
+.card-panel {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 1.2rem 1.3rem;
+}
+
+label { display: block; font-size: 0.85rem; color: var(--muted); margin: 0.7rem 0 0.25rem; }
+input[type=text], input[type=password], input[type=number], textarea, input[type=file] {
+  width: 100%; padding: 0.55rem 0.65rem; background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+  font: inherit;
+}
+textarea { resize: vertical; }
+input:focus, textarea:focus { outline: 2px solid var(--accent-2); outline-offset: 0; }
+
+fieldset { border: 1px solid var(--border); border-radius: 10px; padding: 0.4rem 1rem 1rem; margin: 0 0 1rem; }
+legend { padding: 0 0.5rem; color: var(--accent); font-weight: 600; }
+
+.checkbox { display: flex; align-items: center; gap: 0.5rem; color: var(--text); margin-top: 0.8rem; }
+.checkbox input { width: auto; }
+
+.btn {
+  display: inline-block; cursor: pointer; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--text); padding: 0.55rem 1rem;
+  border-radius: 8px; font: inherit; text-decoration: none;
+}
+.btn:hover { border-color: var(--accent-2); }
+.btn.primary { background: var(--accent); color: #1a1300; border-color: var(--accent); font-weight: 700; margin-top: 1rem; }
+.btn.primary:hover { filter: brightness(1.05); }
+
+.status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.9rem; margin-bottom: 1rem; }
+.status-grid .k { display: block; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.status-grid .v { display: block; font-weight: 600; word-break: break-word; }
+.status-grid .v.err { color: var(--danger); }
+
+.overrides { display: grid; gap: 1rem; }
+.override-row { border: 1px solid var(--border); border-radius: 10px; padding: 0.9rem 1rem; background: var(--panel-2); }
+.override-head { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.override-head .checkbox { margin-top: 0; }
+.tap-chip { background: var(--accent); color: #1a1300; font-weight: 700; padding: 0.2rem 0.7rem; border-radius: 999px; }
+.source-tag { margin-left: auto; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.override-fields { margin-top: 0.9rem; }
+.field { margin-bottom: 0.3rem; }
+.field-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.8rem; }
+.override-thumb { display: block; width: 90px; height: 90px; object-fit: cover; border-radius: 8px; margin: 0.4rem 0; border: 1px solid var(--border); }
+
+.alert { padding: 0.6rem 0.8rem; border-radius: 8px; margin: 0.6rem 0; }
+.alert.error { background: rgba(255,93,93,0.12); border: 1px solid var(--danger); color: #ffcaca; }
+
+.toast {
+  position: fixed; top: 1rem; left: 50%; transform: translateX(-50%);
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+  padding: 0.7rem 1.1rem; border-radius: 10px; z-index: 50; box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+}
+.toast.ok { border-color: var(--ok); }
+.toast.err { border-color: var(--danger); }
+
+/* Login page */
+.login-body { display: grid; place-items: center; min-height: 100vh; }
+.login-card {
+  width: min(360px, 92vw); background: var(--panel); border: 1px solid var(--border);
+  border-radius: 14px; padding: 1.8rem; display: flex; flex-direction: column;
+}
+.login-card h1 { margin-bottom: 0.3rem; }
+.login-card .btn { width: 100%; text-align: center; }

@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin Login · Tap List</title>
+  <link rel="icon" href="/static/placeholder.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body class="login-body">
+  <form class="login-card" method="post" action="/admin/login">
+    <h1>Tap List Admin</h1>
+    <p class="muted">Enter the admin password to continue.</p>
+    {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
+    <button type="submit" class="btn primary">Log in</button>
+  </form>
+</body>
+</html>
