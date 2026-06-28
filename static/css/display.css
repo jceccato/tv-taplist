@@ -18,6 +18,12 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* The HTML `hidden` attribute must always win over class-level `display` rules.
+   .boot-error/.ticker/.dots each set `display:`, which (being author CSS) would
+   otherwise override the UA `[hidden] { display:none }` and leave the loading
+   overlay stuck on screen even after the board has rendered underneath it. */
+[hidden] { display: none !important; }
+
 html, body {
   height: 100%;
   width: 100%;
@@ -69,39 +75,47 @@ html, body {
 /* A 5-card page: let the last card span so the row stays balanced. */
 .page[data-count="5"] .card:nth-child(4) { grid-column: 1 / span 1; }
 
-/* ---- Card ---- */
+/* ---- Card ----
+   Flex column so the beer name always gets a full-width row. The previous
+   3-column grid (image | text | stats) collapsed the name/description to 0px
+   on narrow cards; here the header (tap# + name + swatch) and description span
+   the full width, and the image sits in the footer row next to the stats. */
 .card {
   position: relative;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  grid-template-areas:
-    "num  name  swatch"
-    "img  desc  stats"
-    "img  desc  stats";
-  gap: 0.6vmin 1.4vmin;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8vmin;
   background: linear-gradient(160deg, var(--bg-card), var(--bg-card-2));
   border: 1px solid var(--border);
   border-radius: 1.4vmin;
-  padding: 1.6vmin 1.8vmin;
+  padding: 1.4vmin 1.6vmin;
   overflow: hidden;
   min-height: 0;
+  min-width: 0;
+  container-type: inline-size;   /* enable per-card container queries */
+}
+
+.card .card-head {
+  display: flex;
+  align-items: center;
+  gap: 1.2vmin;
+  min-width: 0;
 }
 
 .card .tap-num {
-  grid-area: num;
+  flex: 0 0 auto;
   font-weight: 800;
-  font-size: clamp(18px, 3.4vmin, 64px);
+  font-size: clamp(18px, 3.2vmin, 60px);
   color: var(--accent);
   line-height: 1;
-  align-self: center;
 }
 
 .card .name {
-  grid-area: name;
+  flex: 1 1 auto;
+  min-width: 0;            /* let the flex item shrink so line-clamp can apply */
   font-weight: 800;
-  font-size: clamp(18px, 3.2vmin, 60px);
-  line-height: 1.04;
-  align-self: center;
+  font-size: clamp(16px, 2.9vmin, 54px);
+  line-height: 1.05;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -109,64 +123,73 @@ html, body {
 }
 
 .card .swatch {
-  grid-area: swatch;
-  width: clamp(28px, 5vmin, 86px);
-  height: clamp(28px, 5vmin, 86px);
+  flex: 0 0 auto;
+  width: clamp(26px, 4.6vmin, 80px);
+  height: clamp(26px, 4.6vmin, 80px);
   border-radius: 50%;
   border: 0.3vmin solid rgba(255,255,255,0.25);
   display: grid;
   place-items: center;
   font-size: clamp(9px, 1.3vmin, 22px);
   font-weight: 700;
-  align-self: center;
-  justify-self: end;
-}
-
-.card .thumb {
-  grid-area: img;
-  width: clamp(54px, 11vmin, 200px);
-  height: clamp(54px, 11vmin, 200px);
-  object-fit: cover;
-  border-radius: 1vmin;
-  background: #0c0e13;
-  align-self: center;
 }
 
 .card .desc {
-  grid-area: desc;
+  flex: 1 1 auto;
+  min-height: 0;
   color: var(--text-dim);
-  font-size: clamp(11px, 1.9vmin, 34px);
+  font-size: clamp(11px, 1.8vmin, 32px);
   line-height: 1.25;
-  align-self: center;
   overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
 }
 
-.card .stats {
-  grid-area: stats;
+.card .card-foot {
   display: flex;
-  flex-direction: column;
-  gap: 0.6vmin;
-  align-self: center;
-  justify-self: end;
-  text-align: right;
+  align-items: flex-end;
+  gap: 1.2vmin;
+  min-width: 0;
+}
+
+.card .thumb {
+  flex: 0 0 auto;
+  width: clamp(40px, 8vmin, 130px);
+  height: clamp(40px, 8vmin, 130px);
+  object-fit: cover;
+  border-radius: 1vmin;
+  background: #0c0e13;
+}
+
+/* On narrow cards (many taps per page / small windows) the beer image + three
+   stats won't both fit, so drop the image (the least-important element) and let
+   the stats use the full width. Wide cards (a real 1080p/4K TV) keep the image. */
+@container (max-width: 320px) {
+  .card .thumb { display: none; }
+}
+
+.card .stats {
+  display: flex;
+  flex-direction: row;
+  gap: clamp(8px, 1.6vmin, 22px);
+  align-items: flex-end;
+  margin-left: auto;       /* push the stats group to the right edge */
 }
 .card .stat {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  line-height: 1;
+  align-items: center;
+  line-height: 1.05;
 }
 .card .stat .v {
   font-weight: 800;
-  font-size: clamp(14px, 2.6vmin, 46px);
+  font-size: clamp(14px, 2.4vmin, 42px);
   color: var(--text);
 }
 .card .stat .k {
   font-size: clamp(8px, 1.2vmin, 20px);
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-dim);
 }

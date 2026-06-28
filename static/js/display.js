@@ -13,6 +13,7 @@
   "use strict";
 
   const POLL_MS = 30000;
+  const FAST_RETRY_MS = 2000;   // quick retry until the first successful render
   const CAROUSEL_MS = 30000;
   const MAX_CARDS_PER_PAGE = 8;
 
@@ -172,24 +173,29 @@
     const txt = textColorFor(hex);
     const swatchVal = t.ebc === null || t.ebc === undefined ? "" : Math.round(t.ebc);
     return `
-      <div class="tap-num">${t.tap}</div>
-      <h2 class="name">${esc(t.name || "Tap " + t.tap)}</h2>
-      <div class="swatch" style="background:${hex};color:${txt}">${swatchVal}</div>
-      <img class="thumb" alt="" src="${esc(t.image_url || "/img/placeholder")}">
+      <div class="card-head">
+        <div class="tap-num">${t.tap}</div>
+        <h2 class="name">${esc(t.name || "Tap " + t.tap)}</h2>
+        <div class="swatch" style="background:${hex};color:${txt}">${swatchVal}</div>
+      </div>
       <p class="desc">${esc(t.description || "")}</p>
-      <div class="stats">
-        <div class="stat" data-stat="abv"><span class="v">${fmtNum(t.abv, "%")}</span><span class="k">ABV</span></div>
-        <div class="stat" data-stat="ibu"><span class="v">${fmtNum(t.ibu)}</span><span class="k">IBU</span></div>
-        <div class="stat" data-stat="ebc"><span class="v">${fmtNum(t.ebc)}</span><span class="k">EBC</span></div>
+      <div class="card-foot">
+        <img class="thumb" alt="" src="${esc(t.image_url || "/img/placeholder")}">
+        <div class="stats">
+          <div class="stat" data-stat="abv"><span class="v">${fmtNum(t.abv, "%")}</span><span class="k">ABV</span></div>
+          <div class="stat" data-stat="ibu"><span class="v">${fmtNum(t.ibu)}</span><span class="k">IBU</span></div>
+          <div class="stat" data-stat="ebc"><span class="v">${fmtNum(t.ebc)}</span><span class="k">EBC</span></div>
+        </div>
       </div>
       <span class="source-badge">${sourceLabel(t.source)}</span>`;
   }
 
   function vacantInner(t) {
     return `
-      <div class="tap-num">${t.tap}</div>
-      <h2 class="name">Vacant</h2>
-      <div class="swatch" style="background:#2a2f3d;color:#aeb4c2"></div>
+      <div class="card-head">
+        <div class="tap-num">${t.tap}</div>
+        <h2 class="name">Vacant</h2>
+      </div>
       <p class="desc">This tap is currently empty.</p>`;
   }
 
@@ -351,7 +357,14 @@
   }
 
   // ---- boot ----
-  poll();
-  setInterval(poll, POLL_MS);
+  // Poll quickly until the first successful render, so a cold start or a backend
+  // restart recovers within ~2s instead of waiting a full 30s cycle; then settle
+  // into the steady 30s cadence. The carousel runs on its own independent timer.
+  let pollTimer = null;
+  async function pollLoop() {
+    await poll();
+    pollTimer = setTimeout(pollLoop, state.hasRendered ? POLL_MS : FAST_RETRY_MS);
+  }
+  pollLoop();
   setInterval(carouselTick, CAROUSEL_MS);
 })();
