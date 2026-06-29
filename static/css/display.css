@@ -49,6 +49,7 @@ html, body {
 
 /* ---- Venue logo header (optional, up to 1/3 of the screen) ---- */
 .venue-header {
+  grid-row: 1;             /* pin to row 1 so a hidden header never reshuffles rows */
   height: var(--venue-h, 0px);
   max-height: 33vh;
   display: flex;
@@ -63,6 +64,7 @@ html, body {
 }
 
 .stage {
+  grid-row: 2;     /* always the flexible (1fr) row, even when the header is hidden */
   position: relative;
   min-height: 0; /* allow grid children to shrink instead of overflowing */
 }
@@ -252,6 +254,7 @@ html, body {
 
 /* ---- Ticker ---- */
 .ticker {
+  grid-row: 3;     /* pinned to the last row */
   height: var(--ticker-h);
   min-height: 28px;
   background: #07080b;
