@@ -121,11 +121,16 @@ html, body {
   overflow: hidden;
   min-height: 0;
   min-width: 0;
-  container-type: inline-size;   /* enable per-card container queries */
+  container-type: size;   /* per-card queries on width, height & aspect-ratio */
 }
 
 .card .card-head {
-  display: flex;
+  /* Grid (not flex) so the name lives in a hard-bounded 1fr track and can never
+     overflow onto the colour swatch: a -webkit-line-clamp box on a flex item can
+     spill past its allocated width in some browsers, drawing the name under the
+     swatch. Grid columns are a firm boundary, so the name clips instead. */
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;   /* tap# | name | swatch */
   align-items: center;
   gap: 1.2vmin;
   min-width: 0;
@@ -174,45 +179,54 @@ html, body {
   -webkit-box-orient: vertical;
 }
 
+/* The foot holds the image and the ABV/IBU/colour stats. By default — when the
+   card has the vertical room — the image sits ABOVE the stats and grows as large
+   as it can (flex:1), while the stats keep their natural height (flex:0) so the
+   colour/EBC stat is never clipped on a tall display. Wide, short cards flip to
+   image-beside-stats below, where that gives a bigger image. */
 .card .card-foot {
   display: flex;
-  align-items: flex-end;
-  gap: 1.2vmin;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.8vmin;
   min-width: 0;
   min-height: 0;          /* this is the grid 1fr row: clip, never grow */
   overflow: hidden;
 }
 
 .card .thumb {
-  flex: 0 1 auto;
+  flex: 1 1 auto;          /* take all the leftover height above the stats ... */
   min-height: 0;
-  height: 100%;            /* fill the leftover (1fr) foot height ... */
+  min-width: 0;
   width: auto;
-  max-width: 46%;          /* ... but always leave room for the stats beside it */
+  max-width: 100%;         /* ... growing as large as fits, never overflowing */
   object-fit: contain;
-  object-position: left bottom;
+  object-position: center bottom;
   border-radius: 1vmin;
 }
 
-/* Narrow cards (a full 8-tap TV grid, or a phone): the image + three stats
-   won't sit side by side, so stack the stats *beneath* the image rather than
-   shoving them off the edge. The image stays visible (just smaller). */
-@container (max-width: 340px) {
-  .card .card-foot {
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-end;
-  }
-  .card .thumb { height: auto; max-height: 100%; max-width: 88%; }
-  .card .stats { margin-left: 0; }
-}
-
 .card .stats {
+  flex: 0 0 auto;          /* the stats keep their space; the image yields */
   display: flex;
   flex-direction: row;
   gap: clamp(8px, 1.6vmin, 22px);
   align-items: flex-end;
-  margin-left: auto;       /* push the stats group to the right edge */
+  justify-content: center;
+}
+
+/* Wide, short cards (a 1-card page, a 2x2 grid, a wide-short TV cell): there's no
+   vertical room to stack, and placing the image beside the stats yields a bigger
+   image, so switch to a row with the image on the left. */
+@container (min-aspect-ratio: 3/2) {
+  .card .card-foot { flex-direction: row; align-items: flex-end; }
+  .card .thumb {
+    flex: 0 1 auto;
+    height: 100%;
+    max-width: 46%;        /* leave room for the stats beside it */
+    object-position: left bottom;
+  }
+  .card .stats { margin-left: auto; }   /* push the stats to the right edge */
 }
 .card .stat {
   display: flex;
