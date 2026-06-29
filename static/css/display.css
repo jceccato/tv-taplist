@@ -25,7 +25,12 @@
 [hidden] { display: none !important; }
 
 html, body {
-  height: 100%;
+  /* `dvh` tracks the *visible* viewport. On a phone/tablet `vh` resolves to the
+     larger, chrome-retracted height, which pushed the board's bottom card row +
+     ticker below the fold (with overflow:hidden hiding them for good). vh stays
+     as the fallback for browsers without dvh. */
+  height: 100vh;
+  height: 100dvh;
   width: 100%;
   background: var(--bg);
   color: var(--text);
@@ -41,7 +46,8 @@ html, body {
 .board {
   display: grid;
   grid-template-rows: auto 1fr auto;
-  height: 100vh;
+  height: 100vh;   /* fallback for browsers without dvh */
+  height: 100dvh;  /* visible viewport, so the last card row + ticker always fit on-screen */
   width: 100vw;
   padding: var(--gap);
   gap: var(--gap);
@@ -323,44 +329,13 @@ html, body {
   }
 }
 
-/* ---- Phone / portrait ----
-   The fixed-height, no-scroll TV grid doesn't fit a tall narrow screen: the
-   bottom row of cards clips and the announcement ticker gets pushed off the
-   bottom. On a portrait phone, switch to a single scrolling column with
-   comfortably sized cards and a ticker pinned to the bottom of the viewport. */
-@media (max-width: 640px) and (orientation: portrait) {
-  html, body { height: auto; min-height: 100%; overflow-y: auto; overflow-x: hidden; }
-
-  .board {
-    height: auto;
-    min-height: 100vh;
-    grid-template-rows: auto auto auto;   /* header | cards (content) | ticker */
-  }
-
-  .venue-header { max-height: 18vh; }     /* keep the logo from dominating the phone */
-
-  /* Let the card area flow and grow with content instead of being a fixed,
-     absolutely-positioned 1fr stage. */
-  .stage { position: static; min-height: 0; }
-  .page {
-    position: static;
-    opacity: 1;
-    pointer-events: auto;
-    grid-template-columns: 1fr !important;
-    grid-template-rows: none !important;
-    grid-auto-rows: auto;
-    height: auto;
-  }
-  .page:not(.active) { display: none; }   /* show the current page; carousel still cycles if >8 taps */
-
-  /* Card height is content-driven here, so don't use the 1fr image trick;
-     size the image by a viewport cap instead and keep the stats beside it. */
-  .card { grid-template-rows: auto auto auto; }
-  .card .card-foot { overflow: visible; }
-  .card .thumb { height: auto; max-height: 22vh; max-width: 40%; }
-
-  .dots { position: static; transform: none; justify-content: center; margin-top: 1vmin; }
-
-  /* Pin the announcement to the bottom of the viewport while the cards scroll. */
-  .ticker { position: sticky; bottom: 0; z-index: 20; }
-}
+/* ---- Phone / tablet: no separate layout ----
+   The board stays a single-screen grid on every device. The "bottom row + ticker
+   cut off on mobile" report wasn't a layout problem — it was `height:100vh`
+   resolving to the *largest* viewport (browser chrome retracted), so on a
+   phone/tablet the bottom ~15% of the board sat below the visible fold while
+   `overflow:hidden` blocked any scroll to reach it. The `100dvh` heights on
+   html/body and .board above size the board to the *visible* viewport instead, so
+   the whole grid — last row and ticker included — fits what's actually on screen.
+   (A previous attempt switched portrait phones to a single scrolling column; that
+   masked the symptom rather than fixing it, so it's been removed.) */
