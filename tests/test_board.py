@@ -52,3 +52,14 @@ def test_board_numbers_coerced(write_tap):
     assert t["abv"] == 6.8
     assert t["ibu"] == 65
     assert t["ebc"] == 18
+
+
+def test_saturation_override_mutes_colour_and_tags_glass(write_tap):
+    # Same EBC, different saturation -> a greyer swatch and a sat-tagged glass URL
+    # so the no-photo placeholder matches the muted swatch.
+    write_tap("custom", 1, name="Vivid", ebc=20)
+    write_tap("custom", 2, name="Muted", ebc=20, saturation=0.3)
+    vivid, muted = resolve_tap(1), resolve_tap(2)
+    assert vivid["color_hex"] != muted["color_hex"]
+    assert vivid["image_url"] == "/img/beer-glass?ebc=20"
+    assert muted["image_url"] == "/img/beer-glass?ebc=20&sat=0.3"

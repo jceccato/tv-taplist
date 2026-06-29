@@ -1,63 +1,29 @@
-"""EBC/SRM -> hex colour mapping, server-side twin of the JS ebcToHex().
+"""EBC/SRM -> hex beer-colour mapping, server-side twin of the JS ebcToHex().
 
-We map EBC to a beer colour using the well-known SRM reference colour chart
-(the values popularised by Bru'n Water / the SRM Wikipedia chart), converting
-EBC to SRM first (SRM = EBC / 1.97). Colours are interpolated in RGB between
-the two nearest integer SRM reference points and clamped to the 1..40 range.
+Colour is produced by the ebc2hex polynomial model
+(github.com/moussaclarke/ebc2hexjs): the EBC is clamped to the model's 0..80
+range, converted to SRM, and each RGB channel is fitted with its own curve. An
+optional `saturation` (0..1) then blends the colour towards its luminance grey,
+so a per-beer override can mute a too-vivid swatch.
 
-The JS implementation in static/js/display.js uses the *same* table so the
-display swatch matches what the API reports. Keep the two tables in sync.
+The display (static/js/display.js) no longer recomputes colour: the board API
+sends the computed `color_hex` / `text_color` for every tap, so the swatch, the
+glass placeholder and the API all agree and there is a single implementation to
+keep correct.
 """
 from __future__ import annotations
 
-# SRM integer -> (R, G, B). Reference SRM colour chart, 1..40.
-SRM_RGB: dict[int, tuple[int, int, int]] = {
-    1: (0xFF, 0xE6, 0x99),
-    2: (0xFF, 0xD8, 0x78),
-    3: (0xFF, 0xCA, 0x5A),
-    4: (0xFF, 0xBF, 0x42),
-    5: (0xFB, 0xB1, 0x23),
-    6: (0xF8, 0xA6, 0x00),
-    7: (0xF3, 0x9C, 0x00),
-    8: (0xEA, 0x8F, 0x00),
-    9: (0xE5, 0x85, 0x00),
-    10: (0xDE, 0x7C, 0x00),
-    11: (0xD7, 0x72, 0x00),
-    12: (0xCF, 0x69, 0x00),
-    13: (0xCB, 0x62, 0x00),
-    14: (0xC3, 0x59, 0x00),
-    15: (0xBB, 0x51, 0x00),
-    16: (0xB5, 0x4C, 0x00),
-    17: (0xB0, 0x45, 0x00),
-    18: (0xA6, 0x3E, 0x00),
-    19: (0xA1, 0x37, 0x00),
-    20: (0x9B, 0x32, 0x00),
-    21: (0x95, 0x2D, 0x00),
-    22: (0x8E, 0x29, 0x00),
-    23: (0x88, 0x23, 0x00),
-    24: (0x82, 0x1E, 0x00),
-    25: (0x7B, 0x1A, 0x00),
-    26: (0x77, 0x19, 0x00),
-    27: (0x70, 0x14, 0x00),
-    28: (0x6A, 0x0E, 0x00),
-    29: (0x66, 0x0D, 0x00),
-    30: (0x5E, 0x0B, 0x00),
-    31: (0x5A, 0x0A, 0x02),
-    32: (0x60, 0x09, 0x03),
-    33: (0x52, 0x09, 0x07),
-    34: (0x4C, 0x05, 0x05),
-    35: (0x47, 0x06, 0x06),
-    36: (0x44, 0x06, 0x07),
-    37: (0x3F, 0x07, 0x08),
-    38: (0x3B, 0x06, 0x07),
-    39: (0x3A, 0x07, 0x0B),
-    40: (0x36, 0x08, 0x0A),
-}
+from typing import Any
 
-_SRM_MIN = 1
-_SRM_MAX = 40
+EBC_PER_SRM = 1.97  # stat-unit conversion: EBC = SRM * 1.97; SRM = EBC / 1.97
 
-EBC_PER_SRM = 1.97  # EBC = SRM * 1.97; SRM = EBC / 1.97
+# The colour model's own EBC->SRM factor (~1/1.97) and clamp range.
+_EBC_TO_SRM = 0.508
+_EBC_MAX = 80.0
+
+# 1.0 keeps the model's full colour; lower values mute it towards grey. Used
+# when a beer has no per-tap saturation override.
+DEFAULT_SATURATION = 1.0
 
 
 def ebc_to_srm(ebc: float | int | None) -> float | None:
@@ -80,34 +46,61 @@ def srm_to_ebc(srm: float | int | None) -> float | None:
         return None
 
 
-def srm_to_rgb(srm: float) -> tuple[int, int, int]:
-    """Interpolate the SRM chart between integer reference points, clamped 1..40."""
-    if srm <= _SRM_MIN:
-        return SRM_RGB[_SRM_MIN]
-    if srm >= _SRM_MAX:
-        return SRM_RGB[_SRM_MAX]
-    lo = int(srm)
-    hi = lo + 1
-    frac = srm - lo
-    r0, g0, b0 = SRM_RGB[lo]
-    r1, g1, b1 = SRM_RGB[hi]
-    r = round(r0 + (r1 - r0) * frac)
-    g = round(g0 + (g1 - g0) * frac)
-    b = round(b0 + (b1 - b0) * frac)
-    return r, g, b
+def parse_saturation(value: Any, default: float | None = None) -> float | None:
+    """Normalise a saturation value to a 0..1 fraction (or `default` if blank).
+
+    Accepts a fraction (``0.6``) or a percentage (``60`` -> ``0.6``): any value
+    greater than 1 is read as a percentage. The result is clamped to [0, 1].
+    Blank / non-numeric input returns `default`.
+    """
+    if value is None or value == "":
+        return default
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    if f > 1:
+        f /= 100.0
+    return max(0.0, min(1.0, f))
 
 
-def ebc_to_hex(ebc: float | int | None) -> str:
-    """Map an EBC value to a #rrggbb beer colour. None/invalid -> a neutral grey."""
+def _clamp8(v: float) -> int:
+    return max(0, min(255, round(v)))
+
+
+def _desaturate(r: float, g: float, b: float, sat: float) -> tuple[float, float, float]:
+    """Blend an RGB triple towards its luminance grey. sat=1 keeps the colour."""
+    gray = (r * 0.3086 + g * 0.6094 + b * 0.0820) * (1.0 - sat)
+    return (r * sat + gray, g * sat + gray, b * sat + gray)
+
+
+def ebc_to_hex(ebc: float | int | None,
+               saturation: float | None = DEFAULT_SATURATION) -> str:
+    """Map an EBC value to a #rrggbb beer colour. None/invalid -> a neutral grey.
+
+    `saturation` is a 0..1 fraction (None -> DEFAULT_SATURATION); below 1 it
+    mutes the colour towards grey via `_desaturate`.
+    """
     if ebc is None:
         return "#cccccc"
     try:
         ebc_f = float(ebc)
     except (TypeError, ValueError):
         return "#cccccc"
-    srm = ebc_f / EBC_PER_SRM
-    r, g, b = srm_to_rgb(srm)
-    return f"#{r:02x}{g:02x}{b:02x}"
+
+    srm = max(0.0, min(_EBC_MAX, ebc_f)) * _EBC_TO_SRM
+    # Per-channel fits from the ebc2hex model (red capped high, blue floored low,
+    # matching the reference implementation before desaturation).
+    r = min(255.0, round(280 - srm * 5.65))
+    g = round(0.188349 * srm**2 - 13.2676 * srm + 239.51)
+    b = round(0.000933566 * srm**4 - 0.0894788 * srm**3
+              + 3.00611 * srm**2 - 40.8883 * srm + 183.409)
+    if b < 0:
+        b = 0
+
+    sat = DEFAULT_SATURATION if saturation is None else max(0.0, min(1.0, saturation))
+    r, g, b = _desaturate(r, g, b, sat)
+    return f"#{_clamp8(r):02x}{_clamp8(g):02x}{_clamp8(b):02x}"
 
 
 def relative_luminance(r: int, g: int, b: int) -> float:

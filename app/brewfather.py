@@ -7,8 +7,11 @@ Field mapping (verified against a live /v2/batches?complete=True payload):
                  (Brewfather returns 0, not null, for unset values)
   colour      <- measuredEbc (EBC); else estimatedColor / color, which are SRM
                  (verified via style colour bounds) -> converted to EBC
+  saturation  <- optional `saturation:NN` note token (NN% -> 0..1 fraction);
+                 absent -> the display's default saturation
   description <- tasteNotes, else the recipe style name. The batch notes are NOT
-                 used for the body — they only carry the tap:X control token.
+                 used for the body — they only carry the tap:X / saturation:NN
+                 control tokens, which are stripped from any text we do show.
 
 The helpers still try several field-name/unit variants defensively and log what
 they found. Bump MAPPING_VERSION when changing the mapping so already-cached
@@ -41,7 +44,7 @@ import httpx
 from . import markdown_store as md
 from .archive import archive_tap
 from .atomic import JOB_LOCK, atomic_write_bytes
-from .colors import EBC_PER_SRM
+from .colors import EBC_PER_SRM, parse_saturation
 from .config_store import (
     ConfigUnreadable,
     brewfather_credentials,
@@ -75,10 +78,14 @@ MAX_PAGES = 50  # safety cap: 50 pages x 50 = 2500 completed batches
 # refresh already-cached bf_tap files. `_is_unchanged` treats a stored map_rev
 # different from this as "changed", so the next sync rewrites every tap once with
 # the new mapping, then settles back to skipping genuinely unchanged batches.
-MAPPING_VERSION = 4
+MAPPING_VERSION = 5
 
 # `tap:3`, `tap: 3`, `Tap:3`, etc.
 TAP_TOKEN_RE = re.compile(r"tap\s*:\s*(\d+)", re.IGNORECASE)
+
+# `saturation:60` (= 60% = 0.6) — an optional per-tap colour-saturation override
+# in the batch notes, parsed the same way as the tap token.
+SATURATION_TOKEN_RE = re.compile(r"saturation\s*:\s*([0-9]*\.?[0-9]+)", re.IGNORECASE)
 
 # A Brewfather batch's own `name` defaults to a generic "Batch" / "Batch #12";
 # the real beer name lives on the embedded recipe, so we skip these.
@@ -194,8 +201,9 @@ def _extract_notes_text(batch: dict[str, Any]) -> str:
 
 
 def _clean_description(text: str) -> str:
-    """Strip the `tap:X` control token and tidy whitespace in notes text."""
+    """Strip the `tap:X` / `saturation:NN` control tokens and tidy whitespace."""
     cleaned = TAP_TOKEN_RE.sub(" ", text)
+    cleaned = SATURATION_TOKEN_RE.sub(" ", cleaned)
     cleaned = re.sub(r"[ \t]+", " ", cleaned)
     cleaned = re.sub(r"\s*\n\s*", "\n", cleaned)
     return cleaned.strip()
@@ -259,6 +267,19 @@ def _find_tap_number(batch: dict[str, Any]) -> int | None:
         return n if n >= 1 else None
     except ValueError:
         return None
+
+
+def _extract_saturation(batch: dict[str, Any]) -> float | None:
+    """Per-tap colour saturation from a `saturation:NN` batch-note token.
+
+    NN is a percentage (``60`` -> ``0.6``) or a fraction (``0.6``); see
+    parse_saturation. None when no token is present, so the display falls back
+    to its default saturation.
+    """
+    m = SATURATION_TOKEN_RE.search(_extract_notes_text(batch))
+    if not m:
+        return None
+    return parse_saturation(m.group(1))
 
 
 # ---- HTTP --------------------------------------------------------------
@@ -390,6 +411,7 @@ def _write_bf_tap(client: httpx.Client, tap: int, batch: dict[str, Any], rev: in
         "abv": _extract_abv(batch),
         "ibu": _extract_ibu(batch),
         "ebc": ebc,
+        "saturation": _extract_saturation(batch),
         "source": "brewfather",
         "batch_id": batch.get("_id") or batch.get("id"),
         "source_rev": rev,            # batch revision, used to skip unchanged syncs

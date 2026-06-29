@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import markdown_store as md
-from .colors import ebc_to_hex, text_color_for
+from .colors import ebc_to_hex, parse_saturation, text_color_for
 from .config_store import load_config
 from .paths import venue_logo_path
 
@@ -30,20 +30,25 @@ def _num(value: Any) -> float | int | None:
     return int(f) if f.is_integer() else f
 
 
-def _image_url_for(stem: str, ebc: float | int | None = None) -> str:
+def _image_url_for(stem: str, ebc: float | int | None = None,
+                   saturation: float | None = None) -> str:
     """Local image URL for a tap stem.
 
     Prefers an uploaded photo; otherwise a beer glass tinted to the beer's
     colour (so the placeholder pour matches the SRM/EBC), falling back to a
-    neutral amber glass when the colour is unknown.
+    neutral amber glass when the colour is unknown. A per-tap saturation
+    override is forwarded so the glass matches the (muted) swatch.
     """
     img = md.find_image_for(stem)
     if img is not None:
         # Served by the /img/<filename> route which reads from /data/taps.
         return f"/img/{img.name}"
-    if ebc is not None:
-        return f"/img/beer-glass?ebc={ebc}"
-    return "/img/beer-glass"
+    if ebc is None:
+        return "/img/beer-glass"
+    url = f"/img/beer-glass?ebc={ebc}"
+    if saturation is not None:
+        url += f"&sat={saturation}"
+    return url
 
 
 def resolve_tap(tap: int) -> dict[str, Any]:
@@ -73,7 +78,8 @@ def resolve_tap(tap: int) -> dict[str, Any]:
         }
 
     ebc = _num(data.get("ebc"))
-    color_hex = ebc_to_hex(ebc)
+    saturation = parse_saturation(data.get("saturation"))
+    color_hex = ebc_to_hex(ebc, saturation)
     return {
         "tap": tap,
         "vacant": False,
@@ -85,7 +91,7 @@ def resolve_tap(tap: int) -> dict[str, Any]:
         "color_hex": color_hex,
         "text_color": text_color_for(color_hex),
         "description": (data.get("description") or "").strip(),
-        "image_url": _image_url_for(stem, ebc),
+        "image_url": _image_url_for(stem, ebc, saturation),
         "updated": data.get("updated"),
     }
 

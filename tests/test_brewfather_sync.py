@@ -71,6 +71,18 @@ def test_extract_image_url_handles_null():
     assert brewfather._extract_image_url({"recipe": {"img_url": "http://x/y.webp"}}) == "http://x/y.webp"
 
 
+def test_extract_saturation_from_notes():
+    assert brewfather._extract_saturation({"batchNotes": "tap:3 saturation:60"}) == 0.6
+    assert brewfather._extract_saturation({"batchNotes": "saturation: 0.4"}) == 0.4
+    assert brewfather._extract_saturation({"batchNotes": "tap:3 only"}) is None
+
+
+def test_saturation_token_stripped_from_description():
+    # A stray saturation token in tasting notes is not shown on the card.
+    assert brewfather._extract_description(
+        {"tasteNotes": "Roasty saturation:70 finish"}) == "Roasty finish"
+
+
 # ---- desired map / conflict resolution ---------------------------------
 
 def test_conflict_newest_wins():
@@ -157,6 +169,13 @@ def test_sync_writes_bf_tap(mock_network):
     data = md.read_tap_file(md.bf_md_path(2))
     assert data["name"] == "Tap Two Ale"
     assert data["source"] == "brewfather"
+
+
+def test_sync_writes_saturation_token(mock_network):
+    _set_creds()
+    mock_network["batches"] = [_batch("b1", 2, "Muted Ale", batchNotes="tap:2 saturation:50")]
+    brewfather.run_sync()
+    assert md.read_tap_file(md.bf_md_path(2))["saturation"] == 0.5
 
 
 def test_sync_skips_unchanged_batch(mock_network):

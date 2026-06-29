@@ -166,6 +166,15 @@ def test_override_save_archives_existing_brewfather(write_tap):
     assert list(paths.OLD_BEERS_DIR.glob("bf_tap_3_*.md"))
 
 
+def test_override_saves_saturation_as_fraction():
+    c = _login(TestClient(app))
+    # The admin enters a percentage; it is stored as a 0..1 fraction.
+    r = c.post("/admin/override/1",
+               data={"enabled": "true", "name": "Muted", "color": "20", "saturation": "60"})
+    assert r.status_code == 200
+    assert md.read_tap_file(md.custom_md_path(1))["saturation"] == 0.6
+
+
 def test_override_color_input_converts_from_srm():
     config_store.update_config(color_unit="srm")
     c = _login(TestClient(app))

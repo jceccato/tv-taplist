@@ -166,6 +166,11 @@
               <div class="field"><label>IBU</label><input type="number" step="1" name="ibu" value="{{ row.ibu }}"></div>
               <div class="field"><label>{{ color_label }}</label><input type="number" step="1" name="color" value="{{ row.color_value }}"></div>
             </div>
+            <div class="field">
+              <label>Colour saturation %</label>
+              <input type="number" step="1" min="0" max="100" name="saturation" value="{{ row.saturation }}" placeholder="100">
+              <p class="hint">Blank = full colour. Lower mutes the swatch &amp; glass towards grey (e.g. 60 = 60%).</p>
+            </div>
             <div class="field"><label>Tasting notes</label><textarea name="description" rows="2">{{ row.description }}</textarea></div>
             <div class="field">
               <label>Custom image</label>

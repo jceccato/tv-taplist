@@ -17,62 +17,12 @@
   const CAROUSEL_MS = 30000;
   const MAX_CARDS_PER_PAGE = 8;
 
-  // ---- EBC -> hex (SRM reference colour chart, mirrors app/colors.py) ----
-  // SRM integer -> [r,g,b]. EBC is converted with SRM = EBC / 1.97.
-  const SRM_RGB = {
-    1:[0xFF,0xE6,0x99],2:[0xFF,0xD8,0x78],3:[0xFF,0xCA,0x5A],4:[0xFF,0xBF,0x42],
-    5:[0xFB,0xB1,0x23],6:[0xF8,0xA6,0x00],7:[0xF3,0x9C,0x00],8:[0xEA,0x8F,0x00],
-    9:[0xE5,0x85,0x00],10:[0xDE,0x7C,0x00],11:[0xD7,0x72,0x00],12:[0xCF,0x69,0x00],
-    13:[0xCB,0x62,0x00],14:[0xC3,0x59,0x00],15:[0xBB,0x51,0x00],16:[0xB5,0x4C,0x00],
-    17:[0xB0,0x45,0x00],18:[0xA6,0x3E,0x00],19:[0xA1,0x37,0x00],20:[0x9B,0x32,0x00],
-    21:[0x95,0x2D,0x00],22:[0x8E,0x29,0x00],23:[0x88,0x23,0x00],24:[0x82,0x1E,0x00],
-    25:[0x7B,0x1A,0x00],26:[0x77,0x19,0x00],27:[0x70,0x14,0x00],28:[0x6A,0x0E,0x00],
-    29:[0x66,0x0D,0x00],30:[0x5E,0x0B,0x00],31:[0x5A,0x0A,0x02],32:[0x60,0x09,0x03],
-    33:[0x52,0x09,0x07],34:[0x4C,0x05,0x05],35:[0x47,0x06,0x06],36:[0x44,0x06,0x07],
-    37:[0x3F,0x07,0x08],38:[0x3B,0x06,0x07],39:[0x3A,0x07,0x0B],40:[0x36,0x08,0x0A],
-  };
+  // Colour is computed server-side (app/colors.py: the ebc2hex polynomial plus a
+  // per-tap saturation) and delivered with every tap as color_hex / text_color,
+  // so the swatch, the glass placeholder and the API all agree and there is a
+  // single implementation. Only the colour *stat* number (EBC<->SRM) is derived
+  // here, from this conversion factor.
   const EBC_PER_SRM = 1.97;
-
-  function srmToRgb(srm) {
-    if (srm <= 1) return SRM_RGB[1];
-    if (srm >= 40) return SRM_RGB[40];
-    const lo = Math.floor(srm), hi = lo + 1, frac = srm - lo;
-    const a = SRM_RGB[lo], b = SRM_RGB[hi];
-    return [
-      Math.round(a[0] + (b[0] - a[0]) * frac),
-      Math.round(a[1] + (b[1] - a[1]) * frac),
-      Math.round(a[2] + (b[2] - a[2]) * frac),
-    ];
-  }
-
-  // Public per the spec: EBC -> #rrggbb, clamped to the chart range.
-  function ebcToHex(ebc) {
-    if (ebc === null || ebc === undefined || isNaN(ebc)) return "#cccccc";
-    const [r, g, b] = srmToRgb(Number(ebc) / EBC_PER_SRM);
-    return "#" + [r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("");
-  }
-
-  function relLuminance(r, g, b) {
-    const lin = (c) => {
-      c /= 255;
-      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-    };
-    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-  }
-
-  // Contrast rule: light text on dark (high-EBC) swatches, dark on pale ones.
-  function textColorFor(hex) {
-    const h = hex.replace("#", "");
-    if (h.length !== 6) return "#111";
-    const r = parseInt(h.slice(0, 2), 16);
-    const g = parseInt(h.slice(2, 4), 16);
-    const b = parseInt(h.slice(4, 6), 16);
-    return relLuminance(r, g, b) < 0.4 ? "#f5f5f5" : "#161616";
-  }
-
-  // expose for debugging / tests
-  window.ebcToHex = ebcToHex;
-  window.textColorFor = textColorFor;
 
   // ---- DOM refs ----
   const stage = document.getElementById("stage");
@@ -153,7 +103,7 @@
   function tapSignature(t) {
     // Everything that affects the rendered card.
     return [
-      t.vacant ? 1 : 0, t.name, t.abv, t.ibu, t.ebc,
+      t.vacant ? 1 : 0, t.name, t.abv, t.ibu, t.ebc, t.color_hex,
       t.description, t.image_url, t.source,
     ].join("|");
   }
@@ -199,8 +149,9 @@
     if (changed("ebc")) {
       setText(card, '[data-stat="color"] .v', colorValue(t.ebc));
       setHidden(card, '[data-stat="color"]', statHidden(t.ebc, s.show_color, s.hide_color_when_empty));
-      updateSwatch(card, t);
     }
+    // color_hex changes independently of ebc when saturation is overridden.
+    if (changed("ebc") || changed("color_hex")) updateSwatch(card, t);
     if (changed("source")) setText(card, ".source-badge", sourceLabel(t.source));
     if (changed("image_url")) {
       const img = card.querySelector(".thumb");
@@ -220,8 +171,8 @@
 
   function filledInner(t) {
     const s = state.settings;
-    const hex = ebcToHex(t.ebc);
-    const txt = textColorFor(hex);
+    const hex = t.color_hex || "#cccccc";
+    const txt = t.text_color || "#f5f5f5";
     // Swatch is the colour circle only (no number — it's listed in the stats).
     const swatchHidden = statHidden(t.ebc, s.show_color, s.hide_color_when_empty);
     const abvHidden = statHidden(t.abv, s.show_abv, s.hide_abv_when_empty);
@@ -259,9 +210,8 @@
     const sw = card.querySelector(".swatch");
     if (!sw) return;
     const s = state.settings;
-    const hex = ebcToHex(t.ebc);
-    sw.style.background = hex;
-    sw.style.color = textColorFor(hex);   // kept for contrast even though no text
+    sw.style.background = t.color_hex || "#cccccc";
+    sw.style.color = t.text_color || "#f5f5f5";
     sw.hidden = statHidden(t.ebc, s.show_color, s.hide_color_when_empty);
   }
 

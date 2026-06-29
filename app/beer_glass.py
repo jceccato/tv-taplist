@@ -30,9 +30,10 @@ def _mix(hex_a: str, hex_b: str, t: float) -> str:
     return _rgb_to_hex(ar + (br - ar) * t, ag + (bg - ag) * t, ab + (bb - ab) * t)
 
 
-def beer_glass_svg(ebc: float | int | None = None) -> str:
+def beer_glass_svg(ebc: float | int | None = None,
+                   saturation: float | None = None) -> str:
     """Return an SVG of a beer glass whose liquid matches the beer's colour."""
-    base = ebc_to_hex(ebc) if ebc is not None else _DEFAULT_HEX
+    base = ebc_to_hex(ebc, saturation) if ebc is not None else _DEFAULT_HEX
     if not (isinstance(base, str) and base.startswith("#") and len(base) == 7):
         base = _DEFAULT_HEX
     top = _mix(base, "#ffffff", 0.30)     # lighter towards the top of the pour

@@ -41,7 +41,7 @@ from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
 from .beer_glass import beer_glass_svg
 from .board import build_board
 from .brewfather import run_sync
-from .colors import ebc_to_srm, srm_to_ebc
+from .colors import ebc_to_srm, parse_saturation, srm_to_ebc
 from .config_store import (
     MAX_VENUE_LOGO_VH,
     brewfather_credentials,
@@ -156,10 +156,10 @@ async def img_placeholder():
 
 
 @app.get("/img/beer-glass")
-async def img_beer_glass(ebc: float | None = None):
+async def img_beer_glass(ebc: float | None = None, sat: float | None = None):
     """A beer-glass SVG tinted to the beer's colour (the no-photo placeholder)."""
     return Response(
-        beer_glass_svg(ebc),
+        beer_glass_svg(ebc, sat),
         media_type="image/svg+xml",
         headers={"Cache-Control": "public, max-age=300"},
     )
@@ -260,6 +260,12 @@ def _color_in_unit(ebc, unit: str):
     return int(val) if float(val).is_integer() else round(val, 1)
 
 
+def _saturation_percent(value):
+    """Stored 0..1 saturation -> a percentage for the admin form (blank if unset)."""
+    sat = parse_saturation(value)
+    return "" if sat is None else int(round(sat * 100))
+
+
 def _build_admin_tap_rows(cfg: dict) -> list[dict]:
     """Per-tap admin state: override on/off and current values to prefill."""
     rows: list[dict] = []
@@ -278,6 +284,7 @@ def _build_admin_tap_rows(cfg: dict) -> list[dict]:
             "ibu": data.get("ibu") if data.get("ibu") is not None else "",
             # Colour prefilled in the admin's chosen unit (stored as EBC).
             "color_value": _color_in_unit(data.get("ebc"), unit),
+            "saturation": _saturation_percent(data.get("saturation")),
             "description": data.get("description") or "",
             "source": data.get("source") or ("custom" if override else None),
             "image_url": f"/img/{img.name}" if img else None,
@@ -405,6 +412,7 @@ async def save_override(
     abv: str = Form(""),
     ibu: str = Form(""),
     color: str = Form(""),     # colour in the admin's display unit (EBC or SRM)
+    saturation: str = Form(""),  # optional colour-saturation override, as a %
     description: str = Form(""),
     image: UploadFile | None = None,
 ):
@@ -450,6 +458,7 @@ async def save_override(
             "abv": _num(abv),
             "ibu": _num(ibu),
             "ebc": _color_to_ebc(color),
+            "saturation": parse_saturation(saturation),
             "source": "custom",
             "image": image_name,
             "updated": iso_now(),
