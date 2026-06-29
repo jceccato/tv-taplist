@@ -1,11 +1,17 @@
-"""Brewfather API integration and the 10-minute sync job.
+"""Brewfather API integration and the periodic sync job.
 
-IMPORTANT (per the build prompt): the field mapping below is a *starting point*
-verified against the Brewfather v2 API shape as documented at
-https://docs.brewfather.app/api . Because a single payload was not available at
-build time, the extraction helpers defensively try several field-name and unit
-variants and log what they found. Verify against a live payload and tighten the
-mapping if your account returns different names.
+Field mapping (verified against a live /v2/batches?complete=True payload):
+  name        <- recipe.name      (a batch's own name is Brewfather's generic
+                                    "Batch" / "Batch #12" default)
+  abv / ibu   <- measured* first, then recipe.*; 0 is treated as "not provided"
+                 (Brewfather returns 0, not null, for unset values)
+  colour      <- measuredEbc, else estimatedColor (EBC); explicit SRM converted
+  description <- tasteNotes, else the recipe style name. The batch notes are NOT
+                 used for the body — they only carry the tap:X control token.
+
+The helpers still try several field-name/unit variants defensively and log what
+they found. Bump MAPPING_VERSION when changing the mapping so already-cached
+files are refreshed on the next sync.
 
 Auth: HTTP Basic Auth, username = User ID, password = API key (env vars
 BREWFATHER_USER_ID / BREWFATHER_API_KEY take precedence over config.json).
