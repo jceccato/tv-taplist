@@ -56,9 +56,14 @@ def test_description_uses_taste_notes_then_style():
 
 
 def test_extract_ebc_and_srm():
+    # A measured EBC reading is taken at face value.
     assert brewfather._extract_ebc({"measuredEbc": 40}) == 40.0
-    assert brewfather._extract_ebc({"recipe": {"color": 25}}) == 25.0
+    # estimatedColor / color / recipe.color are SRM -> converted to EBC (*1.97).
+    assert brewfather._extract_ebc({"estimatedColor": 37.5}) == pytest.approx(73.9, abs=0.05)
+    assert brewfather._extract_ebc({"recipe": {"color": 25}}) == pytest.approx(49.25, abs=0.06)
     assert brewfather._extract_ebc({"srm": 10}) == pytest.approx(19.7, abs=0.05)
+    # Measured EBC wins over an estimated SRM colour.
+    assert brewfather._extract_ebc({"measuredEbc": 30, "estimatedColor": 99}) == 30.0
 
 
 def test_extract_image_url_handles_null():

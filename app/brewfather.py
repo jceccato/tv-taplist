@@ -5,7 +5,8 @@ Field mapping (verified against a live /v2/batches?complete=True payload):
                                     "Batch" / "Batch #12" default)
   abv / ibu   <- measured* first, then recipe.*; 0 is treated as "not provided"
                  (Brewfather returns 0, not null, for unset values)
-  colour      <- measuredEbc, else estimatedColor (EBC); explicit SRM converted
+  colour      <- measuredEbc (EBC); else estimatedColor / color, which are SRM
+                 (verified via style colour bounds) -> converted to EBC
   description <- tasteNotes, else the recipe style name. The batch notes are NOT
                  used for the body — they only carry the tap:X control token.
 
@@ -57,7 +58,7 @@ MAX_PAGES = 50  # safety cap: 50 pages x 50 = 2500 completed batches
 # refresh already-cached bf_tap files. `_is_unchanged` treats a stored map_rev
 # different from this as "changed", so the next sync rewrites every tap once with
 # the new mapping, then settles back to skipping genuinely unchanged batches.
-MAPPING_VERSION = 3
+MAPPING_VERSION = 4
 
 # `tap:3`, `tap: 3`, `Tap:3`, etc.
 TAP_TOKEN_RE = re.compile(r"tap\s*:\s*(\d+)", re.IGNORECASE)
@@ -132,25 +133,30 @@ def _extract_ibu(batch: dict[str, Any]) -> float | None:
 
 
 def _extract_ebc(batch: dict[str, Any]) -> float | None:
-    """Return colour as EBC.
+    """Return colour as EBC (our internal storage unit).
 
-    Brewfather stores colour in EBC in its data model, so measuredEbc /
-    estimatedColor / recipe.color are treated as EBC. If your account is
-    configured for SRM (rare via the API), set the values via *Srm keys and
-    they are converted with EBC = SRM * 1.97.
+    A *measured EBC* reading (explicit unit) is used as-is. Everything else
+    Brewfather exposes for colour — estimatedColor, color, recipe.color — is in
+    SRM despite the generic name. This was verified against a live payload: an
+    English Porter's styleColorMin/Max come back as 20/30, which is the BJCP
+    *SRM* range (the EBC range would be ~39/59). So those are converted with
+    EBC = SRM * 1.97, otherwise every beer renders about half as dark as reality.
     """
     recipe = batch.get("recipe") or {}
-    ebc = (
-        _first_number(batch, "measuredEbc", "estimatedColor", "color")
-        or _first_number(recipe, "color", "ebc")
-    )
+    # Measured EBC wins and is taken at face value.
+    ebc = _first_number(batch, "measuredEbc")
     if ebc is not None:
-        return ebc
-    # Fallback: explicit SRM fields -> convert to EBC.
-    srm = _first_number(batch, "measuredSrm", "srm") or _first_number(recipe, "srm")
+        return round(ebc, 1)
+    # All the estimated/recipe colour fields are SRM -> convert to EBC.
+    srm = (
+        _first_number(batch, "measuredSrm", "estimatedColor", "color", "srm")
+        or _first_number(recipe, "color", "srm")
+    )
     if srm is not None:
         return round(srm * EBC_PER_SRM, 1)
-    return None
+    # Rare explicit recipe EBC field.
+    rebc = _first_number(recipe, "ebc")
+    return round(rebc, 1) if rebc is not None else None
 
 
 def _extract_notes_text(batch: dict[str, Any]) -> str:
