@@ -38,6 +38,7 @@ from fastapi.templating import Jinja2Templates
 from . import auth, markdown_store as md
 from .archive import archive_tap
 from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
+from .beer_glass import beer_glass_svg
 from .board import build_board
 from .brewfather import run_sync
 from .colors import ebc_to_srm, srm_to_ebc
@@ -152,6 +153,16 @@ async def img_placeholder():
         svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'
         return Response(svg, media_type="image/svg+xml")
     return FileResponse(p, headers={"Cache-Control": "public, max-age=300"})
+
+
+@app.get("/img/beer-glass")
+async def img_beer_glass(ebc: float | None = None):
+    """A beer-glass SVG tinted to the beer's colour (the no-photo placeholder)."""
+    return Response(
+        beer_glass_svg(ebc),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 @app.get("/img/venue-logo")

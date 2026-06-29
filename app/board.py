@@ -30,13 +30,20 @@ def _num(value: Any) -> float | int | None:
     return int(f) if f.is_integer() else f
 
 
-def _image_url_for(stem: str) -> str:
-    """Local image URL for a tap stem, or the placeholder route if none cached."""
+def _image_url_for(stem: str, ebc: float | int | None = None) -> str:
+    """Local image URL for a tap stem.
+
+    Prefers an uploaded photo; otherwise a beer glass tinted to the beer's
+    colour (so the placeholder pour matches the SRM/EBC), falling back to a
+    neutral amber glass when the colour is unknown.
+    """
     img = md.find_image_for(stem)
     if img is not None:
         # Served by the /img/<filename> route which reads from /data/taps.
         return f"/img/{img.name}"
-    return "/img/placeholder"
+    if ebc is not None:
+        return f"/img/beer-glass?ebc={ebc}"
+    return "/img/beer-glass"
 
 
 def resolve_tap(tap: int) -> dict[str, Any]:
@@ -78,7 +85,7 @@ def resolve_tap(tap: int) -> dict[str, Any]:
         "color_hex": color_hex,
         "text_color": text_color_for(color_hex),
         "description": (data.get("description") or "").strip(),
-        "image_url": _image_url_for(stem),
+        "image_url": _image_url_for(stem, ebc),
         "updated": data.get("updated"),
     }
 

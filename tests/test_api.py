@@ -45,6 +45,30 @@ def test_image_missing_falls_back_to_placeholder():
     assert "image" in r.headers["content-type"]
 
 
+def test_beer_glass_route_tints_by_colour():
+    import re
+
+    from app.beer_glass import _hex_to_rgb
+
+    pale = client.get("/img/beer-glass", params={"ebc": 8})
+    dark = client.get("/img/beer-glass", params={"ebc": 80})
+    assert pale.status_code == 200 and "svg" in pale.headers["content-type"]
+    assert dark.status_code == 200
+
+    def base_stop(svg: str) -> str:
+        return re.search(r'offset="55%" stop-color="(#[0-9a-fA-F]{6})"', svg).group(1)
+
+    # A dark beer's liquid must be markedly darker than a pale one's.
+    assert sum(_hex_to_rgb(base_stop(dark.text))) < sum(_hex_to_rgb(base_stop(pale.text)))
+
+
+def test_board_uses_colour_glass_when_no_photo(write_tap):
+    config_store.update_config(num_taps=1)
+    write_tap("custom", 1, name="Glassy", abv=5, ebc=20)
+    board = client.get("/api/board").json()
+    assert board["taps"][0]["image_url"] == "/img/beer-glass?ebc=20"
+
+
 def test_safe_tap_image_rejects_traversal():
     # Direct unit check of the sanitiser.
     assert _safe_tap_image("../config.json") is None
