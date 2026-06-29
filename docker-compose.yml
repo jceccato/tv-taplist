@@ -23,6 +23,11 @@ services:
       PGID: "${PGID:-1000}"
       # Set DEMO_MODE=true on a fresh volume to seed sample taps (offline demo).
       DEMO_MODE: "${DEMO_MODE:-false}"
+      # Optional: Brewfather credentials via env (kept out of config.json on disk).
+      BREWFATHER_USER_ID: "${BREWFATHER_USER_ID:-}"
+      BREWFATHER_API_KEY: "${BREWFATHER_API_KEY:-}"
+      # Minutes between Brewfather syncs (default 15; well under 500 calls/hour).
+      SYNC_INTERVAL_MINUTES: "${SYNC_INTERVAL_MINUTES:-15}"
     volumes:
       # Named volume keeps config.json, taps/ and old_beers/ across restarts.
       # To inspect the data from the host, swap for a bind mount, e.g.:

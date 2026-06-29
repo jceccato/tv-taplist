@@ -48,10 +48,20 @@
         <fieldset>
           <legend>Brewfather</legend>
           <label for="bf_user">User ID</label>
-          <input id="bf_user" name="brewfather_user_id" type="text" value="{{ cfg.brewfather_user_id }}" autocomplete="off">
+          {% if bf.user_from_env %}
+            <input id="bf_user" type="text" value="{{ bf.user_id }}" disabled>
+            <p class="hint">Managed via the <code>BREWFATHER_USER_ID</code> environment variable.</p>
+          {% else %}
+            <input id="bf_user" name="brewfather_user_id" type="text" value="{{ cfg.brewfather_user_id }}" autocomplete="off">
+          {% endif %}
           <label for="bf_key">API Key</label>
-          <input id="bf_key" name="brewfather_api_key" type="password" value="{{ cfg.brewfather_api_key }}" autocomplete="off">
-          <p class="hint">Stored in plaintext in <code>config.json</code> on the host (documented appliance trade-off).</p>
+          {% if bf.key_from_env %}
+            <input id="bf_key" type="password" value="set-via-environment" disabled>
+            <p class="hint">Managed via the <code>BREWFATHER_API_KEY</code> environment variable — not stored in <code>config.json</code>.</p>
+          {% else %}
+            <input id="bf_key" name="brewfather_api_key" type="password" value="{{ cfg.brewfather_api_key }}" autocomplete="off">
+            <p class="hint">Stored in plaintext in <code>config.json</code>. Tip: set <code>BREWFATHER_API_KEY</code> in the environment to keep it off disk.</p>
+          {% endif %}
         </fieldset>
 
         <fieldset>
@@ -69,6 +79,40 @@
         </fieldset>
 
         <fieldset>
+          <legend>Stats &amp; Colour</legend>
+          <label for="color_unit">Colour unit</label>
+          <select id="color_unit" name="color_unit">
+            <option value="ebc" {{ 'selected' if cfg.color_unit != 'srm' else '' }}>EBC</option>
+            <option value="srm" {{ 'selected' if cfg.color_unit == 'srm' else '' }}>SRM</option>
+          </select>
+
+          <div class="stat-grid" role="group" aria-label="Stat visibility">
+            <span></span><span class="stat-grid-head">Show</span><span class="stat-grid-head">Hide when empty</span>
+            <span class="stat-grid-name">ABV</span>
+            <input type="checkbox" name="show_abv" {{ 'checked' if cfg.show_abv else '' }}>
+            <input type="checkbox" name="hide_abv_when_empty" {{ 'checked' if cfg.hide_abv_when_empty else '' }}>
+            <span class="stat-grid-name">IBU</span>
+            <input type="checkbox" name="show_ibu" {{ 'checked' if cfg.show_ibu else '' }}>
+            <input type="checkbox" name="hide_ibu_when_empty" {{ 'checked' if cfg.hide_ibu_when_empty else '' }}>
+            <span class="stat-grid-name">Colour</span>
+            <input type="checkbox" name="show_color" {{ 'checked' if cfg.show_color else '' }}>
+            <input type="checkbox" name="hide_color_when_empty" {{ 'checked' if cfg.hide_color_when_empty else '' }}>
+          </div>
+          <p class="hint">“Show” turns a stat off for every beer; “Hide when empty” drops it only for beers missing that value.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Venue logo</legend>
+          <label for="logo_h">Logo height (% of screen height)</label>
+          <div class="slider-row">
+            <input type="range" id="logo_h_range" min="0" max="{{ max_logo_vh }}" step="1" value="{{ cfg.venue_logo_height_vh }}">
+            <input type="number" id="logo_h" name="venue_logo_height_vh" min="0" max="{{ max_logo_vh }}" step="1" value="{{ cfg.venue_logo_height_vh }}">
+            <span class="muted">%</span>
+          </div>
+          <p class="hint">0 hides the logo. Max {{ max_logo_vh }}% (a third of the screen). Upload the image below.</p>
+        </fieldset>
+
+        <fieldset>
           <legend>Archive cleanup</legend>
           <label for="max_age">Max archive age (days)</label>
           <input id="max_age" name="max_archive_age_days" type="number" min="0" step="1" value="{{ cfg.max_archive_age_days }}" required>
@@ -78,6 +122,22 @@
 
         <button class="btn primary" type="submit">Save settings</button>
         <p class="hint">Changing the tap count adds/removes rows below after saving &amp; reloading.</p>
+      </form>
+
+      <!-- Venue logo upload is its own form (multipart); height lives in Settings above. -->
+      <hr class="panel-sep">
+      <h3>Venue logo image</h3>
+      {% if venue_logo_url %}
+        <img class="venue-preview" src="{{ venue_logo_url }}" alt="current venue logo">
+      {% else %}
+        <p class="muted">No venue logo uploaded.</p>
+      {% endif %}
+      <form id="venue-logo-form" enctype="multipart/form-data">
+        <input type="file" name="image" accept="image/*">
+        <div class="btn-row">
+          <button class="btn primary" type="submit">Upload logo</button>
+          <button class="btn" type="button" id="remove-logo">Remove logo</button>
+        </div>
       </form>
     </section>
 
@@ -104,7 +164,7 @@
             <div class="field-row">
               <div class="field"><label>ABV %</label><input type="number" step="0.1" name="abv" value="{{ row.abv }}"></div>
               <div class="field"><label>IBU</label><input type="number" step="1" name="ibu" value="{{ row.ibu }}"></div>
-              <div class="field"><label>EBC</label><input type="number" step="1" name="ebc" value="{{ row.ebc }}"></div>
+              <div class="field"><label>{{ color_label }}</label><input type="number" step="1" name="color" value="{{ row.color_value }}"></div>
             </div>
             <div class="field"><label>Tasting notes</label><textarea name="description" rows="2">{{ row.description }}</textarea></div>
             <div class="field">

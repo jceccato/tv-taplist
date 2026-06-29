@@ -10,6 +10,12 @@
 </head>
 <body>
   <div id="board" class="board">
+    <!-- Optional venue/company logo header; height + visibility set by JS from
+         the board settings. Its row is reserved so it never overlaps the grid. -->
+    <header id="venue-header" class="venue-header" hidden>
+      <img id="venue-logo" class="venue-logo" alt="Venue logo">
+    </header>
+
     <!-- Pages of tap cards are injected here by display.js -->
     <main id="stage" class="stage" aria-live="polite"></main>
 

@@ -115,7 +115,7 @@ def test_override_save_then_clear_with_image():
     # Save an override on tap 2 with an uploaded image.
     r = c.post("/admin/override/2",
                data={"enabled": "true", "name": "Hand Pour", "abv": "4.5",
-                     "ibu": "18", "ebc": "9", "description": "Cask ale."},
+                     "ibu": "18", "color": "9", "description": "Cask ale."},
                files={"image": ("beer.png", b"\x89PNG\r\n\x1a\n", "image/png")})
     assert r.status_code == 200 and r.json()["override"] is True
     assert md.custom_md_path(2).exists()
@@ -123,6 +123,7 @@ def test_override_save_then_clear_with_image():
     data = md.read_tap_file(md.custom_md_path(2))
     assert data["name"] == "Hand Pour"
     assert data["abv"] == 4.5
+    assert data["ebc"] == 9  # EBC unit by default
 
     # Clearing the override archives the custom files.
     r2 = c.post("/admin/override/2", data={"enabled": "false"})
@@ -134,11 +135,73 @@ def test_override_save_then_clear_with_image():
 def test_override_save_archives_existing_brewfather(write_tap):
     c = _login(TestClient(app))
     write_tap("bf", 3, name="BF Three", abv=5, ebc=10, image_ext=".jpg")
-    r = c.post("/admin/override/3", data={"enabled": "true", "name": "Now Custom", "abv": "5", "ebc": "10"})
+    r = c.post("/admin/override/3", data={"enabled": "true", "name": "Now Custom", "abv": "5", "color": "10"})
     assert r.status_code == 200
     assert md.custom_md_path(3).exists()
     assert not md.bf_md_path(3).exists()
     assert list(paths.OLD_BEERS_DIR.glob("bf_tap_3_*.md"))
+
+
+def test_override_color_input_converts_from_srm():
+    config_store.update_config(color_unit="srm")
+    c = _login(TestClient(app))
+    # 10 SRM should be stored as ~19.7 EBC.
+    r = c.post("/admin/override/1", data={"enabled": "true", "name": "Dark", "color": "10"})
+    assert r.status_code == 200
+    assert md.read_tap_file(md.custom_md_path(1))["ebc"] == pytest.approx(19.7, abs=0.05)
+
+
+def test_save_settings_display_options():
+    c = _login(TestClient(app))
+    r = c.post("/admin/settings", data={
+        "num_taps": "4", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
+        "color_unit": "srm", "show_abv": "true", "show_ibu": "false", "show_color": "true",
+        "hide_abv_when_empty": "true", "hide_ibu_when_empty": "false", "hide_color_when_empty": "true",
+        "venue_logo_height_vh": "20",
+    })
+    assert r.status_code == 200
+    cfg = config_store.load_config()
+    assert cfg["color_unit"] == "srm"
+    assert cfg["show_ibu"] is False
+    assert cfg["hide_ibu_when_empty"] is False
+    assert cfg["venue_logo_height_vh"] == 20
+
+
+def test_settings_does_not_overwrite_env_credentials(monkeypatch):
+    monkeypatch.setenv("BREWFATHER_API_KEY", "env-secret")
+    c = _login(TestClient(app))
+    c.post("/admin/settings", data={
+        "num_taps": "2", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
+        "brewfather_api_key": "should-be-ignored",
+    })
+    # The env-managed key is never written to config.json.
+    assert config_store.load_config()["brewfather_api_key"] != "should-be-ignored"
+
+
+def test_board_includes_display_settings():
+    config_store.update_config(num_taps=1, color_unit="srm", show_ibu=False)
+    board = client.get("/api/board").json()
+    assert board["color_unit"] == "srm"
+    assert board["show_ibu"] is False
+    assert "hide_color_when_empty" in board
+    assert board["venue_logo_url"] is None  # none uploaded
+
+
+def test_venue_logo_upload_serve_and_remove():
+    c = _login(TestClient(app))
+    # No logo yet.
+    assert client.get("/img/venue-logo").status_code == 404
+    # Upload.
+    r = c.post("/admin/venue-logo",
+               files={"image": ("logo.png", b"\x89PNG\r\n\x1a\n", "image/png")})
+    assert r.status_code == 200
+    assert client.get("/img/venue-logo").status_code == 200
+    config_store.update_config(venue_logo_height_vh=20)
+    assert client.get("/api/board").json()["venue_logo_url"].startswith("/img/venue-logo")
+    # Remove.
+    r2 = c.post("/admin/venue-logo", data={"remove": "true"})
+    assert r2.status_code == 200
+    assert client.get("/img/venue-logo").status_code == 404
 
 
 def test_override_rejects_non_numeric_field():

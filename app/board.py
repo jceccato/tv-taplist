@@ -16,6 +16,7 @@ from typing import Any
 from . import markdown_store as md
 from .colors import ebc_to_hex, text_color_for
 from .config_store import load_config
+from .paths import venue_logo_path
 
 
 def _num(value: Any) -> float | int | None:
@@ -96,10 +97,31 @@ def build_board() -> dict[str, Any]:
         resolved["hidden"] = bool(resolved["vacant"] and hide_vacant)
         taps.append(resolved)
 
+    # Venue logo: only advertise it if the file actually exists. Append the
+    # mtime as a cache-buster so the TV reloads when the logo is replaced.
+    logo = venue_logo_path()
+    logo_height = int(cfg.get("venue_logo_height_vh", 0) or 0)
+    venue_logo_url = None
+    if logo is not None and logo_height > 0:
+        try:
+            venue_logo_url = f"/img/venue-logo?v={int(logo.stat().st_mtime)}"
+        except OSError:
+            venue_logo_url = "/img/venue-logo"
+
     return {
         "num_taps": num_taps,
         "hide_vacant_taps": hide_vacant,
         "announcement_text": cfg.get("announcement_text", "") or "",
+        # Display options consumed by the frontend.
+        "color_unit": cfg.get("color_unit", "ebc"),
+        "show_abv": bool(cfg.get("show_abv", True)),
+        "show_ibu": bool(cfg.get("show_ibu", True)),
+        "show_color": bool(cfg.get("show_color", True)),
+        "hide_abv_when_empty": bool(cfg.get("hide_abv_when_empty", True)),
+        "hide_ibu_when_empty": bool(cfg.get("hide_ibu_when_empty", True)),
+        "hide_color_when_empty": bool(cfg.get("hide_color_when_empty", True)),
+        "venue_logo_url": venue_logo_url,
+        "venue_logo_height_vh": logo_height,
         "taps": taps,
         "last_sync_success": cfg.get("last_sync_success"),
         "last_sync_error": cfg.get("last_sync_error"),

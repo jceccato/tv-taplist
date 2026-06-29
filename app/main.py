@@ -40,14 +40,23 @@ from .archive import archive_tap
 from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
 from .board import build_board
 from .brewfather import run_sync
-from .config_store import load_config, save_config
+from .colors import ebc_to_srm, srm_to_ebc
+from .config_store import (
+    MAX_VENUE_LOGO_VH,
+    brewfather_credentials,
+    load_config,
+    save_config,
+)
 from .demo import maybe_seed_demo
 from .paths import (
+    DATA_DIR,
     STATIC_DIR,
     TAPS_DIR,
     TEMPLATES_DIR,
+    VENUE_LOGO_EXTS,
     ensure_dirs,
     placeholder_path,
+    venue_logo_path,
 )
 from .scheduler import shutdown_scheduler, start_scheduler
 from .timezone import iso_now
@@ -145,6 +154,15 @@ async def img_placeholder():
     return FileResponse(p, headers={"Cache-Control": "public, max-age=300"})
 
 
+@app.get("/img/venue-logo")
+async def img_venue_logo():
+    """Serve the uploaded venue logo from /data (404 if none)."""
+    p = venue_logo_path()
+    if p is None:
+        raise HTTPException(status_code=404, detail="no venue logo")
+    return FileResponse(p, headers={"Cache-Control": "public, max-age=60"})
+
+
 @app.get("/img/{filename}")
 async def img_file(filename: str):
     p = _safe_tap_image(filename)
@@ -211,14 +229,31 @@ async def admin_page(request: Request):
     rows = _build_admin_tap_rows(cfg)
     return templates.TemplateResponse(
         "admin.html",
-        {"request": request, "cfg": cfg, "rows": rows},
+        {
+            "request": request,
+            "cfg": cfg,
+            "rows": rows,
+            "bf": brewfather_credentials(),
+            "color_label": "SRM" if cfg.get("color_unit") == "srm" else "EBC",
+            "venue_logo_url": "/img/venue-logo" if venue_logo_path() else None,
+            "max_logo_vh": MAX_VENUE_LOGO_VH,
+        },
     )
+
+
+def _color_in_unit(ebc, unit: str):
+    """Convert a stored EBC value to the admin's display unit for prefilling."""
+    if ebc is None or ebc == "":
+        return ""
+    val = ebc_to_srm(ebc) if unit == "srm" else float(ebc)
+    return int(val) if float(val).is_integer() else round(val, 1)
 
 
 def _build_admin_tap_rows(cfg: dict) -> list[dict]:
     """Per-tap admin state: override on/off and current values to prefill."""
     rows: list[dict] = []
     num_taps = int(cfg.get("num_taps", 0) or 0)
+    unit = cfg.get("color_unit", "ebc")
     for tap in range(1, num_taps + 1):
         override = md.is_manual_override(tap)
         data = md.read_tap_file(md.custom_md_path(tap)) if override else md.read_tap_file(md.bf_md_path(tap))
@@ -230,7 +265,8 @@ def _build_admin_tap_rows(cfg: dict) -> list[dict]:
             "name": data.get("name") or "",
             "abv": data.get("abv") if data.get("abv") is not None else "",
             "ibu": data.get("ibu") if data.get("ibu") is not None else "",
-            "ebc": data.get("ebc") if data.get("ebc") is not None else "",
+            # Colour prefilled in the admin's chosen unit (stored as EBC).
+            "color_value": _color_in_unit(data.get("ebc"), unit),
             "description": data.get("description") or "",
             "source": data.get("source") or ("custom" if override else None),
             "image_url": f"/img/{img.name}" if img else None,
@@ -251,6 +287,14 @@ async def save_settings(
     announcement_text: str = Form(""),
     max_archive_age_days: int = Form(...),
     max_archive_storage_mb: int = Form(...),
+    color_unit: str = Form("ebc"),
+    show_abv: bool = Form(False),
+    show_ibu: bool = Form(False),
+    show_color: bool = Form(False),
+    hide_abv_when_empty: bool = Form(False),
+    hide_ibu_when_empty: bool = Form(False),
+    hide_color_when_empty: bool = Form(False),
+    venue_logo_height_vh: int = Form(0),
 ):
     if num_taps < 0:
         raise HTTPException(status_code=422, detail="Number of taps must be >= 0")
@@ -258,18 +302,65 @@ async def save_settings(
         raise HTTPException(status_code=422, detail="Cleanup limits must be >= 0")
 
     cfg = load_config()
-    cfg.update({
-        "brewfather_user_id": brewfather_user_id.strip(),
-        "brewfather_api_key": brewfather_api_key.strip(),
+    updates = {
         "num_taps": num_taps,
         "hide_vacant_taps": hide_vacant_taps,
         "announcement_text": announcement_text,
         "max_archive_age_days": max_archive_age_days,
         "max_archive_storage_mb": max_archive_storage_mb,
-    })
+        "color_unit": "srm" if color_unit.lower() == "srm" else "ebc",
+        "show_abv": show_abv,
+        "show_ibu": show_ibu,
+        "show_color": show_color,
+        "hide_abv_when_empty": hide_abv_when_empty,
+        "hide_ibu_when_empty": hide_ibu_when_empty,
+        "hide_color_when_empty": hide_color_when_empty,
+        "venue_logo_height_vh": max(0, min(MAX_VENUE_LOGO_VH, venue_logo_height_vh)),
+    }
+    # Only persist Brewfather credentials that are NOT managed via env vars, so
+    # an env-set key is never written to config.json.
+    creds = brewfather_credentials()
+    if not creds["user_from_env"]:
+        updates["brewfather_user_id"] = brewfather_user_id.strip()
+    if not creds["key_from_env"]:
+        updates["brewfather_api_key"] = brewfather_api_key.strip()
+
+    cfg.update(updates)
     save_config(cfg)
-    log.info("admin saved settings (num_taps=%d hide_vacant=%s)", num_taps, hide_vacant_taps)
+    log.info("admin saved settings (num_taps=%d color_unit=%s)", num_taps, updates["color_unit"])
     return {"ok": True}
+
+
+# ---- admin: venue logo ---------------------------------------------------
+
+@app.post("/admin/venue-logo")
+async def venue_logo(
+    request: Request,
+    _: None = Depends(auth.require_admin),
+    remove: bool = Form(False),
+    image: UploadFile | None = None,
+):
+    """Upload or remove the venue logo (stored under /data as venue_logo.<ext>)."""
+    with JOB_LOCK:
+        # Always clear any existing logo first so we never keep two extensions.
+        for ext in VENUE_LOGO_EXTS:
+            safe_unlink(DATA_DIR / f"venue_logo{ext}")
+
+        if remove or image is None or not image.filename:
+            save_config({**load_config(), "venue_logo": None})
+            log.info("venue logo removed")
+            return {"ok": True, "venue_logo_url": None}
+
+        ext = Path(image.filename).suffix.lower()
+        if ext == ".jpeg":
+            ext = ".jpg"
+        if ext not in VENUE_LOGO_EXTS:
+            raise HTTPException(status_code=422, detail=f"Unsupported image type: {ext}")
+        dest = DATA_DIR / f"venue_logo{ext}"
+        atomic_write_bytes(dest, image.file.read())
+        save_config({**load_config(), "venue_logo": dest.name})
+        log.info("venue logo uploaded (%s)", dest.name)
+        return {"ok": True, "venue_logo_url": "/img/venue-logo"}
 
 
 # ---- admin: manual overrides ---------------------------------------------
@@ -304,7 +395,7 @@ async def save_override(
     name: str = Form(""),
     abv: str = Form(""),
     ibu: str = Form(""),
-    ebc: str = Form(""),
+    color: str = Form(""),     # colour in the admin's display unit (EBC or SRM)
     description: str = Form(""),
     image: UploadFile | None = None,
 ):
@@ -320,6 +411,16 @@ async def save_override(
             return int(f) if f.is_integer() else f
         except ValueError:
             raise HTTPException(status_code=422, detail=f"'{v}' is not a number")
+
+    unit = load_config().get("color_unit", "ebc")
+
+    def _color_to_ebc(v: str):
+        """Parse the colour input (in the chosen unit) and store it as EBC."""
+        num = _num(v)
+        if num is None:
+            return None
+        ebc = srm_to_ebc(num) if unit == "srm" else float(num)
+        return int(ebc) if float(ebc).is_integer() else round(ebc, 1)
 
     with JOB_LOCK:
         if not enabled:
@@ -339,7 +440,7 @@ async def save_override(
             "name": name.strip() or f"Tap {tap}",
             "abv": _num(abv),
             "ibu": _num(ibu),
-            "ebc": _num(ebc),
+            "ebc": _color_to_ebc(color),
             "source": "custom",
             "image": image_name,
             "updated": iso_now(),

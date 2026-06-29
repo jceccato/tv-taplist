@@ -94,6 +94,37 @@ legend { padding: 0 0.5rem; color: var(--accent); font-weight: 600; }
 .toast.ok { border-color: var(--ok); }
 .toast.err { border-color: var(--danger); }
 
+select {
+  width: 100%; padding: 0.55rem 0.65rem; background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 8px; color: var(--text); font: inherit;
+}
+
+/* Stat show / hide-when-empty grid */
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.5rem 1.1rem;
+  align-items: center;
+  margin: 0.8rem 0 0.2rem;
+  max-width: 360px;
+}
+.stat-grid-head { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; text-align: center; }
+.stat-grid-name { font-weight: 600; }
+.stat-grid input[type=checkbox] { width: auto; justify-self: center; }
+
+/* Logo height slider + number */
+.slider-row { display: flex; align-items: center; gap: 0.8rem; }
+.slider-row input[type=range] { flex: 1; }
+.slider-row input[type=number] { width: 5rem; }
+
+.panel-sep { border: 0; border-top: 1px solid var(--border); margin: 1.4rem 0 1rem; }
+.btn-row { display: flex; gap: 0.6rem; margin-top: 0.8rem; }
+.venue-preview {
+  display: block; max-width: 100%; max-height: 140px; object-fit: contain;
+  background: #0c0e13; border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.4rem; margin: 0.4rem 0;
+}
+
 /* Login page */
 .login-body { display: grid; place-items: center; min-height: 100vh; }
 .login-card {

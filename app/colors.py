@@ -60,6 +60,26 @@ _SRM_MAX = 40
 EBC_PER_SRM = 1.97  # EBC = SRM * 1.97; SRM = EBC / 1.97
 
 
+def ebc_to_srm(ebc: float | int | None) -> float | None:
+    """Convert a stored EBC value to SRM (None passes through)."""
+    if ebc is None:
+        return None
+    try:
+        return float(ebc) / EBC_PER_SRM
+    except (TypeError, ValueError):
+        return None
+
+
+def srm_to_ebc(srm: float | int | None) -> float | None:
+    """Convert an SRM value to EBC for storage (None passes through)."""
+    if srm is None:
+        return None
+    try:
+        return float(srm) * EBC_PER_SRM
+    except (TypeError, ValueError):
+        return None
+
+
 def srm_to_rgb(srm: float) -> tuple[int, int, int]:
     """Interpolate the SRM chart between integer reference points, clamped 1..40."""
     if srm <= _SRM_MIN:

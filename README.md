@@ -56,9 +56,15 @@ DATA_DIR=./data ADMIN_PASSWORD=test SESSION_SECRET=dev DEMO_MODE=true \
 | `PORT` | no | `8080` | Listen port inside the container. |
 | `PUID` / `PGID` | no | `1000` | Host uid/gid that owns `/data`, so the non-root app can write. |
 | `DEMO_MODE` | no | `false` | Seed sample taps on a fresh volume. |
+| `BREWFATHER_USER_ID` | no | — | Brewfather User ID (overrides config; keeps it off disk). |
+| `BREWFATHER_API_KEY` | no | — | Brewfather API key (overrides config; keeps it off disk). |
+| `SYNC_INTERVAL_MINUTES` | no | `15` | Minutes between Brewfather syncs. |
 | `DATA_DIR` | no | `/data` | Data root (override for local dev). |
 
-Brewfather **User ID** and **API Key** are entered in the admin UI, not env vars.
+Brewfather **User ID** and **API Key** can be entered in the admin UI *or* set
+via the `BREWFATHER_*` env vars. When both env vars are set, the admin fields
+are locked ("managed via environment") and the key is **never written to
+`config.json`** — the recommended way to keep the secret off disk.
 
 ---
 
@@ -88,14 +94,20 @@ host, swap it for a bind mount in `docker-compose.yml`:
 
 ## How it works
 
-### Brewfather sync (every 10 min)
-1. Lists batches with `status == "Completed"` (HTTP Basic Auth: User ID / API key).
-2. Fetches full detail per batch (ABV, IBU, colour, tasting notes, image URL).
-3. Reads a `tap:X` token from the batch notes to assign a tap.
-4. Writes `bf_tap_X.md` (+ downloaded image, preserving the source extension).
-5. Builds the **desired tap map** and archives any Brewfather tap that no longer
+### Brewfather sync (every `SYNC_INTERVAL_MINUTES`, default 15)
+1. Lists Completed batches with `complete=True` + pagination (`limit=50`,
+   `start_after`), returning **full batch data in one call per page** (HTTP
+   Basic Auth: User ID / API key).
+2. Reads a `tap:X` token from the batch notes to assign a tap.
+3. Writes `bf_tap_X.md` (+ downloaded image, preserving the source extension).
+4. Builds the **desired tap map** and archives any Brewfather tap that no longer
    maps to its slot.
 
+- **API-friendly:** Brewfather's limit is **500 calls/hour per key**. Using
+  `complete=True` avoids the old N+1 (a detail call per batch), so each sync
+  costs only `ceil(completed_batches / 50)` calls. **Change-detection** (a stored
+  batch revision) skips image re-downloads and file rewrites for unchanged
+  beers, and a **429** is reported (honouring `Retry-After`) with no changes.
 - **Manual overrides win and are never touched** by sync.
 - **Conflicts** (two Completed batches claiming one tap) resolve to the most
   recently updated batch and log a warning.
@@ -118,8 +130,18 @@ host, swap it for a bind mount in `docker-compose.yml`:
 - Polls `GET /api/board` every 30 s and **diffs** the result, updating only
   changed cards in place — no full reload, and the carousel position persists.
 - `ebcToHex()` maps EBC → colour via the SRM reference chart with a luminance
-  contrast rule for legible badges.
+  contrast rule for a legible colour swatch (the swatch is colour-only; the
+  numeric value lives in the stats).
 - A bottom **ticker** shows the announcement text without overlapping the grid.
+- An optional **venue/company logo** sits at the top (height configurable up to
+  a third of the screen; reserved row so it never overlaps the grid).
+
+### Display options (admin)
+- **Colour unit:** show colour as **EBC or SRM** (stored as EBC; admin colour
+  input and the display both follow the selected unit).
+- **Per-stat visibility:** for ABV, IBU and Colour independently — a **Show**
+  toggle (hide that stat for every beer) and a **Hide when empty** toggle (drop
+  it only for beers missing that value).
 
 ---
 

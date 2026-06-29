@@ -51,3 +51,17 @@ def placeholder_path() -> Path | None:
     if BUNDLED_PLACEHOLDER.exists():
         return BUNDLED_PLACEHOLDER
     return None
+
+
+# Optional venue/company logo shown at the top of the display, stored under /data
+# as venue_logo.<ext> (uploaded via the admin interface).
+VENUE_LOGO_EXTS = (".svg", ".png", ".jpg", ".jpeg", ".webp", ".gif")
+
+
+def venue_logo_path() -> Path | None:
+    """Return the on-disk venue logo if one has been uploaded, else None."""
+    for ext in VENUE_LOGO_EXTS:
+        p = DATA_DIR / f"venue_logo{ext}"
+        if p.exists():
+            return p
+    return None

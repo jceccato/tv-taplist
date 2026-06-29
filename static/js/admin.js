@@ -27,11 +27,22 @@
   // ---- settings form ----
   const settingsForm = document.getElementById("settings-form");
   if (settingsForm) {
+    // Keep the logo-height slider and number input in sync.
+    const hRange = document.getElementById("logo_h_range");
+    const hNum = document.getElementById("logo_h");
+    if (hRange && hNum) {
+      hRange.addEventListener("input", () => { hNum.value = hRange.value; });
+      hNum.addEventListener("input", () => { hRange.value = hNum.value; });
+    }
+
     settingsForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const fd = new FormData(settingsForm);
-      // Unchecked checkboxes are omitted from FormData; normalise to a bool.
-      fd.set("hide_vacant_taps", settingsForm.querySelector('[name=hide_vacant_taps]').checked ? "true" : "false");
+      // Unchecked checkboxes are omitted from FormData; normalise every one to
+      // an explicit bool so the server always gets the intended value.
+      settingsForm.querySelectorAll('input[type=checkbox]').forEach((cb) => {
+        fd.set(cb.name, cb.checked ? "true" : "false");
+      });
       try {
         await postForm("/admin/settings", fd);
         showToast("Settings saved. Reloading…", "ok");
@@ -40,6 +51,41 @@
         showToast("Save failed: " + err.message, "err");
       }
     });
+  }
+
+  // ---- venue logo ----
+  const venueForm = document.getElementById("venue-logo-form");
+  if (venueForm) {
+    venueForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(venueForm);
+      if (!fd.get("image") || !fd.get("image").name) {
+        showToast("Choose an image file first.", "err");
+        return;
+      }
+      try {
+        await postForm("/admin/venue-logo", fd);
+        showToast("Venue logo uploaded. Reloading…", "ok");
+        setTimeout(() => location.reload(), 700);
+      } catch (err) {
+        showToast("Upload failed: " + err.message, "err");
+      }
+    });
+
+    const removeBtn = document.getElementById("remove-logo");
+    if (removeBtn) {
+      removeBtn.addEventListener("click", async () => {
+        const fd = new FormData();
+        fd.set("remove", "true");
+        try {
+          await postForm("/admin/venue-logo", fd);
+          showToast("Venue logo removed. Reloading…", "ok");
+          setTimeout(() => location.reload(), 700);
+        } catch (err) {
+          showToast("Remove failed: " + err.message, "err");
+        }
+      });
+    }
   }
 
   // ---- manual override rows ----

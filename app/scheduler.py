@@ -1,15 +1,20 @@
 """APScheduler setup for the two recurring jobs.
 
-- Brewfather sync: every 10 minutes.
+- Brewfather sync: every SYNC_INTERVAL_MINUTES (default 15; env-configurable).
 - Archive cleanup: once per day at 03:30 local time.
 
 Both jobs already take JOB_LOCK internally, so even though APScheduler runs them
 on a thread pool they never interleave file writes. max_instances=1 prevents a
 slow sync from stacking up.
+
+Brewfather's limit is 500 calls/hour/key. With the complete=True paginated
+fetch, each sync costs ceil(completed_batches / 50) calls, so even a 5-minute
+interval stays comfortably under the limit for a normal cellar.
 """
 from __future__ import annotations
 
 import logging
+import os
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -19,7 +24,15 @@ from .timezone import local_tzinfo
 
 log = logging.getLogger("taplist.scheduler")
 
-SYNC_INTERVAL_MINUTES = 10
+
+def _sync_interval_minutes() -> int:
+    try:
+        return max(1, int(os.environ.get("SYNC_INTERVAL_MINUTES", "15")))
+    except (TypeError, ValueError):
+        return 15
+
+
+SYNC_INTERVAL_MINUTES = _sync_interval_minutes()
 
 _scheduler: BackgroundScheduler | None = None
 

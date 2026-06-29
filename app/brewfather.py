@@ -7,12 +7,15 @@ build time, the extraction helpers defensively try several field-name and unit
 variants and log what they found. Verify against a live payload and tighten the
 mapping if your account returns different names.
 
-Auth: HTTP Basic Auth, username = User ID, password = API key.
+Auth: HTTP Basic Auth, username = User ID, password = API key (env vars
+BREWFATHER_USER_ID / BREWFATHER_API_KEY take precedence over config.json).
 
-Two-step fetch:
-  1. GET /v2/batches?status=Completed  -> trimmed summaries.
-  2. GET /v2/batches/{id}              -> full detail (ABV, IBU, colour,
-     tasting notes, batch notes, image URL).
+Efficient fetch (rate limit is 500 calls/hour per key):
+  GET /v2/batches?status=Completed&complete=True&limit=50  returns FULL batch
+  objects in one call, paginated with `start_after`. This avoids the old
+  N+1 (one detail call per batch) pattern, which would blow the hourly limit as
+  Completed batches accumulate. Per sync we now make ceil(N/50) calls, and
+  change-detection skips image downloads / file rewrites for unchanged batches.
 
 Tap assignment: parse the batch notes text for a `tap:X` token.
 
@@ -32,7 +35,7 @@ from . import markdown_store as md
 from .archive import archive_tap
 from .atomic import JOB_LOCK, atomic_write_bytes
 from .colors import EBC_PER_SRM
-from .config_store import load_config, update_config
+from .config_store import brewfather_credentials, load_config, update_config
 from .paths import TAPS_DIR, ensure_dirs
 from .timezone import iso_now
 
@@ -40,6 +43,9 @@ log = logging.getLogger("taplist.sync")
 
 API_BASE = "https://api.brewfather.app/v2"
 HTTP_TIMEOUT = httpx.Timeout(20.0, connect=10.0)
+# Brewfather caps page size at 50; we paginate with start_after.
+PAGE_SIZE = 50
+MAX_PAGES = 50  # safety cap: 50 pages x 50 = 2500 completed batches
 
 # `tap:3`, `tap: 3`, `Tap:3`, etc.
 TAP_TOKEN_RE = re.compile(r"tap\s*:\s*(\d+)", re.IGNORECASE)
@@ -183,23 +189,35 @@ def _client(user_id: str, api_key: str) -> httpx.Client:
 
 
 def _list_completed_batches(client: httpx.Client) -> list[dict[str, Any]]:
-    """List Completed batch summaries (status filter applied client+server side)."""
-    resp = client.get("/batches", params={"status": "Completed", "limit": 100})
-    resp.raise_for_status()
-    data = resp.json()
-    if not isinstance(data, list):
-        return []
-    # Defensive: re-filter in case the server ignores the status param.
-    return [b for b in data if str(b.get("status", "")).lower() == "completed"]
+    """Return FULL Completed batch objects, paginated with start_after.
 
-
-def _fetch_detail(client: httpx.Client, batch_id: str) -> dict[str, Any] | None:
-    resp = client.get(f"/batches/{batch_id}")
-    if resp.status_code == 404:
-        return None
-    resp.raise_for_status()
-    data = resp.json()
-    return data if isinstance(data, dict) else None
+    Uses complete=True so a single call per page carries all the data we map
+    (ABV/IBU/colour/notes/image), eliminating per-batch detail calls.
+    """
+    out: list[dict[str, Any]] = []
+    start_after: str | None = None
+    for _ in range(MAX_PAGES):
+        params: dict[str, Any] = {
+            "status": "Completed",
+            "complete": "True",
+            "limit": PAGE_SIZE,
+        }
+        if start_after:
+            params["start_after"] = start_after
+        resp = client.get("/batches", params=params)
+        resp.raise_for_status()
+        page = resp.json()
+        if not isinstance(page, list) or not page:
+            break
+        # Defensive: re-filter in case the server ignores the status param.
+        out.extend(b for b in page if str(b.get("status", "")).lower() == "completed")
+        if len(page) < PAGE_SIZE:
+            break  # last page
+        last_id = page[-1].get("_id") or page[-1].get("id")
+        if not last_id:
+            break
+        start_after = str(last_id)
+    return out
 
 
 def _download_image(client: httpx.Client, url: str, stem: str) -> str | None:
@@ -269,8 +287,8 @@ def _build_desired_map(batches: list[dict[str, Any]]) -> dict[int, dict[str, Any
     return desired
 
 
-def _write_bf_tap(client: httpx.Client, tap: int, batch: dict[str, Any]) -> None:
-    """Write bf_tap_X.md (+ image) for one desired tap."""
+def _write_bf_tap(client: httpx.Client, tap: int, batch: dict[str, Any], rev: int) -> None:
+    """Write bf_tap_X.md (+ image) for one desired tap, recording the batch rev."""
     stem = f"bf_tap_{tap}"
     ebc = _extract_ebc(batch)
     image_url = _extract_image_url(batch)
@@ -290,6 +308,7 @@ def _write_bf_tap(client: httpx.Client, tap: int, batch: dict[str, Any]) -> None
         "ebc": ebc,
         "source": "brewfather",
         "batch_id": batch.get("_id") or batch.get("id"),
+        "source_rev": rev,        # batch revision, used to skip unchanged syncs
         "image": image_name,
         "updated": iso_now(),
     }
@@ -297,13 +316,28 @@ def _write_bf_tap(client: httpx.Client, tap: int, batch: dict[str, Any]) -> None
     log.info("wrote %s (name=%r tap=%d image=%s)", stem, front_matter["name"], tap, image_name)
 
 
+def _is_unchanged(tap: int, batch: dict[str, Any], rev: int) -> bool:
+    """True if bf_tap_X already reflects this batch at this revision.
+
+    Lets the sync skip a re-write (and image re-download) when nothing changed,
+    keeping API/bandwidth use minimal and avoiding needless display churn.
+    """
+    existing = md.read_tap_file(md.bf_md_path(tap))
+    if not existing:
+        return False
+    bid = batch.get("_id") or batch.get("id")
+    same_batch = str(existing.get("batch_id")) == str(bid)
+    same_rev = str(existing.get("source_rev")) == str(rev)
+    has_image_if_needed = (not _extract_image_url(batch)) or (md.find_image_for(f"bf_tap_{tap}") is not None)
+    return same_batch and same_rev and has_image_if_needed
+
+
 def run_sync() -> dict[str, Any]:
     """Execute one full sync. Returns a small status dict. Never raises."""
     ensure_dirs()
-    cfg = load_config()
-    user_id = cfg.get("brewfather_user_id", "").strip()
-    api_key = cfg.get("brewfather_api_key", "").strip()
-    num_taps = int(cfg.get("num_taps", 0) or 0)
+    creds = brewfather_credentials()
+    user_id, api_key = creds["user_id"], creds["api_key"]
+    num_taps = int(load_config().get("num_taps", 0) or 0)
 
     if not user_id or not api_key:
         msg = "sync skipped: Brewfather credentials not configured"
@@ -313,35 +347,31 @@ def run_sync() -> dict[str, Any]:
 
     # Serialise against cleanup and admin writes for the whole job.
     with JOB_LOCK:
-        log.info("sync starting")
+        log.info("sync starting (credentials from %s)",
+                 "env" if creds["key_from_env"] else "config")
         try:
             with _client(user_id, api_key) as client:
-                summaries = _list_completed_batches(client)
-                log.info("found %d completed batch summaries", len(summaries))
+                batches = _list_completed_batches(client)
+                log.info("fetched %d completed batches", len(batches))
 
-                # Fetch full detail for each completed batch.
-                details: list[dict[str, Any]] = []
-                for summary in summaries:
-                    bid = summary.get("_id") or summary.get("id")
-                    if not bid:
-                        continue
-                    detail = _fetch_detail(client, str(bid))
-                    if detail is not None:
-                        details.append(detail)
-
-                desired = _build_desired_map(details)
+                desired = _build_desired_map(batches)
                 # Only manage taps within the configured count.
                 desired = {t: v for t, v in desired.items() if 1 <= t <= num_taps}
                 log.info("desired Brewfather tap map: %s", sorted(desired.keys()))
 
                 written = 0
+                unchanged = 0
                 skipped_overrides = 0
                 for tap, entry in desired.items():
                     if md.is_manual_override(tap):
                         # Never read/write/archive a manual override.
                         skipped_overrides += 1
                         continue
-                    _write_bf_tap(client, tap, entry["batch"])
+                    rev = entry["updated_ms"]
+                    if _is_unchanged(tap, entry["batch"], rev):
+                        unchanged += 1
+                        continue
+                    _write_bf_tap(client, tap, entry["batch"], rev)
                     written += 1
 
                 # Archive any existing bf_tap that is no longer desired and is
@@ -349,8 +379,13 @@ def run_sync() -> dict[str, Any]:
                 archived = _archive_undesired(desired, num_taps)
 
         except httpx.HTTPStatusError as exc:
-            # Auth / API errors: make NO destructive changes.
-            err = f"Brewfather API error {exc.response.status_code}: {exc.response.text[:200]}"
+            # Auth / API / rate-limit errors: make NO destructive changes.
+            sc = exc.response.status_code
+            if sc == 429:
+                retry = exc.response.headers.get("Retry-After", "?")
+                err = f"Brewfather rate limit hit (429); retry after {retry}s"
+            else:
+                err = f"Brewfather API error {sc}: {exc.response.text[:200]}"
             log.error("sync failed (no changes made): %s", err)
             update_config(last_sync_error=err, last_sync_attempt=iso_now())
             return {"ok": False, "message": err}
@@ -363,12 +398,13 @@ def run_sync() -> dict[str, Any]:
         ts = iso_now()
         update_config(last_sync_success=ts, last_sync_error=None, last_sync_attempt=ts)
         log.info(
-            "sync finished: %d written, %d archived, %d override slots skipped",
-            written, archived, skipped_overrides,
+            "sync finished: %d written, %d unchanged, %d archived, %d override slots skipped",
+            written, unchanged, archived, skipped_overrides,
         )
         return {
             "ok": True,
             "written": written,
+            "unchanged": unchanged,
             "archived": archived,
             "skipped_overrides": skipped_overrides,
             "timestamp": ts,

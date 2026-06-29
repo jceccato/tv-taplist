@@ -80,6 +80,15 @@
   const tickerEl = document.getElementById("ticker");
   const tickerText = document.getElementById("ticker-text");
   const bootError = document.getElementById("boot-error");
+  const venueHeader = document.getElementById("venue-header");
+  const venueLogo = document.getElementById("venue-logo");
+
+  // Default display settings until the first board arrives.
+  const DEFAULT_SETTINGS = {
+    color_unit: "ebc",
+    show_abv: true, show_ibu: true, show_color: true,
+    hide_abv_when_empty: true, hide_ibu_when_empty: true, hide_color_when_empty: true,
+  };
 
   // ---- state ----
   const state = {
@@ -89,6 +98,8 @@
     dataByTap: new Map(),   // tap number -> last rendered tap data
     pages: [],              // array of arrays of tap numbers
     announcement: null,
+    settings: { ...DEFAULT_SETTINGS },
+    venueLogoSrc: null,
     hasRendered: false,
   };
 
@@ -102,6 +113,35 @@
   function fmtNum(v, suffix = "") {
     if (v === null || v === undefined || v === "") return "—";
     return `${v}${suffix}`;
+  }
+
+  function isEmpty(v) {
+    return v === null || v === undefined || v === "";
+  }
+
+  // A stat is hidden if globally disabled, or empty-and-configured-to-hide.
+  function statHidden(value, show, hideWhenEmpty) {
+    if (!show) return true;
+    return isEmpty(value) && hideWhenEmpty;
+  }
+
+  // Colour stat label + value for the configured unit (values stored as EBC).
+  function colorLabel() {
+    return state.settings.color_unit === "srm" ? "SRM" : "EBC";
+  }
+  function colorValue(ebc) {
+    if (isEmpty(ebc)) return "—";
+    const v = state.settings.color_unit === "srm" ? Number(ebc) / EBC_PER_SRM : Number(ebc);
+    return String(Math.round(v));
+  }
+
+  // Signature of the global display settings; a change forces a full re-render
+  // so every card picks up the new unit / visibility rules immediately.
+  function settingsSignature(s) {
+    return [
+      s.color_unit, s.show_abv, s.show_ibu, s.show_color,
+      s.hide_abv_when_empty, s.hide_ibu_when_empty, s.hide_color_when_empty,
+    ].join("|");
   }
 
   function visibleTaps(board) {
@@ -145,12 +185,22 @@
     }
     if (t.vacant) return; // nothing else to update on a vacant card
 
+    const s = state.settings;
     if (changed("name")) setText(card, ".name", t.name);
     if (changed("description")) setText(card, ".desc", t.description || "");
-    if (changed("abv")) setText(card, '[data-stat="abv"] .v', fmtNum(t.abv, "%"));
-    if (changed("ibu")) setText(card, '[data-stat="ibu"] .v', fmtNum(t.ibu));
-    if (changed("ebc")) setText(card, '[data-stat="ebc"] .v', fmtNum(t.ebc));
-    if (changed("ebc")) updateSwatch(card, t);
+    if (changed("abv")) {
+      setText(card, '[data-stat="abv"] .v', fmtNum(t.abv, "%"));
+      setHidden(card, '[data-stat="abv"]', statHidden(t.abv, s.show_abv, s.hide_abv_when_empty));
+    }
+    if (changed("ibu")) {
+      setText(card, '[data-stat="ibu"] .v', fmtNum(t.ibu));
+      setHidden(card, '[data-stat="ibu"]', statHidden(t.ibu, s.show_ibu, s.hide_ibu_when_empty));
+    }
+    if (changed("ebc")) {
+      setText(card, '[data-stat="color"] .v', colorValue(t.ebc));
+      setHidden(card, '[data-stat="color"]', statHidden(t.ebc, s.show_color, s.hide_color_when_empty));
+      updateSwatch(card, t);
+    }
     if (changed("source")) setText(card, ".source-badge", sourceLabel(t.source));
     if (changed("image_url")) {
       const img = card.querySelector(".thumb");
@@ -169,22 +219,28 @@
   }
 
   function filledInner(t) {
+    const s = state.settings;
     const hex = ebcToHex(t.ebc);
     const txt = textColorFor(hex);
-    const swatchVal = t.ebc === null || t.ebc === undefined ? "" : Math.round(t.ebc);
+    // Swatch is the colour circle only (no number — it's listed in the stats).
+    const swatchHidden = statHidden(t.ebc, s.show_color, s.hide_color_when_empty);
+    const abvHidden = statHidden(t.abv, s.show_abv, s.hide_abv_when_empty);
+    const ibuHidden = statHidden(t.ibu, s.show_ibu, s.hide_ibu_when_empty);
+    const colorHidden = swatchHidden;
+    const hAttr = (h) => (h ? " hidden" : "");
     return `
       <div class="card-head">
         <div class="tap-num">${t.tap}</div>
         <h2 class="name">${esc(t.name || "Tap " + t.tap)}</h2>
-        <div class="swatch" style="background:${hex};color:${txt}">${swatchVal}</div>
+        <div class="swatch" style="background:${hex};color:${txt}"${hAttr(swatchHidden)}></div>
       </div>
       <p class="desc">${esc(t.description || "")}</p>
       <div class="card-foot">
         <img class="thumb" alt="" src="${esc(t.image_url || "/img/placeholder")}">
         <div class="stats">
-          <div class="stat" data-stat="abv"><span class="v">${fmtNum(t.abv, "%")}</span><span class="k">ABV</span></div>
-          <div class="stat" data-stat="ibu"><span class="v">${fmtNum(t.ibu)}</span><span class="k">IBU</span></div>
-          <div class="stat" data-stat="ebc"><span class="v">${fmtNum(t.ebc)}</span><span class="k">EBC</span></div>
+          <div class="stat" data-stat="abv"${hAttr(abvHidden)}><span class="v">${fmtNum(t.abv, "%")}</span><span class="k">ABV</span></div>
+          <div class="stat" data-stat="ibu"${hAttr(ibuHidden)}><span class="v">${fmtNum(t.ibu)}</span><span class="k">IBU</span></div>
+          <div class="stat" data-stat="color"${hAttr(colorHidden)}><span class="v">${colorValue(t.ebc)}</span><span class="k">${colorLabel()}</span></div>
         </div>
       </div>
       <span class="source-badge">${sourceLabel(t.source)}</span>`;
@@ -202,10 +258,11 @@
   function updateSwatch(card, t) {
     const sw = card.querySelector(".swatch");
     if (!sw) return;
+    const s = state.settings;
     const hex = ebcToHex(t.ebc);
     sw.style.background = hex;
-    sw.style.color = textColorFor(hex);
-    sw.textContent = t.ebc === null || t.ebc === undefined ? "" : String(Math.round(t.ebc));
+    sw.style.color = textColorFor(hex);   // kept for contrast even though no text
+    sw.hidden = statHidden(t.ebc, s.show_color, s.hide_color_when_empty);
   }
 
   function bindImage(card, t) {
@@ -223,6 +280,11 @@
   function setText(card, sel, value) {
     const el = card.querySelector(sel);
     if (el) el.textContent = value;
+  }
+
+  function setHidden(card, sel, hidden) {
+    const el = card.querySelector(sel);
+    if (el) el.hidden = !!hidden;
   }
 
   function esc(s) {
@@ -345,15 +407,47 @@
   }
 
   function applyBoard(board) {
+    // Adopt the latest display settings before rendering cards.
+    state.settings = {
+      color_unit: board.color_unit || "ebc",
+      show_abv: board.show_abv !== false,
+      show_ibu: board.show_ibu !== false,
+      show_color: board.show_color !== false,
+      hide_abv_when_empty: board.hide_abv_when_empty !== false,
+      hide_ibu_when_empty: board.hide_ibu_when_empty !== false,
+      hide_color_when_empty: board.hide_color_when_empty !== false,
+    };
+
+    updateVenueHeader(board);
+
     const taps = visibleTaps(board);
     const pages = chunk(taps.map((t) => t.tap), MAX_CARDS_PER_PAGE);
-    const key = layoutSignature(pages);
+    // Fold the settings signature into the layout key so a settings change
+    // (e.g. EBC->SRM, or toggling a stat) forces a full re-render of all cards.
+    const key = layoutSignature(pages) + "#" + settingsSignature(state.settings);
     if (!state.hasRendered || key !== state.layoutKey) {
       fullRender(board, taps);
+      state.layoutKey = key;   // fullRender sets the layout-only key; override it
     } else {
       diffUpdate(taps);
     }
     updateTicker(board.announcement_text);
+  }
+
+  function updateVenueHeader(board) {
+    const url = board.venue_logo_url;
+    const h = Math.max(0, Math.min(33, Number(board.venue_logo_height_vh) || 0));
+    if (!url || h <= 0) {
+      venueHeader.hidden = true;
+      document.documentElement.style.setProperty("--venue-h", "0px");
+      return;
+    }
+    document.documentElement.style.setProperty("--venue-h", h + "vh");
+    venueHeader.hidden = false;
+    if (state.venueLogoSrc !== url) {
+      state.venueLogoSrc = url;
+      venueLogo.src = url;
+    }
   }
 
   // ---- boot ----

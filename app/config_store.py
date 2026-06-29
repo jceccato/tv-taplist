@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any
 
 from .atomic import atomic_write_text
@@ -24,11 +25,25 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "announcement_text": "",
     "max_archive_age_days": 180,
     "max_archive_storage_mb": 2048,
+    # Display options.
+    "color_unit": "ebc",            # "ebc" or "srm" — colour stat display unit
+    "show_abv": True,               # global show/hide for each stat
+    "show_ibu": True,
+    "show_color": True,
+    "hide_abv_when_empty": True,    # when shown, hide per-beer if value missing
+    "hide_ibu_when_empty": True,
+    "hide_color_when_empty": True,
+    # Optional venue/company logo at the top of the display.
+    "venue_logo": None,             # filename under /data (e.g. venue_logo.png) or null
+    "venue_logo_height_vh": 0,      # 0..33 (% of viewport height; 0 hides the header)
     # Status fields, updated by the sync job so an unattended box is debuggable.
     "last_sync_success": None,   # ISO8601 string of last *successful* sync
     "last_sync_error": None,     # human-readable last error, or null
     "last_sync_attempt": None,   # ISO8601 of last attempt (success or fail)
 }
+
+# Cap the venue logo at a third of the screen height (per the design).
+MAX_VENUE_LOGO_VH = 33
 
 
 def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -54,7 +69,37 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     merged["announcement_text"] = str(merged["announcement_text"] or "")
     merged["brewfather_user_id"] = str(merged["brewfather_user_id"] or "")
     merged["brewfather_api_key"] = str(merged["brewfather_api_key"] or "")
+
+    # Display options.
+    merged["color_unit"] = "srm" if str(merged["color_unit"]).lower() == "srm" else "ebc"
+    for flag in ("show_abv", "show_ibu", "show_color",
+                 "hide_abv_when_empty", "hide_ibu_when_empty", "hide_color_when_empty"):
+        merged[flag] = bool(merged[flag])
+    merged["venue_logo"] = (str(merged["venue_logo"]) if merged["venue_logo"] else None)
+    try:
+        merged["venue_logo_height_vh"] = max(0, min(MAX_VENUE_LOGO_VH, int(merged["venue_logo_height_vh"])))
+    except (TypeError, ValueError):
+        merged["venue_logo_height_vh"] = 0
     return merged
+
+
+def brewfather_credentials() -> dict[str, Any]:
+    """Resolve effective Brewfather credentials, env taking precedence.
+
+    BREWFATHER_USER_ID / BREWFATHER_API_KEY env vars override the values in
+    config.json so the API key need not be persisted to disk. Each field is
+    resolved independently, and the *_from_env flags let the admin UI show which
+    are locked to the environment.
+    """
+    cfg = load_config()
+    env_user = os.environ.get("BREWFATHER_USER_ID", "").strip()
+    env_key = os.environ.get("BREWFATHER_API_KEY", "").strip()
+    return {
+        "user_id": env_user or cfg.get("brewfather_user_id", "").strip(),
+        "api_key": env_key or cfg.get("brewfather_api_key", "").strip(),
+        "user_from_env": bool(env_user),
+        "key_from_env": bool(env_key),
+    }
 
 
 def load_config() -> dict[str, Any]:
