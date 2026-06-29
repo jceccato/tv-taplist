@@ -322,3 +322,45 @@ html, body {
     text-align: center;
   }
 }
+
+/* ---- Phone / portrait ----
+   The fixed-height, no-scroll TV grid doesn't fit a tall narrow screen: the
+   bottom row of cards clips and the announcement ticker gets pushed off the
+   bottom. On a portrait phone, switch to a single scrolling column with
+   comfortably sized cards and a ticker pinned to the bottom of the viewport. */
+@media (max-width: 640px) and (orientation: portrait) {
+  html, body { height: auto; min-height: 100%; overflow-y: auto; overflow-x: hidden; }
+
+  .board {
+    height: auto;
+    min-height: 100vh;
+    grid-template-rows: auto auto auto;   /* header | cards (content) | ticker */
+  }
+
+  .venue-header { max-height: 18vh; }     /* keep the logo from dominating the phone */
+
+  /* Let the card area flow and grow with content instead of being a fixed,
+     absolutely-positioned 1fr stage. */
+  .stage { position: static; min-height: 0; }
+  .page {
+    position: static;
+    opacity: 1;
+    pointer-events: auto;
+    grid-template-columns: 1fr !important;
+    grid-template-rows: none !important;
+    grid-auto-rows: auto;
+    height: auto;
+  }
+  .page:not(.active) { display: none; }   /* show the current page; carousel still cycles if >8 taps */
+
+  /* Card height is content-driven here, so don't use the 1fr image trick;
+     size the image by a viewport cap instead and keep the stats beside it. */
+  .card { grid-template-rows: auto auto auto; }
+  .card .card-foot { overflow: visible; }
+  .card .thumb { height: auto; max-height: 22vh; max-width: 40%; }
+
+  .dots { position: static; transform: none; justify-content: center; margin-top: 1vmin; }
+
+  /* Pin the announcement to the bottom of the viewport while the cards scroll. */
+  .ticker { position: sticky; bottom: 0; z-index: 20; }
+}

@@ -43,3 +43,7 @@ taplist_data/
 
 # ── Logs ──────────────────────────────────────────────────────────────────
 *.log
+
+# ── Local dev tooling ─────────────────────────────────────────────────────
+# Preview launcher with machine-specific paths; not shared.
+.claude/launch.json
