@@ -19,6 +19,37 @@ def test_extract_abv_prefers_measured():
     assert brewfather._extract_abv({"recipe": {"abv": 6.0}}) == 6.0
 
 
+def test_extract_name_prefers_recipe_over_generic_batch():
+    # Brewfather's default batch name is generic; the recipe holds the beer name.
+    assert brewfather._extract_name({"name": "Batch", "recipe": {"name": "Hazy IPA"}}) == "Hazy IPA"
+    assert brewfather._extract_name({"name": "Batch #12", "recipe": {"name": "Stout"}}) == "Stout"
+    # A user-customised batch name is respected over the recipe name.
+    assert brewfather._extract_name(
+        {"name": "Festbier 2026", "recipe": {"name": "Festbier"}}) == "Festbier 2026"
+    # No recipe name -> fall back to the batch number.
+    assert brewfather._extract_name({"name": "Batch", "batchNo": 7}) == "Batch 7"
+
+
+def test_zero_stats_are_treated_as_missing():
+    # Brewfather sends 0 (not null) for unset values; we store None so the
+    # display hides the stat instead of showing a "0".
+    assert brewfather._extract_abv({"measuredAbv": 0, "recipe": {"abv": 0}}) is None
+    assert brewfather._extract_ibu({"measuredIbu": 0}) is None
+    assert brewfather._extract_ebc({"measuredEbc": 0, "estimatedColor": 0}) is None
+    # A real value still comes through even when a measured field is 0.
+    assert brewfather._extract_abv({"measuredAbv": 0, "recipe": {"abv": 5.2}}) == 5.2
+
+
+def test_description_strips_tap_token():
+    # The tap-assignment token must never leak onto the card body.
+    assert brewfather._extract_description({"batchNotes": "tap:4"}) == ""
+    assert brewfather._extract_description(
+        {"batchNotes": "tap:4\nJuicy and tropical"}) == "Juicy and tropical"
+    # A dedicated tasting-note field wins over the batch notes.
+    assert brewfather._extract_description(
+        {"tasteNotes": "Crisp and clean", "batchNotes": "tap:4"}) == "Crisp and clean"
+
+
 def test_extract_ebc_and_srm():
     assert brewfather._extract_ebc({"measuredEbc": 40}) == 40.0
     assert brewfather._extract_ebc({"recipe": {"color": 25}}) == 25.0

@@ -47,8 +47,18 @@ HTTP_TIMEOUT = httpx.Timeout(20.0, connect=10.0)
 PAGE_SIZE = 50
 MAX_PAGES = 50  # safety cap: 50 pages x 50 = 2500 completed batches
 
+# Bumped whenever the field-extraction logic below changes in a way that should
+# refresh already-cached bf_tap files. `_is_unchanged` treats a stored map_rev
+# different from this as "changed", so the next sync rewrites every tap once with
+# the new mapping, then settles back to skipping genuinely unchanged batches.
+MAPPING_VERSION = 2
+
 # `tap:3`, `tap: 3`, `Tap:3`, etc.
 TAP_TOKEN_RE = re.compile(r"tap\s*:\s*(\d+)", re.IGNORECASE)
+
+# A Brewfather batch's own `name` defaults to a generic "Batch" / "Batch #12";
+# the real beer name lives on the embedded recipe, so we skip these.
+GENERIC_BATCH_NAME_RE = re.compile(r"^\s*batch\s*#?\s*\d*\s*$", re.IGNORECASE)
 
 CONTENT_TYPE_EXT = {
     "image/jpeg": ".jpg",
@@ -62,23 +72,43 @@ CONTENT_TYPE_EXT = {
 # ---- low-level field extraction (defensive) ------------------------------
 
 def _first_number(obj: dict[str, Any], *keys: str) -> float | None:
-    """Return the first present numeric value among keys (measured preferred)."""
+    """Return the first present *positive* numeric value among keys.
+
+    Callers list measured fields before estimated/recipe ones. Brewfather sends
+    0 (not null) for an unset ABV / IBU / colour, so any non-positive value is
+    treated as "not provided": callers then store None and the display hides
+    that stat (and the colour swatch) instead of showing a 0.
+    """
     for key in keys:
-        if key in obj and obj[key] not in (None, ""):
-            try:
-                return float(obj[key])
-            except (TypeError, ValueError):
-                continue
+        if key not in obj or obj[key] in (None, ""):
+            continue
+        try:
+            num = float(obj[key])
+        except (TypeError, ValueError):
+            continue
+        if num > 0:
+            return num
     return None
 
 
 def _extract_name(batch: dict[str, Any]) -> str:
     recipe = batch.get("recipe") or {}
-    return (
-        batch.get("name")
-        or recipe.get("name")
-        or f"Batch {batch.get('batchNo', '?')}"
-    )
+    batch_name = (batch.get("name") or "").strip()
+    recipe_name = (recipe.get("name") or "").strip()
+    # A batch's own `name` is usually Brewfather's generic default ("Batch" /
+    # "Batch #12"); the real beer name lives on the embedded recipe. Use the
+    # batch name only when the user has renamed it to something specific,
+    # otherwise prefer the recipe (beer) name.
+    if batch_name and not GENERIC_BATCH_NAME_RE.match(batch_name):
+        return batch_name
+    if recipe_name:
+        return recipe_name
+    # Generic/blank batch name and no recipe name: build the most specific
+    # generic label we can from the batch number.
+    batch_no = batch.get("batchNo")
+    if batch_no not in (None, ""):
+        return f"Batch {batch_no}"
+    return batch_name or "Batch"
 
 
 def _extract_abv(batch: dict[str, Any]) -> float | None:
@@ -134,14 +164,33 @@ def _extract_notes_text(batch: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def _clean_description(text: str) -> str:
+    """Strip the `tap:X` control token (and tidy whitespace) from notes text.
+
+    The tap assignment lives in the batch notes, so without this the token would
+    leak onto the card body whenever the notes are used as the description.
+    """
+    cleaned = TAP_TOKEN_RE.sub(" ", text)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r"\s*\n\s*", "\n", cleaned)
+    return cleaned.strip()
+
+
 def _extract_description(batch: dict[str, Any]) -> str:
-    """Tasting notes for the card body; fall back to batch notes."""
-    taste = batch.get("tasteNotes")
-    if isinstance(taste, str) and taste.strip():
-        return taste.strip()
+    """Tasting notes for the card body.
+
+    Prefers dedicated tasting-note fields; only falls back to the general batch
+    notes as a last resort, and always strips the `tap:X` token so it never
+    shows on the display. (Confirm the exact field name against a live payload —
+    see the module docstring.)
+    """
+    for key in ("tasteNotes", "tastingNotes", "taste_notes", "tasting_notes"):
+        val = batch.get(key)
+        if isinstance(val, str) and val.strip():
+            return _clean_description(val)
     notes = batch.get("batchNotes")
     if isinstance(notes, str) and notes.strip():
-        return notes.strip()
+        return _clean_description(notes)
     return ""
 
 
@@ -308,7 +357,8 @@ def _write_bf_tap(client: httpx.Client, tap: int, batch: dict[str, Any], rev: in
         "ebc": ebc,
         "source": "brewfather",
         "batch_id": batch.get("_id") or batch.get("id"),
-        "source_rev": rev,        # batch revision, used to skip unchanged syncs
+        "source_rev": rev,            # batch revision, used to skip unchanged syncs
+        "map_rev": MAPPING_VERSION,   # extraction-logic version (forces one refresh)
         "image": image_name,
         "updated": iso_now(),
     }
@@ -328,8 +378,11 @@ def _is_unchanged(tap: int, batch: dict[str, Any], rev: int) -> bool:
     bid = batch.get("_id") or batch.get("id")
     same_batch = str(existing.get("batch_id")) == str(bid)
     same_rev = str(existing.get("source_rev")) == str(rev)
+    # A mapping-logic change (new MAPPING_VERSION) forces a one-time rewrite even
+    # when the batch itself is unchanged, so cached files pick up the new fields.
+    same_map = str(existing.get("map_rev")) == str(MAPPING_VERSION)
     has_image_if_needed = (not _extract_image_url(batch)) or (md.find_image_for(f"bf_tap_{tap}") is not None)
-    return same_batch and same_rev and has_image_if_needed
+    return same_batch and same_rev and same_map and has_image_if_needed
 
 
 def run_sync() -> dict[str, Any]:
