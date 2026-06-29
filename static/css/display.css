@@ -101,8 +101,12 @@ html, body {
    the full width, and the image sits in the footer row next to the stats. */
 .card {
   position: relative;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  /* The name and description claim their natural height first; the image+stats
+     row (minmax(0,1fr)) takes only what's left. So a tall venue logo (short
+     cards) shrinks the image instead of cropping the name/description — the
+     image can never encroach on the text. */
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 0.8vmin;
   background: linear-gradient(160deg, var(--bg-card), var(--bg-card-2));
   border: 1px solid var(--border);
@@ -154,7 +158,6 @@ html, body {
 }
 
 .card .desc {
-  flex: 1 1 auto;
   min-height: 0;
   color: var(--text-dim);
   font-size: clamp(11px, 1.8vmin, 32px);
@@ -170,23 +173,32 @@ html, body {
   align-items: flex-end;
   gap: 1.2vmin;
   min-width: 0;
+  min-height: 0;          /* this is the grid 1fr row: clip, never grow */
+  overflow: hidden;
 }
 
 .card .thumb {
-  flex: 0 0 auto;
-  width: clamp(64px, 18vmin, 320px);
-  height: clamp(64px, 18vmin, 320px);
+  flex: 0 1 auto;
+  min-height: 0;
+  height: 100%;            /* fill the leftover (1fr) foot height ... */
+  width: auto;
+  max-width: 46%;          /* ... but always leave room for the stats beside it */
   object-fit: contain;
+  object-position: left bottom;
   border-radius: 1vmin;
-  background: #0c0e13;
 }
 
-/* On narrow cards (many taps per page / small windows) the larger beer image +
-   three stats won't both fit, so drop the image (the least-important element)
-   and let the stats use the full width. Wider cards (a real 1080p/4K TV) keep
-   the large image. */
-@container (max-width: 360px) {
-  .card .thumb { display: none; }
+/* Narrow cards (a full 8-tap TV grid, or a phone): the image + three stats
+   won't sit side by side, so stack the stats *beneath* the image rather than
+   shoving them off the edge. The image stays visible (just smaller). */
+@container (max-width: 340px) {
+  .card .card-foot {
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+  }
+  .card .thumb { height: auto; max-height: 100%; max-width: 88%; }
+  .card .stats { margin-left: 0; }
 }
 
 .card .stats {
