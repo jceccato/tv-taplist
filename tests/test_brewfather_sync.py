@@ -40,14 +40,19 @@ def test_zero_stats_are_treated_as_missing():
     assert brewfather._extract_abv({"measuredAbv": 0, "recipe": {"abv": 5.2}}) == 5.2
 
 
-def test_description_strips_tap_token():
-    # The tap-assignment token must never leak onto the card body.
-    assert brewfather._extract_description({"batchNotes": "tap:4"}) == ""
-    assert brewfather._extract_description(
-        {"batchNotes": "tap:4\nJuicy and tropical"}) == "Juicy and tropical"
-    # A dedicated tasting-note field wins over the batch notes.
+def test_description_uses_taste_notes_then_style():
+    # A dedicated tasting-note field wins (and any tap token in it is stripped).
     assert brewfather._extract_description(
         {"tasteNotes": "Crisp and clean", "batchNotes": "tap:4"}) == "Crisp and clean"
+    # No tasting notes -> fall back to the recipe style name.
+    assert brewfather._extract_description(
+        {"batchNotes": "tap:4", "recipe": {"style": {"name": "English Porter"}}}) == "English Porter"
+    assert brewfather._extract_description(
+        {"recipe": {"style": "Cider With Other Fruit"}}) == "Cider With Other Fruit"
+    # Batch notes (control data) are NEVER used as the description body.
+    assert brewfather._extract_description({"batchNotes": "tap:4 brew log text"}) == ""
+    # Nothing available -> blank.
+    assert brewfather._extract_description({"recipe": {}}) == ""
 
 
 def test_extract_ebc_and_srm():

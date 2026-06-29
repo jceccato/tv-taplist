@@ -51,7 +51,7 @@ MAX_PAGES = 50  # safety cap: 50 pages x 50 = 2500 completed batches
 # refresh already-cached bf_tap files. `_is_unchanged` treats a stored map_rev
 # different from this as "changed", so the next sync rewrites every tap once with
 # the new mapping, then settles back to skipping genuinely unchanged batches.
-MAPPING_VERSION = 2
+MAPPING_VERSION = 3
 
 # `tap:3`, `tap: 3`, `Tap:3`, etc.
 TAP_TOKEN_RE = re.compile(r"tap\s*:\s*(\d+)", re.IGNORECASE)
@@ -165,33 +165,39 @@ def _extract_notes_text(batch: dict[str, Any]) -> str:
 
 
 def _clean_description(text: str) -> str:
-    """Strip the `tap:X` control token (and tidy whitespace) from notes text.
-
-    The tap assignment lives in the batch notes, so without this the token would
-    leak onto the card body whenever the notes are used as the description.
-    """
+    """Strip the `tap:X` control token and tidy whitespace in notes text."""
     cleaned = TAP_TOKEN_RE.sub(" ", text)
     cleaned = re.sub(r"[ \t]+", " ", cleaned)
     cleaned = re.sub(r"\s*\n\s*", "\n", cleaned)
     return cleaned.strip()
 
 
-def _extract_description(batch: dict[str, Any]) -> str:
-    """Tasting notes for the card body.
+def _extract_style(batch: dict[str, Any]) -> str:
+    """Recipe style name (e.g. "English Porter"), used as a description fallback."""
+    style = (batch.get("recipe") or {}).get("style")
+    if isinstance(style, dict):
+        return (style.get("name") or "").strip()
+    if isinstance(style, str):
+        return style.strip()
+    return ""
 
-    Prefers dedicated tasting-note fields; only falls back to the general batch
-    notes as a last resort, and always strips the `tap:X` token so it never
-    shows on the display. (Confirm the exact field name against a live payload —
-    see the module docstring.)
+
+def _extract_description(batch: dict[str, Any]) -> str:
+    """Card body text: Brewfather tasting notes, else the beer style.
+
+    The dedicated tasting-note field wins when present; otherwise we fall back to
+    the recipe's style name so the card isn't blank (most Brewfather batches have
+    no tasting notes). The batch notes are deliberately NOT used for the body —
+    they hold the `tap:X` control token, not display text — and any such token is
+    stripped from whatever text we do show.
     """
     for key in ("tasteNotes", "tastingNotes", "taste_notes", "tasting_notes"):
         val = batch.get(key)
         if isinstance(val, str) and val.strip():
-            return _clean_description(val)
-    notes = batch.get("batchNotes")
-    if isinstance(notes, str) and notes.strip():
-        return _clean_description(notes)
-    return ""
+            cleaned = _clean_description(val)
+            if cleaned:
+                return cleaned
+    return _extract_style(batch)
 
 
 def _extract_image_url(batch: dict[str, Any]) -> str | None:
