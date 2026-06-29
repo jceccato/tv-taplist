@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import Any
 
 from .atomic import atomic_write_text
@@ -102,24 +103,66 @@ def brewfather_credentials() -> dict[str, Any]:
     }
 
 
-def load_config() -> dict[str, Any]:
-    """Load config.json, creating a sensible default on first run."""
+class ConfigUnreadable(RuntimeError):
+    """config.json is present but could not be read/parsed (after retries).
+
+    Raised so a read-modify-write (update_config) can REFUSE to overwrite an
+    existing-but-momentarily-unreadable config with defaults — which would
+    silently wipe the operator's settings. This matters in practice: a bind
+    mount on Docker Desktop / Windows can fail or briefly mis-report a read,
+    and the sync job writes config (sync status) every cycle.
+    """
+
+
+_READ_RETRIES = 5
+
+
+def _read_existing_config() -> dict[str, Any] | None:
+    """Return the coerced config, None if it is genuinely absent (first run).
+
+    Retries to ride out a transient FS error (or a cold bind mount that briefly
+    reports the file missing). Only concludes "absent" when the file is *still*
+    not found after every attempt; any other persistent error raises
+    ConfigUnreadable rather than masquerading as a first run.
+    """
     ensure_dirs()
-    if not CONFIG_PATH.exists():
-        log.info("config.json missing; writing first-run default")
-        save_config(DEFAULT_CONFIG)
-        return dict(DEFAULT_CONFIG)
+    last_exc: Exception | None = None
+    for attempt in range(_READ_RETRIES):
+        try:
+            raw = CONFIG_PATH.read_text(encoding="utf-8")
+            cfg = json.loads(raw)
+            if not isinstance(cfg, dict):
+                raise ValueError("config.json is not a JSON object")
+            return _coerce(cfg)
+        except FileNotFoundError as exc:
+            last_exc = exc
+            if attempt == _READ_RETRIES - 1:
+                return None  # consistently missing -> genuine first run
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            last_exc = exc
+            if attempt == _READ_RETRIES - 1:
+                raise ConfigUnreadable(f"{CONFIG_PATH}: {exc}") from exc
+        time.sleep(0.05 * (attempt + 1))
+    raise ConfigUnreadable(f"{CONFIG_PATH}: {last_exc}")
+
+
+def load_config() -> dict[str, Any]:
+    """Load config for read/display paths. Never raises; bootstraps on first run.
+
+    On a genuine first run the defaults are written once. If the file exists but
+    is transiently unreadable, return in-memory defaults for THIS read only and
+    do NOT persist them, so a glitch can never wipe the saved file.
+    """
     try:
-        raw = CONFIG_PATH.read_text(encoding="utf-8")
-        cfg = json.loads(raw)
-        if not isinstance(cfg, dict):
-            raise ValueError("config.json is not a JSON object")
-        return _coerce(cfg)
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        # Never crash the appliance on a corrupt config; fall back to defaults
-        # but do NOT overwrite the file so the operator can recover it.
-        log.error("config.json unreadable (%s); using in-memory defaults", exc)
+        cfg = _read_existing_config()
+    except ConfigUnreadable as exc:
+        log.error("%s; using in-memory defaults for this read (not persisting)", exc)
         return dict(DEFAULT_CONFIG)
+    if cfg is None:
+        log.info("config.json missing; writing first-run default")
+        cfg = dict(DEFAULT_CONFIG)
+        save_config(cfg)
+    return cfg
 
 
 def save_config(cfg: dict[str, Any]) -> None:
@@ -130,8 +173,15 @@ def save_config(cfg: dict[str, Any]) -> None:
 
 
 def update_config(**changes: Any) -> dict[str, Any]:
-    """Read-modify-write helper used by admin saves and the sync status update."""
-    cfg = load_config()
+    """Read-modify-write helper for admin saves and sync-status updates.
+
+    Refuses to write when the existing config can't be read (raises
+    ConfigUnreadable), so a transient read failure can never clobber the
+    operator's saved settings with defaults.
+    """
+    cfg = _read_existing_config()      # raises ConfigUnreadable on a bad read
+    if cfg is None:
+        cfg = dict(DEFAULT_CONFIG)     # genuine first run
     cfg.update(changes)
     save_config(cfg)
     return cfg

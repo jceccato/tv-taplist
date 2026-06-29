@@ -46,7 +46,7 @@ from .config_store import (
     MAX_VENUE_LOGO_VH,
     brewfather_credentials,
     load_config,
-    save_config,
+    update_config,
 )
 from .demo import maybe_seed_demo
 from .paths import (
@@ -312,7 +312,6 @@ async def save_settings(
     if max_archive_age_days < 0 or max_archive_storage_mb < 0:
         raise HTTPException(status_code=422, detail="Cleanup limits must be >= 0")
 
-    cfg = load_config()
     updates = {
         "num_taps": num_taps,
         "hide_vacant_taps": hide_vacant_taps,
@@ -336,8 +335,7 @@ async def save_settings(
     if not creds["key_from_env"]:
         updates["brewfather_api_key"] = brewfather_api_key.strip()
 
-    cfg.update(updates)
-    save_config(cfg)
+    update_config(**updates)
     log.info("admin saved settings (num_taps=%d color_unit=%s)", num_taps, updates["color_unit"])
     return {"ok": True}
 
@@ -358,7 +356,7 @@ async def venue_logo(
             safe_unlink(DATA_DIR / f"venue_logo{ext}")
 
         if remove or image is None or not image.filename:
-            save_config({**load_config(), "venue_logo": None})
+            update_config(venue_logo=None)
             log.info("venue logo removed")
             return {"ok": True, "venue_logo_url": None}
 
@@ -369,7 +367,7 @@ async def venue_logo(
             raise HTTPException(status_code=422, detail=f"Unsupported image type: {ext}")
         dest = DATA_DIR / f"venue_logo{ext}"
         atomic_write_bytes(dest, image.file.read())
-        save_config({**load_config(), "venue_logo": dest.name})
+        update_config(venue_logo=dest.name)
         log.info("venue logo uploaded (%s)", dest.name)
         return {"ok": True, "venue_logo_url": "/img/venue-logo"}
 

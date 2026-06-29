@@ -42,11 +42,28 @@ from . import markdown_store as md
 from .archive import archive_tap
 from .atomic import JOB_LOCK, atomic_write_bytes
 from .colors import EBC_PER_SRM
-from .config_store import brewfather_credentials, load_config, update_config
+from .config_store import (
+    ConfigUnreadable,
+    brewfather_credentials,
+    load_config,
+    update_config,
+)
 from .paths import TAPS_DIR, ensure_dirs
 from .timezone import iso_now
 
 log = logging.getLogger("taplist.sync")
+
+
+def _record_status(**changes: Any) -> None:
+    """Persist sync-status fields, tolerating a transiently unreadable config.
+
+    Sync status is non-critical, so if config.json can't be read right now we
+    skip the update rather than let it bubble up (or risk clobbering settings).
+    """
+    try:
+        update_config(**changes)
+    except ConfigUnreadable as exc:
+        log.warning("could not record sync status (%s)", exc)
 
 API_BASE = "https://api.brewfather.app/v2"
 HTTP_TIMEOUT = httpx.Timeout(20.0, connect=10.0)
@@ -413,7 +430,7 @@ def run_sync() -> dict[str, Any]:
     if not user_id or not api_key:
         msg = "sync skipped: Brewfather credentials not configured"
         log.info(msg)
-        update_config(last_sync_attempt=iso_now())
+        _record_status(last_sync_attempt=iso_now())
         return {"ok": False, "skipped": True, "message": msg}
 
     # Serialise against cleanup and admin writes for the whole job.
@@ -458,16 +475,16 @@ def run_sync() -> dict[str, Any]:
             else:
                 err = f"Brewfather API error {sc}: {exc.response.text[:200]}"
             log.error("sync failed (no changes made): %s", err)
-            update_config(last_sync_error=err, last_sync_attempt=iso_now())
+            _record_status(last_sync_error=err, last_sync_attempt=iso_now())
             return {"ok": False, "message": err}
         except (httpx.HTTPError, OSError) as exc:
             err = f"network/IO error during sync: {exc}"
             log.error("sync failed (no changes made): %s", err)
-            update_config(last_sync_error=err, last_sync_attempt=iso_now())
+            _record_status(last_sync_error=err, last_sync_attempt=iso_now())
             return {"ok": False, "message": err}
 
         ts = iso_now()
-        update_config(last_sync_success=ts, last_sync_error=None, last_sync_attempt=ts)
+        _record_status(last_sync_success=ts, last_sync_error=None, last_sync_attempt=ts)
         log.info(
             "sync finished: %d written, %d unchanged, %d archived, %d override slots skipped",
             written, unchanged, archived, skipped_overrides,
