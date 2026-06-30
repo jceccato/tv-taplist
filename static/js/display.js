@@ -125,7 +125,7 @@
 
   function tapSignature(t) {
     return [
-      t.vacant ? 1 : 0, t.name, t.abv, t.ibu, t.ebc, t.og, t.fg, t.color_hex,
+      t.vacant ? 1 : 0, t.name, t.abv, t.ibu, t.ebc, t.og, t.fg, t.color_hex, t.color_known,
       t.show_og, t.show_fg, t.description, t.image_url, t.source,
     ].join("|");
   }
@@ -198,7 +198,7 @@
       setText(card, '[data-stat="color"] .v', colorValue(t.ebc));
       setHidden(card, '[data-stat="color"]', statHidden(t.ebc, s.show_color, s.hide_color_when_empty));
     }
-    if (changed("ebc") || changed("color_hex")) updateSwatch(card, t);
+    if (changed("ebc") || changed("color_hex") || changed("color_known")) updateSwatch(card, t);
     if (changed("source")) setText(card, ".source-badge", sourceLabel(t.source));
     if (changed("image_url")) {
       const img = card.querySelector(".thumb");
@@ -220,12 +220,15 @@
     const s = state.settings;
     const hex = t.color_hex || "#cccccc";
     const txt = t.text_color || "#f5f5f5";
-    const swatchHidden = statHidden(t.ebc, s.show_color, s.hide_color_when_empty);
+    // The swatch tracks whether a colour is *known* (EBC or override); the colour
+    // STAT number tracks EBC specifically, so an override-only beer shows a swatch
+    // but no EBC number.
+    const swatchHidden = !s.show_color || (!t.color_known && s.hide_color_when_empty);
     const abvHidden = statHidden(t.abv, s.show_abv, s.hide_abv_when_empty);
     const ibuHidden = statHidden(t.ibu, s.show_ibu, s.hide_ibu_when_empty);
     const ogHidden = statHidden(t.og, effShow(t.show_og, s.show_og), s.hide_og_when_empty);
     const fgHidden = statHidden(t.fg, effShow(t.show_fg, s.show_fg), s.hide_fg_when_empty);
-    const colorHidden = swatchHidden;
+    const colorHidden = statHidden(t.ebc, s.show_color, s.hide_color_when_empty);
     const hAttr = (h) => (h ? " hidden" : "");
     const badge = s.show_source_badge
       ? `<span class="source-badge">${sourceLabel(t.source)}</span>` : "";
@@ -264,7 +267,7 @@
     const s = state.settings;
     sw.style.background = t.color_hex || "#cccccc";
     sw.style.color = t.text_color || "#f5f5f5";
-    sw.hidden = statHidden(t.ebc, s.show_color, s.hide_color_when_empty);
+    sw.hidden = !s.show_color || (!t.color_known && s.hide_color_when_empty);
   }
 
   function bindImage(card, t) {

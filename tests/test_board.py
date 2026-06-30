@@ -74,6 +74,17 @@ def test_color_override_wins_over_ebc_everywhere(write_tap):
     assert r["image_url"] == "/img/beer-glass?hex=780606"
 
 
+def test_color_known_tracks_ebc_or_override(write_tap):
+    # The swatch shows when the colour is known: via EBC, or an override alone.
+    write_tap("custom", 1, name="Override only", color_override="#445566")  # no ebc
+    write_tap("custom", 2, name="Ebc only", ebc=12)
+    write_tap("custom", 3, name="Neither")
+    assert resolve_tap(1)["color_known"] is True
+    assert resolve_tap(2)["color_known"] is True
+    assert resolve_tap(3)["color_known"] is False
+    assert resolve_tap(5)["color_known"] is False   # vacant
+
+
 def test_glass_override_tags_placeholder_url(write_tap):
     # A per-tap glass selection is encoded in the glass URL; the default is omitted.
     write_tap("custom", 1, name="Tulip Beer", ebc=20, glass="tulip")
