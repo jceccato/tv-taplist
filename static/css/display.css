@@ -40,12 +40,14 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Board fills the viewport and reserves rows for the (optional) venue header
-   and the ticker, so neither overlaps the card grid. A hidden header collapses
-   to 0 (auto row). */
+/* Board fills the viewport and reserves rows for the (optional) venue header,
+   the page-dots, and the ticker, so none overlaps the card grid. Hidden rows
+   collapse to 0 (auto rows). The dots get their own row (rather than floating
+   over the grid) so when they appear everything moves up and nothing is hidden
+   behind them. */
 .board {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr auto auto;  /* venue · stage · dots · ticker */
   height: 100vh;   /* fallback for browsers without dvh */
   height: 100dvh;  /* visible viewport, so the last card row + ticker always fit on-screen */
   width: 100vw;
@@ -145,15 +147,13 @@ html, body {
 }
 
 .card .name {
-  flex: 1 1 auto;
-  min-width: 0;            /* let the flex item shrink so line-clamp can apply */
+  min-width: 0;            /* let the grid item shrink so long names scroll */
   font-weight: 800;
   font-size: clamp(16px, 2.9vmin, 54px);
   line-height: 1.05;
+  max-height: 2.1em;       /* ~2 lines; overflow auto-scrolls instead of clipping */
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  word-break: break-word;
 }
 
 .card .swatch {
@@ -173,10 +173,26 @@ html, body {
   color: var(--text-dim);
   font-size: clamp(11px, 1.8vmin, 32px);
   line-height: 1.25;
+  max-height: 3.75em;      /* ~3 lines; overflow auto-scrolls instead of clipping */
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+  /* Sit behind the beer info, so a scrolling description never reads over the
+     stats (the foot is raised above it). */
+  position: relative;
+  z-index: 1;
+}
+
+/* Auto-scrolling text: JS measures overflow, sets the shift + duration and adds
+   .scrolling. The inner .scroller is translated to reveal the hidden overflow,
+   pausing at the top and bottom of each pass. No overflow -> no animation. */
+.scroller { display: block; }
+.scrolling .scroller {
+  animation: text-vscroll var(--scroll-dur, 14s) ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes text-vscroll {
+  0%, 12%   { transform: translateY(0); }
+  48%, 60%  { transform: translateY(var(--scroll-shift, 0)); }
+  96%, 100% { transform: translateY(0); }
 }
 
 /* The foot holds the image and the ABV/IBU/colour stats. By default — when the
@@ -193,6 +209,9 @@ html, body {
   min-width: 0;
   min-height: 0;          /* this is the grid 1fr row: clip, never grow */
   overflow: hidden;
+  /* Beer info (image + stats) layered in front of the description text. */
+  position: relative;
+  z-index: 2;
 }
 
 .card .thumb {
@@ -246,10 +265,10 @@ html, body {
   color: var(--text-dim);
 }
 
-/* Vacant card */
+/* Vacant card (stripes use theme colours so they track the active palette) */
 .card.vacant {
   background: repeating-linear-gradient(
-    45deg, var(--vacant), var(--vacant) 12px, #1d212c 12px, #1d212c 24px);
+    45deg, var(--vacant), var(--vacant) 12px, var(--bg-card-2) 12px, var(--bg-card-2) 24px);
   border-style: dashed;
 }
 .card.vacant .name { color: var(--text-dim); }
@@ -266,27 +285,35 @@ html, body {
   opacity: 0.45;
 }
 
-/* ---- Page dots ---- */
+/* ---- Page dots ----
+   Their own grid row (row 3) between the stage and the ticker. When shown, the
+   stage shrinks so nothing is hidden behind them; when hidden the row is 0. */
 .dots {
-  position: absolute;
-  bottom: 0.4vmin;
-  left: 50%;
-  transform: translateX(-50%);
+  grid-row: 3;
   display: flex;
-  gap: 1vmin;
-  z-index: 5;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2vmin;
+  padding: 0.4vmin 0;
 }
 .dots .dot {
-  width: 1.2vmin;
-  height: 1.2vmin;
+  width: 1.4vmin;
+  height: 1.4vmin;
+  min-width: 10px;
+  min-height: 10px;
+  padding: 0;
+  border: none;
   border-radius: 50%;
-  background: rgba(255,255,255,0.25);
+  background: rgba(255, 255, 255, 0.25);
+  cursor: pointer;            /* click a dot to jump straight to that page */
+  transition: background 200ms ease, transform 200ms ease;
 }
+.dots .dot:hover { transform: scale(1.2); }
 .dots .dot.on { background: var(--accent); }
 
 /* ---- Ticker ---- */
 .ticker {
-  grid-row: 3;     /* pinned to the last row */
+  grid-row: 4;     /* pinned to the last row (below the dots row) */
   height: var(--ticker-h);
   min-height: 28px;
   background: #07080b;
@@ -341,6 +368,8 @@ html, body {
     width: 100%;
     text-align: center;
   }
+  /* Auto-scrolling card text falls back to a static (clipped) box. */
+  .scrolling .scroller { animation: none; transform: none; }
 }
 
 /* ---- Phone / tablet: no separate layout ----
