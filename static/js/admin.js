@@ -39,9 +39,11 @@
       e.preventDefault();
       const fd = new FormData(settingsForm);
       // Unchecked checkboxes are omitted from FormData; normalise every one to
-      // an explicit bool so the server always gets the intended value.
-      settingsForm.querySelectorAll('input[type=checkbox]').forEach((cb) => {
-        fd.set(cb.name, cb.checked ? "true" : "false");
+      // an explicit bool so the server always gets the intended value. Iterating
+      // form.elements also covers controls associated via the form= attribute
+      // (the Theme tab and the venue-logo height live outside the <form>).
+      Array.from(settingsForm.elements).forEach((cb) => {
+        if (cb.type === "checkbox" && cb.name) fd.set(cb.name, cb.checked ? "true" : "false");
       });
       try {
         await postForm("/admin/settings", fd);
@@ -120,6 +122,39 @@
       showToast(`Tap ${tap} failed: ` + err.message, "err");
     }
   }
+
+  // ---- tabs (Settings | Theme | Manual overrides) ----
+  const tabs = document.querySelectorAll(".tab");
+  const panels = document.querySelectorAll(".tab-panel");
+  function activateTab(name) {
+    let matched = false;
+    tabs.forEach((t) => {
+      const on = t.dataset.tab === name;
+      t.classList.toggle("active", on);
+      matched = matched || on;
+    });
+    if (!matched) return;
+    panels.forEach((p) => { p.hidden = (p.id !== "tab-" + name); });
+    try { localStorage.setItem("admin_tab", name); } catch (_) { /* private mode */ }
+  }
+  tabs.forEach((t) => t.addEventListener("click", () => activateTab(t.dataset.tab)));
+  // Restore the last tab, so a settings save (which reloads) returns you to it.
+  try {
+    const saved = localStorage.getItem("admin_tab");
+    if (saved) activateTab(saved);
+  } catch (_) { /* ignore */ }
+
+  // ---- theme preset: live hint + dim the custom colours unless "Custom" ----
+  const themeSelect = document.getElementById("theme");
+  const themeHint = document.getElementById("theme-hint");
+  const customTheme = document.getElementById("custom-theme");
+  function syncTheme() {
+    if (!themeSelect) return;
+    const opt = themeSelect.options[themeSelect.selectedIndex];
+    if (themeHint && opt) themeHint.textContent = opt.dataset.hint || "";
+    if (customTheme) customTheme.classList.toggle("dim", themeSelect.value !== "custom");
+  }
+  if (themeSelect) { themeSelect.addEventListener("change", syncTheme); syncTheme(); }
 
   // ---- manual sync ----
   const syncBtn = document.getElementById("sync-now");

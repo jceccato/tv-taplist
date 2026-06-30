@@ -21,7 +21,7 @@
   <div id="toast" class="toast" hidden></div>
 
   <main class="admin-main">
-    <!-- ===== Status panel ===== -->
+    <!-- ===== Status panel (always visible, above the tabs) ===== -->
     <section class="card-panel">
       <h2>Status</h2>
       <div class="status-grid">
@@ -41,148 +41,265 @@
       <button class="btn primary" id="sync-now">Sync Brewfather now</button>
     </section>
 
-    <!-- ===== Settings ===== -->
-    <section class="card-panel">
-      <h2>Settings</h2>
-      <form id="settings-form">
-        <fieldset>
-          <legend>Brewfather</legend>
-          <label for="bf_user">User ID</label>
-          {% if bf.user_from_env %}
-            <input id="bf_user" type="text" value="{{ bf.user_id }}" disabled>
-            <p class="hint">Managed via the <code>BREWFATHER_USER_ID</code> environment variable.</p>
-          {% else %}
-            <input id="bf_user" name="brewfather_user_id" type="text" value="{{ cfg.brewfather_user_id }}" autocomplete="off">
-          {% endif %}
-          <label for="bf_key">API Key</label>
-          {% if bf.key_from_env %}
-            <input id="bf_key" type="password" value="set-via-environment" disabled>
-            <p class="hint">Managed via the <code>BREWFATHER_API_KEY</code> environment variable — not stored in <code>config.json</code>.</p>
-          {% else %}
-            <input id="bf_key" name="brewfather_api_key" type="password" value="{{ cfg.brewfather_api_key }}" autocomplete="off">
-            <p class="hint">Stored in plaintext in <code>config.json</code>. Tip: set <code>BREWFATHER_API_KEY</code> in the environment to keep it off disk.</p>
-          {% endif %}
-        </fieldset>
+    <!-- ===== Tab navigation ===== -->
+    <nav class="tabs" role="tablist">
+      <button class="tab active" type="button" data-tab="settings" role="tab">Settings</button>
+      <button class="tab" type="button" data-tab="theme" role="tab">Theme</button>
+      <button class="tab" type="button" data-tab="overrides" role="tab">Manual overrides</button>
+    </nav>
 
-        <fieldset>
-          <legend>Taps &amp; Display</legend>
-          <label for="num_taps">Number of taps</label>
-          <input id="num_taps" name="num_taps" type="number" min="0" step="1" value="{{ cfg.num_taps }}" required>
+    <!-- ===== Settings tab ===== -->
+    <div class="tab-panel active" id="tab-settings" role="tabpanel">
+      <section class="card-panel">
+        <h2>Settings</h2>
+        <form id="settings-form">
+          <fieldset>
+            <legend>Brewfather</legend>
+            <label for="bf_user">User ID</label>
+            {% if bf.user_from_env %}
+              <input id="bf_user" type="text" value="{{ bf.user_id }}" disabled>
+              <p class="hint">Managed via the <code>BREWFATHER_USER_ID</code> environment variable.</p>
+            {% else %}
+              <input id="bf_user" name="brewfather_user_id" type="text" value="{{ cfg.brewfather_user_id }}" autocomplete="off">
+            {% endif %}
+            <label for="bf_key">API Key</label>
+            {% if bf.key_from_env %}
+              <input id="bf_key" type="password" value="set-via-environment" disabled>
+              <p class="hint">Managed via the <code>BREWFATHER_API_KEY</code> environment variable — not stored in <code>config.json</code>.</p>
+            {% else %}
+              <input id="bf_key" name="brewfather_api_key" type="password" value="{{ cfg.brewfather_api_key }}" autocomplete="off">
+              <p class="hint">Stored in plaintext in <code>config.json</code>. Tip: set <code>BREWFATHER_API_KEY</code> in the environment to keep it off disk.</p>
+            {% endif %}
+          </fieldset>
 
-          <label class="checkbox">
-            <input type="checkbox" name="hide_vacant_taps" {{ 'checked' if cfg.hide_vacant_taps else '' }}>
-            Hide vacant taps (reflow grid to fill the screen)
-          </label>
+          <fieldset>
+            <legend>Taps &amp; Display</legend>
+            <label for="num_taps">Number of taps</label>
+            <input id="num_taps" name="num_taps" type="number" min="0" step="1" value="{{ cfg.num_taps }}" required>
 
-          <label for="announcement">Announcement text (bottom ticker)</label>
-          <textarea id="announcement" name="announcement_text" rows="2">{{ cfg.announcement_text }}</textarea>
-        </fieldset>
-
-        <fieldset>
-          <legend>Stats &amp; Colour</legend>
-          <label for="color_unit">Colour unit</label>
-          <select id="color_unit" name="color_unit">
-            <option value="ebc" {{ 'selected' if cfg.color_unit != 'srm' else '' }}>EBC</option>
-            <option value="srm" {{ 'selected' if cfg.color_unit == 'srm' else '' }}>SRM</option>
-          </select>
-
-          <div class="stat-grid" role="group" aria-label="Stat visibility">
-            <span></span><span class="stat-grid-head">Show</span><span class="stat-grid-head">Hide when empty</span>
-            <span class="stat-grid-name">ABV</span>
-            <input type="checkbox" name="show_abv" {{ 'checked' if cfg.show_abv else '' }}>
-            <input type="checkbox" name="hide_abv_when_empty" {{ 'checked' if cfg.hide_abv_when_empty else '' }}>
-            <span class="stat-grid-name">IBU</span>
-            <input type="checkbox" name="show_ibu" {{ 'checked' if cfg.show_ibu else '' }}>
-            <input type="checkbox" name="hide_ibu_when_empty" {{ 'checked' if cfg.hide_ibu_when_empty else '' }}>
-            <span class="stat-grid-name">Colour</span>
-            <input type="checkbox" name="show_color" {{ 'checked' if cfg.show_color else '' }}>
-            <input type="checkbox" name="hide_color_when_empty" {{ 'checked' if cfg.hide_color_when_empty else '' }}>
-          </div>
-          <p class="hint">“Show” turns a stat off for every beer; “Hide when empty” drops it only for beers missing that value.</p>
-        </fieldset>
-
-        <fieldset>
-          <legend>Venue logo</legend>
-          <label for="logo_h">Logo height (% of screen height)</label>
-          <div class="slider-row">
-            <input type="range" id="logo_h_range" min="0" max="{{ max_logo_vh }}" step="1" value="{{ cfg.venue_logo_height_vh }}">
-            <input type="number" id="logo_h" name="venue_logo_height_vh" min="0" max="{{ max_logo_vh }}" step="1" value="{{ cfg.venue_logo_height_vh }}">
-            <span class="muted">%</span>
-          </div>
-          <p class="hint">0 hides the logo. Max {{ max_logo_vh }}% (a third of the screen). Upload the image below.</p>
-        </fieldset>
-
-        <fieldset>
-          <legend>Archive cleanup</legend>
-          <label for="max_age">Max archive age (days)</label>
-          <input id="max_age" name="max_archive_age_days" type="number" min="0" step="1" value="{{ cfg.max_archive_age_days }}" required>
-          <label for="max_size">Max archive storage limit (MB)</label>
-          <input id="max_size" name="max_archive_storage_mb" type="number" min="0" step="1" value="{{ cfg.max_archive_storage_mb }}" required>
-        </fieldset>
-
-        <button class="btn primary" type="submit">Save settings</button>
-        <p class="hint">Changing the tap count adds/removes rows below after saving &amp; reloading.</p>
-      </form>
-
-      <!-- Venue logo upload is its own form (multipart); height lives in Settings above. -->
-      <hr class="panel-sep">
-      <h3>Venue logo image</h3>
-      {% if venue_logo_url %}
-        <img class="venue-preview" src="{{ venue_logo_url }}" alt="current venue logo">
-      {% else %}
-        <p class="muted">No venue logo uploaded.</p>
-      {% endif %}
-      <form id="venue-logo-form" enctype="multipart/form-data">
-        <input type="file" name="image" accept="image/*">
-        <div class="btn-row">
-          <button class="btn primary" type="submit">Upload logo</button>
-          <button class="btn" type="button" id="remove-logo">Remove logo</button>
-        </div>
-      </form>
-    </section>
-
-    <!-- ===== Manual overrides ===== -->
-    <section class="card-panel">
-      <h2>Manual overrides</h2>
-      <p class="hint">A checked tap is controlled manually and is never touched by the Brewfather sync. Unchecking releases the slot back to Brewfather on the next sync.</p>
-      {% if rows|length == 0 %}
-        <p class="muted">Set a tap count above and save to manage individual taps.</p>
-      {% endif %}
-      <div class="overrides">
-        {% for row in rows %}
-        <form class="override-row" data-tap="{{ row.tap }}" enctype="multipart/form-data">
-          <div class="override-head">
-            <span class="tap-chip">Tap {{ row.tap }}</span>
             <label class="checkbox">
-              <input type="checkbox" name="enabled" class="override-toggle" {{ 'checked' if row.override else '' }}>
-              Manual override
+              <input type="checkbox" name="hide_vacant_taps" {{ 'checked' if cfg.hide_vacant_taps else '' }}>
+              Hide vacant taps (reflow grid to fill the screen)
             </label>
-            <span class="source-tag">{{ 'custom' if row.override else (row.source or 'vacant') }}</span>
-          </div>
-          <div class="override-fields" {{ '' if row.override else 'hidden' }}>
-            <div class="field"><label>Beer name</label><input type="text" name="name" value="{{ row.name }}"></div>
+
+            <label for="announcement">Announcement text (bottom ticker)</label>
+            <textarea id="announcement" name="announcement_text" rows="2">{{ cfg.announcement_text }}</textarea>
+          </fieldset>
+
+          <fieldset>
+            <legend>Stats &amp; Colour</legend>
+            <label for="color_unit">Colour unit</label>
+            <select id="color_unit" name="color_unit">
+              <option value="ebc" {{ 'selected' if cfg.color_unit != 'srm' else '' }}>EBC</option>
+              <option value="srm" {{ 'selected' if cfg.color_unit == 'srm' else '' }}>SRM</option>
+            </select>
+
+            <div class="stat-grid" role="group" aria-label="Stat visibility">
+              <span></span><span class="stat-grid-head">Show</span><span class="stat-grid-head">Hide when empty</span>
+              <span class="stat-grid-name">ABV</span>
+              <input type="checkbox" name="show_abv" {{ 'checked' if cfg.show_abv else '' }}>
+              <input type="checkbox" name="hide_abv_when_empty" {{ 'checked' if cfg.hide_abv_when_empty else '' }}>
+              <span class="stat-grid-name">IBU</span>
+              <input type="checkbox" name="show_ibu" {{ 'checked' if cfg.show_ibu else '' }}>
+              <input type="checkbox" name="hide_ibu_when_empty" {{ 'checked' if cfg.hide_ibu_when_empty else '' }}>
+              <span class="stat-grid-name">OG</span>
+              <input type="checkbox" name="show_og" {{ 'checked' if cfg.show_og else '' }}>
+              <input type="checkbox" name="hide_og_when_empty" {{ 'checked' if cfg.hide_og_when_empty else '' }}>
+              <span class="stat-grid-name">FG</span>
+              <input type="checkbox" name="show_fg" {{ 'checked' if cfg.show_fg else '' }}>
+              <input type="checkbox" name="hide_fg_when_empty" {{ 'checked' if cfg.hide_fg_when_empty else '' }}>
+              <span class="stat-grid-name">Colour</span>
+              <input type="checkbox" name="show_color" {{ 'checked' if cfg.show_color else '' }}>
+              <input type="checkbox" name="hide_color_when_empty" {{ 'checked' if cfg.hide_color_when_empty else '' }}>
+            </div>
+            <p class="hint">“Show” turns a stat off for every beer; “Hide when empty” drops it only for beers missing that value. OG/FG can also be overridden per tap.</p>
+
+            <label class="checkbox">
+              <input type="checkbox" name="show_source_badge" {{ 'checked' if cfg.show_source_badge else '' }}>
+              Show the “Custom” / “BF” source badge on each card
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>Pagination</legend>
+            <label class="checkbox">
+              <input type="checkbox" name="paginate" {{ 'checked' if cfg.paginate else '' }}>
+              Paginate the board (fixed number of taps per page)
+            </label>
             <div class="field-row">
-              <div class="field"><label>ABV %</label><input type="number" step="0.1" name="abv" value="{{ row.abv }}"></div>
-              <div class="field"><label>IBU</label><input type="number" step="1" name="ibu" value="{{ row.ibu }}"></div>
-              <div class="field"><label>{{ color_label }}</label><input type="number" step="1" name="color" value="{{ row.color_value }}"></div>
+              <div class="field">
+                <label for="page_size">Taps per page</label>
+                <input id="page_size" name="page_size" type="number" min="1" max="8" step="1" value="{{ cfg.page_size }}">
+              </div>
+              <div class="field">
+                <label for="rotation_seconds">Page rotation (seconds)</label>
+                <input id="rotation_seconds" name="rotation_seconds" type="number" min="3" max="600" step="1" value="{{ cfg.rotation_seconds }}">
+              </div>
             </div>
-            <div class="field">
-              <label>Colour saturation %</label>
-              <input type="number" step="1" min="0" max="100" name="saturation" value="{{ row.saturation }}" placeholder="100">
-              <p class="hint">Blank = full colour. Lower mutes the swatch &amp; glass towards grey (e.g. 60 = 60%).</p>
-            </div>
-            <div class="field"><label>Tasting notes</label><textarea name="description" rows="2">{{ row.description }}</textarea></div>
-            <div class="field">
-              <label>Custom image</label>
-              {% if row.image_url and row.override %}<img class="override-thumb" src="{{ row.image_url }}" alt="current image">{% endif %}
-              <input type="file" name="image" accept="image/*">
-            </div>
-            <button class="btn primary save-override" type="submit">Save tap {{ row.tap }}</button>
+            <p class="hint">When off, the board fills each page with up to 8 taps. Rotation also applies without pagination when there is more than one page.</p>
+          </fieldset>
+
+          <fieldset>
+            <legend>Archive cleanup</legend>
+            <label for="max_age">Max archive age (days)</label>
+            <input id="max_age" name="max_archive_age_days" type="number" min="0" step="1" value="{{ cfg.max_archive_age_days }}" required>
+            <label for="max_size">Max archive storage limit (MB)</label>
+            <input id="max_size" name="max_archive_storage_mb" type="number" min="0" step="1" value="{{ cfg.max_archive_storage_mb }}" required>
+          </fieldset>
+
+          <button class="btn primary" type="submit">Save settings</button>
+          <p class="hint">Changing the tap count adds/removes rows on the Manual overrides tab after saving &amp; reloading.</p>
+        </form>
+      </section>
+
+      <!-- Venue logo: height + image upload grouped together. The height input is
+           associated with the settings form via form="settings-form" so it saves
+           with the rest of the settings; the image upload is its own form. -->
+      <section class="card-panel">
+        <h2>Venue logo</h2>
+        <label for="logo_h">Logo height (% of screen height)</label>
+        <div class="slider-row">
+          <input type="range" id="logo_h_range" min="0" max="{{ max_logo_vh }}" step="1" value="{{ cfg.venue_logo_height_vh }}">
+          <input type="number" id="logo_h" name="venue_logo_height_vh" form="settings-form" min="0" max="{{ max_logo_vh }}" step="1" value="{{ cfg.venue_logo_height_vh }}">
+          <span class="muted">%</span>
+        </div>
+        <p class="hint">0 hides the logo. Max {{ max_logo_vh }}% (a third of the screen). Saved with the settings.</p>
+
+        <hr class="panel-sep">
+        <h3>Venue logo image</h3>
+        {% if venue_logo_url %}
+          <img class="venue-preview" src="{{ venue_logo_url }}" alt="current venue logo">
+        {% else %}
+          <p class="muted">No venue logo uploaded.</p>
+        {% endif %}
+        <form id="venue-logo-form" enctype="multipart/form-data">
+          <input type="file" name="image" accept="image/*">
+          <div class="btn-row">
+            <button class="btn primary" type="submit">Upload logo</button>
+            <button class="btn" type="button" id="remove-logo">Remove logo</button>
           </div>
         </form>
-        {% endfor %}
-      </div>
-    </section>
+      </section>
+    </div>
+
+    <!-- ===== Theme tab ===== -->
+    <div class="tab-panel" id="tab-theme" role="tabpanel" hidden>
+      <section class="card-panel">
+        <h2>Theme</h2>
+        <p class="hint">Theme and glassware are saved with the settings.</p>
+
+        <label for="theme">Colour theme</label>
+        <select id="theme" name="theme" form="settings-form">
+          {% for key, spec in themes.items() %}
+            <option value="{{ key }}" data-hint="{{ spec.hint }}" {{ 'selected' if cfg.theme == key else '' }}>{{ spec.label }}</option>
+          {% endfor %}
+        </select>
+        <p class="hint" id="theme-hint"></p>
+
+        <label for="glass_type">Default glassware (no-photo placeholder)</label>
+        <select id="glass_type" name="glass_type" form="settings-form">
+          {% for key, label in glass_types %}
+            <option value="{{ key }}" {{ 'selected' if cfg.glass_type == key else '' }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <p class="hint">Used for beers with no photo. Individual beers can override the glass on the Manual overrides tab or via a <code>glass:</code> Brewfather note.</p>
+
+        <fieldset id="custom-theme">
+          <legend>Custom colours</legend>
+          <p class="hint">Used when the theme above is set to “Custom”.</p>
+          <div class="theme-grid">
+            {% for key, label in theme_fields %}
+              <label for="theme_{{ key }}">{{ label }}</label>
+              <input type="color" id="theme_{{ key }}" name="theme_{{ key }}" form="settings-form" value="{{ theme_custom[key] }}">
+            {% endfor %}
+          </div>
+        </fieldset>
+
+        <button class="btn primary" type="submit" form="settings-form">Save settings</button>
+      </section>
+    </div>
+
+    <!-- ===== Manual overrides tab ===== -->
+    <div class="tab-panel" id="tab-overrides" role="tabpanel" hidden>
+      <section class="card-panel">
+        <h2>Manual overrides</h2>
+        <p class="hint">A checked tap is controlled manually and is never touched by the Brewfather sync. Unchecking releases the slot back to Brewfather on the next sync.</p>
+        {% if rows|length == 0 %}
+          <p class="muted">Set a tap count on the Settings tab and save to manage individual taps.</p>
+        {% endif %}
+        <div class="overrides">
+          {% for row in rows %}
+          <form class="override-row" data-tap="{{ row.tap }}" enctype="multipart/form-data">
+            <div class="override-head">
+              <span class="tap-chip">Tap {{ row.tap }}</span>
+              <label class="checkbox">
+                <input type="checkbox" name="enabled" class="override-toggle" {{ 'checked' if row.override else '' }}>
+                Manual override
+              </label>
+              <span class="source-tag">{{ 'custom' if row.override else (row.source or 'vacant') }}</span>
+            </div>
+            <div class="override-fields" {{ '' if row.override else 'hidden' }}>
+              <div class="field"><label>Beer name</label><input type="text" name="name" value="{{ row.name }}"></div>
+              <div class="field-row">
+                <div class="field"><label>ABV %</label><input type="number" step="0.1" name="abv" value="{{ row.abv }}"></div>
+                <div class="field"><label>IBU</label><input type="number" step="1" name="ibu" value="{{ row.ibu }}"></div>
+                <div class="field"><label>{{ color_label }}</label><input type="number" step="1" name="color" value="{{ row.color_value }}"></div>
+              </div>
+              <div class="field-row">
+                <div class="field"><label>OG</label><input type="number" step="0.001" name="og" value="{{ row.og }}" placeholder="1.050"></div>
+                <div class="field"><label>FG</label><input type="number" step="0.001" name="fg" value="{{ row.fg }}" placeholder="1.010"></div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>Show OG</label>
+                  <select name="show_og">
+                    <option value="" {{ 'selected' if row.show_og == '' else '' }}>Default (global)</option>
+                    <option value="true" {{ 'selected' if row.show_og == 'true' else '' }}>Show</option>
+                    <option value="false" {{ 'selected' if row.show_og == 'false' else '' }}>Hide</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Show FG</label>
+                  <select name="show_fg">
+                    <option value="" {{ 'selected' if row.show_fg == '' else '' }}>Default (global)</option>
+                    <option value="true" {{ 'selected' if row.show_fg == 'true' else '' }}>Show</option>
+                    <option value="false" {{ 'selected' if row.show_fg == 'false' else '' }}>Hide</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>Colour saturation %</label>
+                  <input type="number" step="1" min="0" max="100" name="saturation" value="{{ row.saturation }}" placeholder="100">
+                </div>
+                <div class="field">
+                  <label>Colour override</label>
+                  <input type="text" name="color_override" value="{{ row.color_override }}" placeholder="#780606">
+                </div>
+              </div>
+              <p class="hint">Saturation: blank = full colour; lower mutes the swatch &amp; glass (e.g. 60 = 60%). Colour override: an exact <code>#rrggbb</code> that wins over the calculated colour everywhere.</p>
+              <div class="field">
+                <label>Glassware (no-photo placeholder)</label>
+                <select name="glass">
+                  <option value="" {{ 'selected' if not row.glass else '' }}>Default (global)</option>
+                  {% for key, label in glass_types %}
+                    <option value="{{ key }}" {{ 'selected' if row.glass == key else '' }}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="field"><label>Tasting notes</label><textarea name="description" rows="2">{{ row.description }}</textarea></div>
+              <div class="field">
+                <label>Custom image</label>
+                {% if row.image_url and row.override %}<img class="override-thumb" src="{{ row.image_url }}" alt="current image">{% endif %}
+                <input type="file" name="image" accept="image/*">
+              </div>
+              <button class="btn primary save-override" type="submit">Save tap {{ row.tap }}</button>
+            </div>
+          </form>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
   </main>
 
   <script src="/static/js/admin.js" defer></script>

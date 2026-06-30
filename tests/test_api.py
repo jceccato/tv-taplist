@@ -83,6 +83,17 @@ def test_admin_requires_login():
     assert r.headers["location"] == "/admin/login"
 
 
+def test_admin_page_renders_all_tabs():
+    config_store.update_config(num_taps=2)
+    c = _login(TestClient(app))
+    html = c.get("/admin").text
+    # The tabbed layout and the new theme / glass / pagination controls render.
+    for needle in ("data-tab=\"settings\"", "data-tab=\"theme\"", "data-tab=\"overrides\"",
+                   "name=\"theme\"", "name=\"glass_type\"", "name=\"paginate\"",
+                   "name=\"color_override\"", "OLED true black"):
+        assert needle in html, needle
+
+
 def test_wrong_password_401():
     r = client.post("/admin/login", data={"password": "nope"}, follow_redirects=False)
     assert r.status_code == 401
