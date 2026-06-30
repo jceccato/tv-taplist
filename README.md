@@ -1,229 +1,107 @@
-# TV Tap List — Offline-First Digital Beer Tap List
+# TV Tap List
 
-A lightweight, single-container web app that serves a digital beer **tap list**
-to TV displays. It syncs from the **Brewfather** API when the internet is up, and
-keeps displaying the last cached data — with **zero external requests** — when the
-venue's internet is down.
+**An offline-first digital beer tap list for TVs.** Point a TV's browser at it and
+it shows a clean, full-screen board of what's on tap — name, tasting notes, ABV,
+IBU, gravity, and a colour swatch matched to each beer.
 
-- **Backend:** Python 3.12 + FastAPI + Uvicorn, APScheduler for the two jobs.
-- **Frontend:** vanilla HTML/CSS/JS — no frameworks, no build step, no CDNs.
-- **Storage:** `config.json` + flat markdown/image files under a Docker volume.
-- **The container is the brain;** the TV is a thin client that just loads `/`.
+It pulls your beers automatically from **[Brewfather](https://brewfather.app)** and
+keeps showing the **last known board even when the internet drops** — no spinners,
+no blank screen, zero outbound requests. The container is the brain; the TV is just
+a screen pointed at it.
+
+```
+┌──────────────────────────────────────────────┐
+│  1  WEST COAST IPA        ●     2  HAZY PALE  ●│
+│     Bright citrus & pine        Juicy stone…  │
+│     6.8% · 65 IBU · 18 EBC      5.2% · 35 IBU │
+│  3  MUNICH HELLES         ●     4  DRY STOUT  ●│
+│     Clean malt, noble hop       Roasty, dry…  │
+│     4.9% · 18 IBU · 7 EBC       4.4% · 40 IBU │
+│            • Now pouring — ask staff •         │
+└──────────────────────────────────────────────┘
+```
+
+- **One container.** Python + FastAPI inside; vanilla HTML/CSS/JS on the TV. No
+  cloud, no build step, no CDNs.
+- **Offline-first.** Beers are cached as plain text + images in a folder you map
+  from the host, so the board survives reboots and outages and stays inspectable.
+- **Runs anywhere Docker does** — a Raspberry Pi, an Unraid box, a NUC, a VM.
 
 ---
 
-## Quick start
+## Try it now (demo)
+
+One command pulls the image and runs a self-contained demo with sample beers — no
+Brewfather account, no config:
 
 ```bash
-cp .env.example .env          # then edit ADMIN_PASSWORD + SESSION_SECRET
-docker compose up -d --build
+docker run -d --name tv-taplist-demo -p 8080:8080 \
+  -e DEMO_MODE=true -e ADMIN_PASSWORD=demo -e SESSION_SECRET=demo \
+  ghcr.io/OWNER/tv-taplist:latest
 ```
 
-Open:
-- **TV display:** `http://<host>:8080/`
-- **Admin:** `http://<host>:8080/admin` (log in with `ADMIN_PASSWORD`)
+- **Display:** <http://localhost:8080/> — the TV board (no login).
+- **Admin:** <http://localhost:8080/admin> — log in with the throwaway password
+  `demo` to play with settings, themes and overrides.
 
-### Offline demo (no Brewfather account needed)
+Stop and remove it when you're done: `docker rm -f tv-taplist-demo`.
 
-```bash
-DEMO_MODE=true docker compose up -d --build
-```
-
-On a **fresh** volume this seeds six sample taps with bundled placeholder images
-so you can see/screenshot the display fully offline. It never overwrites existing
-data.
-
-### Run locally without Docker (development)
-
-```bash
-python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-# Point DATA_DIR somewhere writable since /data won't exist locally:
-DATA_DIR=./data ADMIN_PASSWORD=test SESSION_SECRET=dev DEMO_MODE=true \
-  uvicorn app.main:app --reload --port 8080
-```
+> Replace `OWNER` with the published image owner. The demo is for evaluation only —
+> see [INSTALLATION.md](INSTALLATION.md) for a real setup.
 
 ---
 
-## Environment variables
+## Set it up for real
 
-| Var | Required | Default | Purpose |
-|-----|----------|---------|---------|
-| `ADMIN_PASSWORD` | **yes** | — | Password for `/admin`. Admin is denied if unset. |
-| `SESSION_SECRET` | recommended | derived from password | Signs session cookies so logins survive restarts. |
-| `TZ` | no | UTC | IANA timezone. Drives archive timestamps + the daily cleanup boundary. |
-| `FORWARDED_ALLOW_IPS` | yes (behind proxy) | `127.0.0.1` | IP(s) of the trusted reverse proxy allowed to set `X-Forwarded-*`. |
-| `PORT` | no | `8080` | Listen port inside the container. |
-| `PUID` / `PGID` | no | `1000` | Host uid/gid that owns `/data`, so the non-root app can write. |
-| `DEMO_MODE` | no | `false` | Seed sample taps on a fresh volume. |
-| `BREWFATHER_USER_ID` | no | — | Brewfather User ID (overrides config; keeps it off disk). |
-| `BREWFATHER_API_KEY` | no | — | Brewfather API key (overrides config; keeps it off disk). |
-| `SYNC_INTERVAL_MINUTES` | no | `15` | Minutes between Brewfather syncs. |
-| `DATA_DIR` | no | `/data` | Data root (override for local dev). |
+Pick the path that matches where you're running it:
 
-Brewfather **User ID** and **API Key** can be entered in the admin UI *or* set
-via the `BREWFATHER_*` env vars. When both env vars are set, the admin fields
-are locked ("managed via environment") and the key is **never written to
-`config.json`** — the recommended way to keep the secret off disk.
+| Path | Best for | Guide |
+|------|----------|-------|
+| **Guided installer** | Linux / Raspberry Pi / NUC | [INSTALLATION.md → Guided installer](INSTALLATION.md#guided-installer-recommended) |
+| **Unraid** | Unraid servers | [INSTALLATION.md → Unraid](INSTALLATION.md#unraid) · [UNRAID.md](UNRAID.md) |
+| **Manual Docker Compose** | You already run Compose | [INSTALLATION.md → Manual](INSTALLATION.md#manual-docker-compose) |
+
+The installer asks a handful of questions (admin password, timezone, your
+Brewfather details), writes the config for you, and starts the container. Full env
+var reference, reverse-proxy/HTTPS setup, and how to get your Brewfather API key all
+live in [INSTALLATION.md](INSTALLATION.md).
 
 ---
 
-## Volume mapping
+## Getting beers onto the board
 
-Everything persistent lives under `/data`:
+1. In Brewfather, open the batch for a beer that's on tap.
+2. Add a line to the batch **notes**: `tap:1` (the tap number it's pouring on).
+3. Set the batch **status to Completed**.
 
-```
-/data
-  config.json          # settings + sync status
-  placeholder.svg      # fallback image (seeded from the image; replaceable)
-  taps/                # current beers: custom_tap_X.md / bf_tap_X.md (+ images)
-  old_beers/           # archived md+image pairs (datetime-suffixed)
-```
-
-The compose file uses a named volume `taplist_data`. To inspect data from the
-host, swap it for a bind mount in `docker-compose.yml`:
-
-```yaml
-    volumes:
-      - ./data:/data
-```
-
-…and set `PUID`/`PGID` to your host user (`id -u` / `id -g`) so writes succeed.
+On its next sync the board picks it up. You can fine-tune the swatch colour,
+glassware and more with extra note tokens or from the admin panel — see
+[FAQ.md → Brewfather](FAQ.md#brewfather-sync). Beers that aren't Completed are
+ignored, so works-in-progress never show up by accident.
 
 ---
 
 ## How it works
 
-### Brewfather sync (every `SYNC_INTERVAL_MINUTES`, default 15)
-1. Lists Completed batches with `complete=True` + pagination (`limit=50`,
-   `start_after`), returning **full batch data in one call per page** (HTTP
-   Basic Auth: User ID / API key).
-2. Reads a `tap:X` token from the batch notes to assign a tap.
-3. Writes `bf_tap_X.md` (+ downloaded image, preserving the source extension).
-4. Builds the **desired tap map** and archives any Brewfather tap that no longer
-   maps to its slot.
+A short tour: the container syncs from Brewfather on a timer, resolves each tap to
+a beer, computes its colour, and serves a board the TV polls and updates in place.
+Manual overrides let you place beers Brewfather doesn't know about. Everything
+persistent is plain text in a folder you can open.
 
-- **API-friendly:** Brewfather's limit is **500 calls/hour per key**. Using
-  `complete=True` avoids the old N+1 (a detail call per batch), so each sync
-  costs only `ceil(completed_batches / 50)` calls. **Change-detection** (a stored
-  batch revision) skips image re-downloads and file rewrites for unchanged
-  beers, and a **429** is reported (honouring `Retry-After`) with no changes.
-- **Manual overrides win and are never touched** by sync.
-- **Conflicts** (two Completed batches claiming one tap) resolve to the most
-  recently updated batch and log a warning.
-- A **failed sync makes no destructive changes** — the last good cache stays.
-
-> **Field-mapping caveat:** Brewfather's exact field names/units should be
-> verified against a live payload. `app/brewfather.py` maps defensively (trying
-> several field names, preferring *measured* over *estimated*, and handling
-> EBC vs SRM) and logs what it found. Adjust there if your account differs.
-
-### Daily archive cleanup (03:30 local)
-- Deletes archived beers older than **Max Archive Age** (days).
-- If `old_beers/` still exceeds **Max Archive Storage Limit** (MB), deletes
-  oldest-first until under the limit.
-- Each beer is treated as a **pair** (markdown + image) deleted together.
-
-### TV display (`/`)
-- Dark, high-contrast card grid; up to **8 cards per page**; >8 taps paginate
-  and rotate every 30 s via a carousel.
-- Polls `GET /api/board` every 30 s and **diffs** the result, updating only
-  changed cards in place — no full reload, and the carousel position persists.
-- `ebcToHex()` maps EBC → colour via the SRM reference chart with a luminance
-  contrast rule for a legible colour swatch (the swatch is colour-only; the
-  numeric value lives in the stats).
-- A bottom **ticker** shows the announcement text without overlapping the grid.
-- An optional **venue/company logo** sits at the top (height configurable up to
-  a third of the screen; reserved row so it never overlaps the grid).
-
-### Display options (admin)
-- **Colour unit:** show colour as **EBC or SRM** (stored as EBC; admin colour
-  input and the display both follow the selected unit).
-- **Per-stat visibility:** for ABV, IBU and Colour independently — a **Show**
-  toggle (hide that stat for every beer) and a **Hide when empty** toggle (drop
-  it only for beers missing that value).
+The full explanation — sync, colours and themes, glassware, pagination, the offline
+guarantee, archiving, and security — is in **[FAQ.md](FAQ.md)**.
 
 ---
 
-## Reverse proxy (Nginx)
+## Guides
 
-The app expects to sit behind an external Nginx HTTPS proxy. Trust the proxy IP
-**specifically** via `FORWARDED_ALLOW_IPS` (don't blanket-trust forwarded
-headers, or a directly-reachable container could be spoofed).
+- **[INSTALLATION.md](INSTALLATION.md)** — set it up: demo, guided installer,
+  Unraid, manual Compose, env vars, reverse proxy, Brewfather API key.
+- **[FAQ.md](FAQ.md)** — how everything works, in depth.
+- **[UNRAID.md](UNRAID.md)** — the deep-dive Unraid walkthrough.
+- **[PUBLISHING.md](PUBLISHING.md)** — fork it and publish your own image safely.
 
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name taps.example.com;
+## License
 
-    ssl_certificate     /etc/ssl/certs/taps.crt;
-    ssl_certificate_key /etc/ssl/private/taps.key;
-
-    location / {
-        proxy_pass         http://127.0.0.1:8080;
-        proxy_http_version 1.1;
-
-        # The two headers the app honours:
-        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;   # lets the app set Secure cookies
-        proxy_set_header   Host              $host;
-    }
-}
-```
-
-Set `FORWARDED_ALLOW_IPS` to the proxy's IP **as seen by the container**. With
-the Docker bridge network this is usually the gateway, e.g. `172.17.0.1`; for a
-proxy on the same host using `network_mode: host` it's `127.0.0.1`.
-
-> Tip: you can lock the admin down further by only proxying `/admin` from an
-> internal location/VPN, while exposing `/` publicly.
-
----
-
-## Security notes
-
-- **Admin auth** is a signed, `HttpOnly`, `SameSite=Strict` session cookie
-  (`Secure` when the request arrived over HTTPS). Login is **rate-limited**
-  (5 failures / 5 min per client IP).
-- **Plaintext secrets — a conscious trade-off for this appliance scope:** the
-  Brewfather key is stored in `/data/config.json`, and `ADMIN_PASSWORD` /
-  `SESSION_SECRET` are passed as environment variables. Both are plaintext on
-  the host. This is acceptable for a small on-prem appliance but means anyone
-  with host/file access can read them. Protect the host accordingly (file
-  permissions, restricted SSH) and rotate the API key if the box is exposed.
-
----
-
-## Testing
-
-**Unit / integration suite (pytest)** — 56 tests covering colours, atomic
-storage, config, board resolution, the Brewfather sync (conflict resolution,
-override precedence, archive logic, "failed sync = no destructive changes"),
-archive cleanup (age + size, paired deletion), and the HTTP/admin surface:
-
-```bash
-pip install -r requirements.txt -r requirements-dev.txt
-pytest
-```
-
-**Container test** — builds the image, runs it in `DEMO_MODE` on a fresh volume,
-waits for the healthcheck, and asserts health, demo board data, zero external
-origins, the `/admin` redirect, **non-root PID 1 + writable `/data`**, and the
-Docker healthcheck:
-
-```bash
-# Linux / WSL with Docker:
-bash scripts/docker_test.sh
-```
-
-(The same checks pass via Docker Desktop on Windows against `docker compose`.)
-
----
-
-## Offline guarantees (verify before going live)
-
-- The served display HTML references **only local origins** — no `http(s)://`
-  third-party hosts (system fonts, local CSS/JS/images).
-- With the WAN unplugged, the display keeps rendering the last cached data and
-  shows **no broken images** (missing files fall back to the placeholder).
-- A failed sync leaves all cached files intact.
+No license file yet — a permissive (MIT) template is ready in
+[PUBLISHING.md](PUBLISHING.md).

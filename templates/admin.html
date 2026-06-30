@@ -112,7 +112,7 @@
               <input type="checkbox" name="show_color" {{ 'checked' if cfg.show_color else '' }}>
               <input type="checkbox" name="hide_color_when_empty" {{ 'checked' if cfg.hide_color_when_empty else '' }}>
             </div>
-            <p class="hint">“Show” turns a stat off for every beer; “Hide when empty” drops it only for beers missing that value. OG/FG can also be overridden per tap.</p>
+            <p class="hint">Untick “Show” to hide a stat on every card; “Hide when empty” drops it only for beers that are missing that value. OG and FG can also be forced on/off per tap on the Manual overrides tab.</p>
 
             <label class="checkbox">
               <input type="checkbox" name="show_source_badge" {{ 'checked' if cfg.show_source_badge else '' }}>
@@ -136,7 +136,7 @@
                 <input id="rotation_seconds" name="rotation_seconds" type="number" min="3" max="600" step="1" value="{{ cfg.rotation_seconds }}">
               </div>
             </div>
-            <p class="hint">When off, the board fills each page with up to 8 taps. Rotation also applies without pagination when there is more than one page.</p>
+            <p class="hint">When off, the board fills each page with up to 8 taps. Rotation also applies without pagination when there is more than one page. On the display you can click a page dot or press Enter/Space to change pages.</p>
           </fieldset>
 
           <fieldset>

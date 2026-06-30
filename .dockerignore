@@ -13,3 +13,7 @@ data
 tv_taplist_build_prompt.md
 scratchpad
 .pytest_cache
+.claude
+.git/
+.claude/
+CLAUDE.md

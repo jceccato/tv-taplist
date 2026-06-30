@@ -1,14 +1,17 @@
 # Single-container deployment for the digital tap list.
-# Copy .env.example to .env and edit the secrets before `docker compose up -d`.
+# Run scripts/setup.sh, or copy .env.example to .env and edit it, before
+# `docker compose up -d --build`.
 services:
   taplist:
     build: .
+    # To run a prebuilt image instead of building, comment out `build: .` above
+    # and set: image: ghcr.io/OWNER/tv-taplist:latest
     image: tv-taplist:latest
     container_name: tv-taplist
     restart: unless-stopped
     ports:
-      # host:container — point your reverse proxy / TV at host port 8080.
-      - "8080:8080"
+      # host:container — point your reverse proxy / TV at the host port.
+      - "${PORT:-8080}:8080"
     environment:
       # --- secrets (set real values in .env) ---
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-changeme}"
@@ -21,7 +24,7 @@ services:
       # Match these to the host user that owns the volume / bind mount.
       PUID: "${PUID:-1000}"
       PGID: "${PGID:-1000}"
-      # Set DEMO_MODE=true on a fresh volume to seed sample taps (offline demo).
+      # Set DEMO_MODE=true on a fresh data directory to seed sample taps (offline demo).
       DEMO_MODE: "${DEMO_MODE:-false}"
       # Optional: Brewfather credentials via env (kept out of config.json on disk).
       BREWFATHER_USER_ID: "${BREWFATHER_USER_ID:-}"
@@ -29,16 +32,13 @@ services:
       # Minutes between Brewfather syncs (default 15; well under 500 calls/hour).
       SYNC_INTERVAL_MINUTES: "${SYNC_INTERVAL_MINUTES:-15}"
     volumes:
-      # Named volume keeps config.json, taps/ and old_beers/ across restarts.
-      # To inspect the data from the host, swap for a bind mount, e.g.:
-      #   - ./data:/data
-      - ./taplist_data:/data
+      # Map a host directory to /data so config.json, taps/ and old_beers/ persist
+      # and stay directly viewable/editable by the server admin. Change the host
+      # path with DATA_DIR_HOST in .env (defaults to ./taplist_data beside this file).
+      - "${DATA_DIR_HOST:-./taplist_data}:/data"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
-
-# volumes:
-#   taplist_data:
