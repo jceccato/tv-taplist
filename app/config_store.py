@@ -14,7 +14,9 @@ import time
 from typing import Any
 
 from .atomic import atomic_write_text
+from .beer_glass import normalize_glass
 from .paths import CONFIG_PATH, ensure_dirs
+from .theme import DEFAULT_THEME, coerce_custom_theme, normalize_theme_name
 
 log = logging.getLogger("taplist.config")
 
@@ -31,9 +33,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "show_abv": True,               # global show/hide for each stat
     "show_ibu": True,
     "show_color": True,
+    "show_og": False,               # original / final gravity (off by default)
+    "show_fg": False,
     "hide_abv_when_empty": True,    # when shown, hide per-beer if value missing
     "hide_ibu_when_empty": True,
     "hide_color_when_empty": True,
+    "hide_og_when_empty": True,
+    "hide_fg_when_empty": True,
+    "show_source_badge": False,     # the "Custom"/"BF" badge on each card
+    # Theme (display colours).
+    "theme": "default",             # preset key, or "custom"
+    "theme_custom": dict(DEFAULT_THEME),  # per-colour overrides when theme == "custom"
+    "glass_type": "default",        # default glassware for the no-photo placeholder
+    # Pagination / carousel.
+    "paginate": False,              # when on, show `page_size` taps per page
+    "page_size": 6,                 # taps per page (1..8) when paginating
+    "rotation_seconds": 30,         # seconds each page is shown
     # Optional venue/company logo at the top of the display.
     "venue_logo": None,             # filename under /data (e.g. venue_logo.png) or null
     "venue_logo_height_vh": 0,      # 0..33 (% of viewport height; 0 hides the header)
@@ -45,6 +60,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
 
 # Cap the venue logo at a third of the screen height (per the design).
 MAX_VENUE_LOGO_VH = 33
+# Pagination / rotation bounds (the per-count grid layouts are tuned up to 8).
+MAX_PAGE_SIZE = 8
+MIN_ROTATION_SECONDS = 3
+MAX_ROTATION_SECONDS = 600
+
+
+def _coerce_int(value: Any, lo: int, hi: int, default: int) -> int:
+    try:
+        return max(lo, min(hi, int(value)))
+    except (TypeError, ValueError):
+        return default
 
 
 def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -73,9 +99,23 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
 
     # Display options.
     merged["color_unit"] = "srm" if str(merged["color_unit"]).lower() == "srm" else "ebc"
-    for flag in ("show_abv", "show_ibu", "show_color",
-                 "hide_abv_when_empty", "hide_ibu_when_empty", "hide_color_when_empty"):
+    for flag in ("show_abv", "show_ibu", "show_color", "show_og", "show_fg",
+                 "hide_abv_when_empty", "hide_ibu_when_empty", "hide_color_when_empty",
+                 "hide_og_when_empty", "hide_fg_when_empty", "show_source_badge"):
         merged[flag] = bool(merged[flag])
+
+    # Theme + glassware.
+    merged["theme"] = normalize_theme_name(merged["theme"])
+    merged["theme_custom"] = coerce_custom_theme(merged["theme_custom"])
+    merged["glass_type"] = normalize_glass(merged["glass_type"])
+
+    # Pagination / carousel.
+    merged["paginate"] = bool(merged["paginate"])
+    merged["page_size"] = _coerce_int(merged["page_size"], 1, MAX_PAGE_SIZE, DEFAULT_CONFIG["page_size"])
+    merged["rotation_seconds"] = _coerce_int(
+        merged["rotation_seconds"], MIN_ROTATION_SECONDS, MAX_ROTATION_SECONDS,
+        DEFAULT_CONFIG["rotation_seconds"])
+
     merged["venue_logo"] = (str(merged["venue_logo"]) if merged["venue_logo"] else None)
     try:
         merged["venue_logo_height_vh"] = max(0, min(MAX_VENUE_LOGO_VH, int(merged["venue_logo_height_vh"])))
@@ -183,5 +223,6 @@ def update_config(**changes: Any) -> dict[str, Any]:
     if cfg is None:
         cfg = dict(DEFAULT_CONFIG)     # genuine first run
     cfg.update(changes)
-    save_config(cfg)
-    return cfg
+    clean = _coerce(cfg)               # normalise/clamp before persisting...
+    save_config(clean)
+    return clean                       # ...and return exactly what was saved

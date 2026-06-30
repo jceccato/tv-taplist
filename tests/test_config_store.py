@@ -73,3 +73,19 @@ def test_update_config_preserves_unrelated_fields():
     assert on_disk["num_taps"] == 6
     assert on_disk["venue_logo"] == "venue_logo.png"
     assert on_disk["last_sync_success"] == "2026-01-01T00:00:00"
+
+
+def test_coerce_clamps_pagination_and_normalises_theme_glass():
+    cfg = config_store.update_config(
+        page_size=99, rotation_seconds=1, theme="bogus", glass_type="notaglass")
+    assert cfg["page_size"] == config_store.MAX_PAGE_SIZE        # clamped to the grid max
+    assert cfg["rotation_seconds"] == config_store.MIN_ROTATION_SECONDS
+    assert cfg["theme"] == "default"                            # unknown -> default
+    assert cfg["glass_type"] == "default"
+
+
+def test_coerce_custom_theme_fills_invalid_colours():
+    cfg = config_store.update_config(theme="custom", theme_custom={"bg": "not-a-hex", "text": "#abcdef"})
+    # Invalid colours fall back to the default palette; valid ones are kept.
+    assert cfg["theme_custom"]["bg"] == config_store.DEFAULT_THEME["bg"]
+    assert cfg["theme_custom"]["text"] == "#abcdef"

@@ -4,8 +4,9 @@ File naming:
   custom_tap_<X>.md / custom_tap_<X>.<ext>   -> manual override (wins)
   bf_tap_<X>.md     / bf_tap_<X>.<ext>        -> Brewfather-sourced
 
-Front matter keys: name, abv, ibu, ebc, saturation, source, batch_id, image,
-updated. The body (after the closing '---') holds the description / tasting notes.
+Front matter keys: name, abv, ibu, ebc, og, fg, saturation, color_override, glass,
+show_og, show_fg, source, batch_id, image, updated. The body (after the closing
+'---') holds the description / tasting notes.
 
 All writes go through atomic.atomic_write_text. Reads tolerate a file being
 renamed or deleted mid-cycle (return None instead of raising).

@@ -2,6 +2,7 @@
 from app.colors import (
     DEFAULT_SATURATION,
     ebc_to_hex,
+    parse_hex_color,
     parse_saturation,
     relative_luminance,
     text_color_for,
@@ -59,3 +60,14 @@ def test_parse_saturation_percent_or_fraction():
 def test_contrast_rule_picks_legible_text():
     assert text_color_for(ebc_to_hex(4)) == "#161616"   # dark text on a pale beer
     assert text_color_for(ebc_to_hex(79)) == "#f5f5f5"  # light text on a stout
+
+
+def test_parse_hex_color_normalises_and_rejects():
+    assert parse_hex_color("#780606") == "#780606"
+    assert parse_hex_color("780606") == "#780606"          # leading # optional
+    assert parse_hex_color("#ABC") == "#aabbcc"             # short form expanded
+    assert parse_hex_color("  #FfFfFf  ") == "#ffffff"      # trimmed + lowercased
+    assert parse_hex_color("nope") is None
+    assert parse_hex_color("#12345") is None                # wrong length
+    assert parse_hex_color(None) is None
+    assert parse_hex_color(123456) is None                  # not a string

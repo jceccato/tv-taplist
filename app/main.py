@@ -38,16 +38,17 @@ from fastapi.templating import Jinja2Templates
 from . import auth, markdown_store as md
 from .archive import archive_tap
 from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
-from .beer_glass import beer_glass_svg
+from .beer_glass import GLASS_KEYS, GLASS_TYPES, beer_glass_svg
 from .board import build_board
 from .brewfather import run_sync
-from .colors import ebc_to_srm, parse_saturation, srm_to_ebc
+from .colors import ebc_to_srm, parse_hex_color, parse_saturation, srm_to_ebc
 from .config_store import (
     MAX_VENUE_LOGO_VH,
     brewfather_credentials,
     load_config,
     update_config,
 )
+from .theme import DEFAULT_THEME, THEME_FIELD_LABELS, THEME_KEYS, THEMES
 from .demo import maybe_seed_demo
 from .paths import (
     DATA_DIR,
@@ -156,10 +157,15 @@ async def img_placeholder():
 
 
 @app.get("/img/beer-glass")
-async def img_beer_glass(ebc: float | None = None, sat: float | None = None):
-    """A beer-glass SVG tinted to the beer's colour (the no-photo placeholder)."""
+async def img_beer_glass(ebc: float | None = None, sat: float | None = None,
+                         glass: str | None = None, hex: str | None = None):
+    """A beer-glass SVG tinted to the beer's colour (the no-photo placeholder).
+
+    `glass` picks the silhouette; `hex` is an exact colour override (without the
+    leading #, since that is a URL fragment).
+    """
     return Response(
-        beer_glass_svg(ebc, sat),
+        beer_glass_svg(ebc, sat, glass, hex),
         media_type="image/svg+xml",
         headers={"Cache-Control": "public, max-age=300"},
     )
@@ -248,6 +254,11 @@ async def admin_page(request: Request):
             "color_label": "SRM" if cfg.get("color_unit") == "srm" else "EBC",
             "venue_logo_url": "/img/venue-logo" if venue_logo_path() else None,
             "max_logo_vh": MAX_VENUE_LOGO_VH,
+            # Theme + glassware pickers.
+            "themes": THEMES,
+            "theme_fields": THEME_FIELD_LABELS,
+            "theme_custom": cfg.get("theme_custom") or DEFAULT_THEME,
+            "glass_types": GLASS_TYPES,
         },
     )
 
@@ -266,6 +277,25 @@ def _saturation_percent(value):
     return "" if sat is None else int(round(sat * 100))
 
 
+def _tri_to_form(value) -> str:
+    """A stored tri-state (True/False/None) -> a select value ("true"/"false"/"")."""
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    return ""
+
+
+def _tri_from_form(value: str) -> bool | None:
+    """A select value ("true"/"false"/"") -> a stored tri-state (True/False/None)."""
+    v = (value or "").strip().lower()
+    if v == "true":
+        return True
+    if v == "false":
+        return False
+    return None
+
+
 def _build_admin_tap_rows(cfg: dict) -> list[dict]:
     """Per-tap admin state: override on/off and current values to prefill."""
     rows: list[dict] = []
@@ -282,9 +312,15 @@ def _build_admin_tap_rows(cfg: dict) -> list[dict]:
             "name": data.get("name") or "",
             "abv": data.get("abv") if data.get("abv") is not None else "",
             "ibu": data.get("ibu") if data.get("ibu") is not None else "",
+            "og": data.get("og") if data.get("og") is not None else "",
+            "fg": data.get("fg") if data.get("fg") is not None else "",
             # Colour prefilled in the admin's chosen unit (stored as EBC).
             "color_value": _color_in_unit(data.get("ebc"), unit),
             "saturation": _saturation_percent(data.get("saturation")),
+            "color_override": data.get("color_override") or "",
+            "glass": data.get("glass") or "",
+            "show_og": _tri_to_form(data.get("show_og")),
+            "show_fg": _tri_to_form(data.get("show_fg")),
             "description": data.get("description") or "",
             "source": data.get("source") or ("custom" if override else None),
             "image_url": f"/img/{img.name}" if img else None,
@@ -309,15 +345,33 @@ async def save_settings(
     show_abv: bool = Form(False),
     show_ibu: bool = Form(False),
     show_color: bool = Form(False),
+    show_og: bool = Form(False),
+    show_fg: bool = Form(False),
     hide_abv_when_empty: bool = Form(False),
     hide_ibu_when_empty: bool = Form(False),
     hide_color_when_empty: bool = Form(False),
+    hide_og_when_empty: bool = Form(False),
+    hide_fg_when_empty: bool = Form(False),
+    show_source_badge: bool = Form(False),
+    theme: str = Form("default"),
+    glass_type: str = Form("default"),
+    paginate: bool = Form(False),
+    page_size: int = Form(6),
+    rotation_seconds: int = Form(30),
     venue_logo_height_vh: int = Form(0),
 ):
     if num_taps < 0:
         raise HTTPException(status_code=422, detail="Number of taps must be >= 0")
     if max_archive_age_days < 0 or max_archive_storage_mb < 0:
         raise HTTPException(status_code=422, detail="Cleanup limits must be >= 0")
+
+    # Custom theme colours arrive as theme_<key> fields; any invalid/blank colour
+    # falls back to the default palette (final clamping happens in config_store).
+    form = await request.form()
+    theme_custom = {
+        key: parse_hex_color(form.get(f"theme_{key}")) or DEFAULT_THEME[key]
+        for key in THEME_KEYS
+    }
 
     updates = {
         "num_taps": num_taps,
@@ -329,9 +383,20 @@ async def save_settings(
         "show_abv": show_abv,
         "show_ibu": show_ibu,
         "show_color": show_color,
+        "show_og": show_og,
+        "show_fg": show_fg,
         "hide_abv_when_empty": hide_abv_when_empty,
         "hide_ibu_when_empty": hide_ibu_when_empty,
         "hide_color_when_empty": hide_color_when_empty,
+        "hide_og_when_empty": hide_og_when_empty,
+        "hide_fg_when_empty": hide_fg_when_empty,
+        "show_source_badge": show_source_badge,
+        "theme": theme,
+        "theme_custom": theme_custom,
+        "glass_type": glass_type,
+        "paginate": paginate,
+        "page_size": page_size,
+        "rotation_seconds": rotation_seconds,
         "venue_logo_height_vh": max(0, min(MAX_VENUE_LOGO_VH, venue_logo_height_vh)),
     }
     # Only persist Brewfather credentials that are NOT managed via env vars, so
@@ -411,8 +476,14 @@ async def save_override(
     name: str = Form(""),
     abv: str = Form(""),
     ibu: str = Form(""),
+    og: str = Form(""),
+    fg: str = Form(""),
     color: str = Form(""),     # colour in the admin's display unit (EBC or SRM)
     saturation: str = Form(""),  # optional colour-saturation override, as a %
+    color_override: str = Form(""),  # exact #rrggbb override (wins over EBC colour)
+    glass: str = Form(""),     # glassware key, or blank to inherit the global default
+    show_og: str = Form(""),   # per-tap tri-state: "", "true", "false"
+    show_fg: str = Form(""),
     description: str = Form(""),
     image: UploadFile | None = None,
 ):
@@ -453,12 +524,19 @@ async def save_override(
             existing = md.find_image_for(f"custom_tap_{tap}")
             image_name = existing.name if existing else None
 
+        glass_key = glass.strip()
         front_matter = {
             "name": name.strip() or f"Tap {tap}",
             "abv": _num(abv),
             "ibu": _num(ibu),
             "ebc": _color_to_ebc(color),
+            "og": _num(og),
+            "fg": _num(fg),
             "saturation": parse_saturation(saturation),
+            "color_override": parse_hex_color(color_override),
+            "glass": glass_key if glass_key in GLASS_KEYS else None,
+            "show_og": _tri_from_form(show_og),
+            "show_fg": _tri_from_form(show_fg),
             "source": "custom",
             "image": image_name,
             "updated": iso_now(),

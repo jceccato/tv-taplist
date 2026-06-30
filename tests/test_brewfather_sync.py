@@ -83,6 +83,34 @@ def test_saturation_token_stripped_from_description():
         {"tasteNotes": "Roasty saturation:70 finish"}) == "Roasty finish"
 
 
+def test_extract_color_override_token():
+    assert brewfather._extract_color_override({"batchNotes": "tap:3 colour:#780606"}) == "#780606"
+    assert brewfather._extract_color_override({"batchNotes": "color: 780606"}) == "#780606"
+    assert brewfather._extract_color_override({"batchNotes": "tap:3"}) is None
+
+
+def test_extract_glass_token():
+    assert brewfather._extract_glass({"batchNotes": "tap:3 glass:nonicpint"}) == "nonicpint"
+    assert brewfather._extract_glass({"batchNotes": "glass:Teku"}) == "teku"
+    assert brewfather._extract_glass({"batchNotes": "glass:notaglass"}) is None
+    assert brewfather._extract_glass({"batchNotes": "tap:3"}) is None
+
+
+def test_color_and_glass_tokens_stripped_from_description():
+    assert brewfather._extract_description(
+        {"tasteNotes": "Smooth colour:#112233 and glass:tulip pour"}) == "Smooth and pour"
+
+
+def test_extract_og_fg_specific_gravity_only():
+    assert brewfather._extract_og({"measuredOg": 1.052, "recipe": {"og": 1.060}}) == 1.052
+    assert brewfather._extract_og({"recipe": {"og": 1.060}}) == 1.060
+    assert brewfather._extract_fg({"measuredFg": 1.010}) == 1.010
+    # Unset (0 / 1.0) or out-of-range (Plato-like) values are treated as missing.
+    assert brewfather._extract_og({"measuredOg": 0, "og": 1.0}) is None
+    assert brewfather._extract_og({"og": 12.5}) is None
+    assert brewfather._extract_fg({}) is None
+
+
 # ---- desired map / conflict resolution ---------------------------------
 
 def test_conflict_newest_wins():
@@ -176,6 +204,20 @@ def test_sync_writes_saturation_token(mock_network):
     mock_network["batches"] = [_batch("b1", 2, "Muted Ale", batchNotes="tap:2 saturation:50")]
     brewfather.run_sync()
     assert md.read_tap_file(md.bf_md_path(2))["saturation"] == 0.5
+
+
+def test_sync_writes_colour_glass_and_gravity(mock_network):
+    _set_creds()
+    mock_network["batches"] = [_batch(
+        "b1", 2, "Loaded Ale",
+        batchNotes="tap:2 colour:#445566 glass:tulip",
+        measuredOg=1.055, measuredFg=1.012)]
+    brewfather.run_sync()
+    data = md.read_tap_file(md.bf_md_path(2))
+    assert data["color_override"] == "#445566"
+    assert data["glass"] == "tulip"
+    assert data["og"] == 1.055
+    assert data["fg"] == 1.012
 
 
 def test_sync_skips_unchanged_batch(mock_network):

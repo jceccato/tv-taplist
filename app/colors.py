@@ -13,9 +13,13 @@ keep correct.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 EBC_PER_SRM = 1.97  # stat-unit conversion: EBC = SRM * 1.97; SRM = EBC / 1.97
+
+# #rrggbb or #rgb (with or without the leading #).
+_HEX_RE = re.compile(r"^#?([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$")
 
 # The colour model's own EBC->SRM factor (~1/1.97) and clamp range.
 _EBC_TO_SRM = 0.508
@@ -62,6 +66,23 @@ def parse_saturation(value: Any, default: float | None = None) -> float | None:
     if f > 1:
         f /= 100.0
     return max(0.0, min(1.0, f))
+
+
+def parse_hex_color(value: Any) -> str | None:
+    """Normalise a colour string to ``#rrggbb`` (lowercase), or None if invalid.
+
+    Accepts ``#780606``, ``780606``, ``#abc`` (expanded to ``#aabbcc``). Used for
+    the per-beer colour override and for validating custom theme colours.
+    """
+    if not isinstance(value, str):
+        return None
+    m = _HEX_RE.match(value.strip())
+    if not m:
+        return None
+    h = m.group(1)
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    return "#" + h.lower()
 
 
 def _clamp8(v: float) -> int:

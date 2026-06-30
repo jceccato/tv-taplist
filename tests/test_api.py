@@ -175,6 +175,63 @@ def test_override_saves_saturation_as_fraction():
     assert md.read_tap_file(md.custom_md_path(1))["saturation"] == 0.6
 
 
+def test_override_saves_colour_glass_gravity_and_visibility():
+    c = _login(TestClient(app))
+    r = c.post("/admin/override/1", data={
+        "enabled": "true", "name": "Loaded", "color": "20",
+        "color_override": "780606", "glass": "teku",
+        "og": "1.052", "fg": "1.011", "show_og": "true", "show_fg": "false",
+    })
+    assert r.status_code == 200
+    data = md.read_tap_file(md.custom_md_path(1))
+    assert data["color_override"] == "#780606"   # normalised with leading #
+    assert data["glass"] == "teku"
+    assert data["og"] == 1.052 and data["fg"] == 1.011
+    assert data["show_og"] is True and data["show_fg"] is False
+
+
+def test_override_ignores_unknown_glass():
+    c = _login(TestClient(app))
+    r = c.post("/admin/override/1",
+               data={"enabled": "true", "name": "X", "glass": "notaglass"})
+    assert r.status_code == 200
+    assert md.read_tap_file(md.custom_md_path(1))["glass"] is None
+
+
+def test_save_settings_theme_pagination_and_gravity():
+    c = _login(TestClient(app))
+    r = c.post("/admin/settings", data={
+        "num_taps": "4", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
+        "theme": "oled", "glass_type": "tulip",
+        "paginate": "true", "page_size": "4", "rotation_seconds": "15",
+        "show_og": "true", "show_fg": "true", "show_source_badge": "true",
+        "theme_bg": "#010203",
+    })
+    assert r.status_code == 200
+    cfg = config_store.load_config()
+    assert cfg["theme"] == "oled"
+    assert cfg["glass_type"] == "tulip"
+    assert cfg["paginate"] is True and cfg["page_size"] == 4 and cfg["rotation_seconds"] == 15
+    assert cfg["show_og"] is True and cfg["show_source_badge"] is True
+    # The custom-theme colour is captured even when another preset is active.
+    assert cfg["theme_custom"]["bg"] == "#010203"
+
+
+def test_board_includes_theme_and_pagination():
+    config_store.update_config(num_taps=1, theme="oled", paginate=True, page_size=3)
+    board = client.get("/api/board").json()
+    assert board["theme"]["bg"] == "#000000"        # OLED true black
+    assert board["paginate"] is True and board["page_size"] == 3
+    assert "show_source_badge" in board
+
+
+def test_beer_glass_route_accepts_glass_and_hex():
+    # Explicit hex override is honoured regardless of EBC.
+    r = client.get("/img/beer-glass", params={"hex": "780606", "glass": "tulip"})
+    assert r.status_code == 200 and "svg" in r.headers["content-type"]
+    assert "#780606" in r.text
+
+
 def test_override_color_input_converts_from_srm():
     config_store.update_config(color_unit="srm")
     c = _login(TestClient(app))

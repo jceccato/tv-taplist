@@ -7,11 +7,16 @@ Field mapping (verified against a live /v2/batches?complete=True payload):
                  (Brewfather returns 0, not null, for unset values)
   colour      <- measuredEbc (EBC); else estimatedColor / color, which are SRM
                  (verified via style colour bounds) -> converted to EBC
-  saturation  <- optional `saturation:NN` note token (NN% -> 0..1 fraction);
-                 absent -> the display's default saturation
+  og / fg     <- measuredOg/Og, measuredFg/Fg, else recipe.og/fg; kept only when a
+                 plausible specific gravity (1.0 < sg < 1.2), else None
+  saturation  <- optional `saturation:NN` note token (NN% -> 0..1 fraction)
+  colour      <- optional `colour:#rrggbb` note token; an exact override that wins
+                 over the computed EBC colour
+  glass       <- optional `glass:nonicpint` note token (glassware silhouette)
   description <- tasteNotes, else the recipe style name. The batch notes are NOT
-                 used for the body — they only carry the tap:X / saturation:NN
-                 control tokens, which are stripped from any text we do show.
+                 used for the body — they only carry the control tokens
+                 (tap:X / saturation:NN / colour:#hex / glass:type), which are all
+                 stripped from any text we do show.
 
 The helpers still try several field-name/unit variants defensively and log what
 they found. Bump MAPPING_VERSION when changing the mapping so already-cached
@@ -44,7 +49,8 @@ import httpx
 from . import markdown_store as md
 from .archive import archive_tap
 from .atomic import JOB_LOCK, atomic_write_bytes
-from .colors import EBC_PER_SRM, parse_saturation
+from .beer_glass import GLASS_KEYS
+from .colors import EBC_PER_SRM, parse_hex_color, parse_saturation
 from .config_store import (
     ConfigUnreadable,
     brewfather_credentials,
@@ -78,7 +84,7 @@ MAX_PAGES = 50  # safety cap: 50 pages x 50 = 2500 completed batches
 # refresh already-cached bf_tap files. `_is_unchanged` treats a stored map_rev
 # different from this as "changed", so the next sync rewrites every tap once with
 # the new mapping, then settles back to skipping genuinely unchanged batches.
-MAPPING_VERSION = 5
+MAPPING_VERSION = 6
 
 # `tap:3`, `tap: 3`, `Tap:3`, etc.
 TAP_TOKEN_RE = re.compile(r"tap\s*:\s*(\d+)", re.IGNORECASE)
@@ -86,6 +92,13 @@ TAP_TOKEN_RE = re.compile(r"tap\s*:\s*(\d+)", re.IGNORECASE)
 # `saturation:60` (= 60% = 0.6) — an optional per-tap colour-saturation override
 # in the batch notes, parsed the same way as the tap token.
 SATURATION_TOKEN_RE = re.compile(r"saturation\s*:\s*([0-9]*\.?[0-9]+)", re.IGNORECASE)
+
+# `colour:#780606` / `color:#780606` — force an exact swatch/glass colour,
+# overriding the computed EBC colour.
+COLOR_TOKEN_RE = re.compile(r"colou?r\s*:\s*(#?[0-9a-fA-F]{6})", re.IGNORECASE)
+
+# `glass:nonicpint` — choose the glassware silhouette for this beer's placeholder.
+GLASS_TOKEN_RE = re.compile(r"glass\s*:\s*([a-zA-Z]+)", re.IGNORECASE)
 
 # A Brewfather batch's own `name` defaults to a generic "Batch" / "Batch #12";
 # the real beer name lives on the embedded recipe, so we skip these.
@@ -183,6 +196,35 @@ def _extract_ebc(batch: dict[str, Any]) -> float | None:
     return round(rebc, 1) if rebc is not None else None
 
 
+def _first_gravity(obj: dict[str, Any], *keys: str) -> float | None:
+    """First plausible specific-gravity value (1.0 < sg < 1.2) among keys.
+
+    Brewfather sends OG/FG as specific gravity (e.g. 1.052). An unset value comes
+    back as 0 or 1.0, and a Plato-stored field would be out of the SG range — both
+    are rejected so the display hides the stat rather than showing nonsense.
+    """
+    for key in keys:
+        if key not in obj or obj[key] in (None, ""):
+            continue
+        try:
+            num = float(obj[key])
+        except (TypeError, ValueError):
+            continue
+        if 1.0 < num < 1.2:
+            return round(num, 3)
+    return None
+
+
+def _extract_og(batch: dict[str, Any]) -> float | None:
+    recipe = batch.get("recipe") or {}
+    return _first_gravity(batch, "measuredOg", "og") or _first_gravity(recipe, "og")
+
+
+def _extract_fg(batch: dict[str, Any]) -> float | None:
+    recipe = batch.get("recipe") or {}
+    return _first_gravity(batch, "measuredFg", "fg") or _first_gravity(recipe, "fg")
+
+
 def _extract_notes_text(batch: dict[str, Any]) -> str:
     """Concatenate every free-text notes field we might find a tap token in."""
     parts: list[str] = []
@@ -201,9 +243,11 @@ def _extract_notes_text(batch: dict[str, Any]) -> str:
 
 
 def _clean_description(text: str) -> str:
-    """Strip the `tap:X` / `saturation:NN` control tokens and tidy whitespace."""
+    """Strip the control tokens (tap / saturation / colour / glass) and tidy whitespace."""
     cleaned = TAP_TOKEN_RE.sub(" ", text)
     cleaned = SATURATION_TOKEN_RE.sub(" ", cleaned)
+    cleaned = COLOR_TOKEN_RE.sub(" ", cleaned)
+    cleaned = GLASS_TOKEN_RE.sub(" ", cleaned)
     cleaned = re.sub(r"[ \t]+", " ", cleaned)
     cleaned = re.sub(r"\s*\n\s*", "\n", cleaned)
     return cleaned.strip()
@@ -280,6 +324,21 @@ def _extract_saturation(batch: dict[str, Any]) -> float | None:
     if not m:
         return None
     return parse_saturation(m.group(1))
+
+
+def _extract_color_override(batch: dict[str, Any]) -> str | None:
+    """Exact colour from a `colour:#rrggbb` batch-note token (overrides EBC colour)."""
+    m = COLOR_TOKEN_RE.search(_extract_notes_text(batch))
+    return parse_hex_color(m.group(1)) if m else None
+
+
+def _extract_glass(batch: dict[str, Any]) -> str | None:
+    """Glassware key from a `glass:nonicpint` token, or None for the global default."""
+    m = GLASS_TOKEN_RE.search(_extract_notes_text(batch))
+    if not m:
+        return None
+    key = m.group(1).lower()
+    return key if key in GLASS_KEYS else None
 
 
 # ---- HTTP --------------------------------------------------------------
@@ -411,7 +470,11 @@ def _write_bf_tap(client: httpx.Client, tap: int, batch: dict[str, Any], rev: in
         "abv": _extract_abv(batch),
         "ibu": _extract_ibu(batch),
         "ebc": ebc,
+        "og": _extract_og(batch),
+        "fg": _extract_fg(batch),
         "saturation": _extract_saturation(batch),
+        "color_override": _extract_color_override(batch),
+        "glass": _extract_glass(batch),
         "source": "brewfather",
         "batch_id": batch.get("_id") or batch.get("id"),
         "source_rev": rev,            # batch revision, used to skip unchanged syncs

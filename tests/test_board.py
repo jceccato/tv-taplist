@@ -63,3 +63,34 @@ def test_saturation_override_mutes_colour_and_tags_glass(write_tap):
     assert vivid["color_hex"] != muted["color_hex"]
     assert vivid["image_url"] == "/img/beer-glass?ebc=20"
     assert muted["image_url"] == "/img/beer-glass?ebc=20&sat=0.3"
+
+
+def test_color_override_wins_over_ebc_everywhere(write_tap):
+    # An exact colour override drives the swatch AND the placeholder glass (hex=),
+    # ignoring the EBC-derived colour.
+    write_tap("custom", 1, name="Forced Red", ebc=20, color_override="#780606")
+    r = resolve_tap(1)
+    assert r["color_hex"] == "#780606"
+    assert r["image_url"] == "/img/beer-glass?hex=780606"
+
+
+def test_glass_override_tags_placeholder_url(write_tap):
+    # A per-tap glass selection is encoded in the glass URL; the default is omitted.
+    write_tap("custom", 1, name="Tulip Beer", ebc=20, glass="tulip")
+    assert resolve_tap(1)["image_url"] == "/img/beer-glass?ebc=20&glass=tulip"
+    # A global default glass applies when the tap has none of its own.
+    write_tap("custom", 2, name="Plain", ebc=20)
+    assert resolve_tap(2, default_glass="teku")["image_url"] == "/img/beer-glass?ebc=20&glass=teku"
+
+
+def test_og_fg_and_per_tap_show_flags(write_tap):
+    write_tap("custom", 1, name="Gravity Beer", abv=5, og=1.052, fg=1.010, show_og=True, show_fg=False)
+    r = resolve_tap(1)
+    assert r["og"] == 1.052
+    assert r["fg"] == 1.010
+    assert r["show_og"] is True
+    assert r["show_fg"] is False
+    # A tap without per-tap flags reports None (inherit the global toggle).
+    write_tap("custom", 2, name="Plain", abv=5)
+    r2 = resolve_tap(2)
+    assert r2["show_og"] is None and r2["og"] is None
