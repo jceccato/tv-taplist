@@ -36,13 +36,14 @@ Brewfather account, no config:
 
 ```bash
 docker run -d --name tv-taplist-demo -p 8080:8080 \
-  -e DEMO_MODE=true -e ADMIN_PASSWORD=demo -e SESSION_SECRET=demo \
+  -e DEMO_MODE=true \
   ghcr.io/OWNER/tv-taplist:latest
 ```
 
 - **Display:** <http://localhost:8080/> — the TV board (no login).
-- **Admin:** <http://localhost:8080/admin> — log in with the throwaway password
-  `demo` to play with settings, themes and overrides.
+- **Admin:** <http://localhost:8080/admin> — open (no login) in demo mode so you can
+  play with settings, themes and overrides. Set `ADMIN_PASSWORD` before exposing the
+  box to anyone; a password re-enables normal login.
 
 Stop and remove it when you're done: `docker rm -f tv-taplist-demo`.
 
@@ -77,7 +78,8 @@ live in [INSTALLATION.md](INSTALLATION.md).
 On its next sync the board picks it up. You can fine-tune the swatch colour,
 glassware and more with extra note tokens or from the admin panel — see
 [FAQ.md → Brewfather](FAQ.md#brewfather-sync). Beers that aren't Completed are
-ignored, so works-in-progress never show up by accident.
+ignored by default, so works-in-progress never show up by accident — though you can
+opt to include **Conditioning** batches (lagering / maturing) from the admin.
 
 ---
 

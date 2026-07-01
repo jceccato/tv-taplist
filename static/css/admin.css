@@ -138,7 +138,7 @@ select {
 /* ---- Theme colour pickers ---- */
 .theme-grid {
   display: grid; grid-template-columns: 1fr auto; gap: 0.55rem 1rem;
-  align-items: center; max-width: 420px; margin-top: 0.6rem;
+  align-items: center; max-width: 500px; margin-top: 0.6rem;
 }
 .theme-grid label { margin: 0; color: var(--text); }
 input[type=color] {
@@ -147,6 +147,37 @@ input[type=color] {
 }
 #custom-theme { transition: opacity 200ms ease; }
 #custom-theme.dim { opacity: 0.45; }
+
+/* ---- Shared hex colour field (swatch + hex text [+ clear]) ---- */
+.color-field { display: flex; align-items: center; gap: 0.5rem; }
+.color-field .hex-text {
+  width: 7rem; flex: 0 0 auto;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+.hex-text.invalid, .hex-text[aria-invalid="true"] {
+  border-color: var(--danger); outline-color: var(--danger);
+}
+.hex-clear {
+  cursor: pointer; flex: 0 0 auto; width: 2rem; height: 2rem; padding: 0;
+  line-height: 1; font-size: 1.1rem; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--muted);
+}
+.hex-clear:hover { color: var(--text); border-color: var(--danger); }
+
+/* ---- Override live colour preview + token block ---- */
+.color-preview { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.4rem; }
+.color-preview-swatch {
+  flex: 0 0 auto; width: 48px; height: 34px; border-radius: 8px;
+  border: 1px solid var(--border); background: #cccccc;
+}
+.token-block {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.85rem; white-space: pre; overflow-x: auto;
+}
+.token-copy { margin-top: 0.5rem; }
+
+/* Demo-open warning banner */
+.alert.warn { background: rgba(255,182,39,0.12); border: 1px solid var(--accent); color: #ffe6b0; }
 .venue-preview {
   display: block; max-width: 100%; max-height: 140px; object-fit: contain;
   background: #0c0e13; border: 1px solid var(--border); border-radius: 8px;

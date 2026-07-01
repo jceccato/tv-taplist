@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Admin · Tap List</title>
   <link rel="icon" href="/static/placeholder.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/css/admin.css">
+  <link rel="stylesheet" href="/static/css/admin.css?v={{ asset_v }}">
 </head>
 <body>
   <header class="topbar">
@@ -21,6 +21,13 @@
   <div id="toast" class="toast" hidden></div>
 
   <main class="admin-main">
+    {% if demo_open %}
+    <div class="alert warn" role="status">
+      <strong>Demo mode:</strong> admin is open with no login. Set
+      <code>ADMIN_PASSWORD</code> before exposing this box to anyone.
+    </div>
+    {% endif %}
+
     <!-- ===== Status panel (always visible, above the tabs) ===== -->
     <section class="card-panel">
       <h2>Status</h2>
@@ -70,6 +77,12 @@
               <input id="bf_key" name="brewfather_api_key" type="password" value="{{ cfg.brewfather_api_key }}" autocomplete="off">
               <p class="hint">Stored in plaintext in <code>config.json</code>. Tip: set <code>BREWFATHER_API_KEY</code> in the environment to keep it off disk.</p>
             {% endif %}
+
+            <label class="checkbox">
+              <input type="checkbox" name="include_conditioning" {{ 'checked' if cfg.include_conditioning else '' }}>
+              Include Conditioning batches
+            </label>
+            <p class="hint">Also show beers still in Conditioning (lagering / maturing), not just Completed batches.</p>
           </fieldset>
 
           <fieldset>
@@ -210,7 +223,13 @@
           <div class="theme-grid">
             {% for key, label in theme_fields %}
               <label for="theme_{{ key }}">{{ label }}</label>
-              <input type="color" id="theme_{{ key }}" name="theme_{{ key }}" form="settings-form" value="{{ theme_custom[key] }}">
+              <!-- The colour input stays the submitted control (name="theme_X");
+                   the hex text box is an unnamed helper that syncs into it. -->
+              <div class="color-field">
+                <input type="color" id="theme_{{ key }}" name="theme_{{ key }}" form="settings-form" value="{{ theme_custom[key] }}">
+                <input type="text" class="hex-text" data-hex-text value="{{ theme_custom[key] }}"
+                       aria-label="{{ label }} hex value" spellcheck="false" autocomplete="off" maxlength="7">
+              </div>
             {% endfor %}
           </div>
         </fieldset>
@@ -274,7 +293,18 @@
                 </div>
                 <div class="field">
                   <label>Colour override</label>
-                  <input type="text" name="color_override" value="{{ row.color_override }}" placeholder="#780606">
+                  <!-- Option 2A: the text input is the source of truth (blank =
+                       "no override"); the swatch is just a picker that writes into
+                       it, and × clears it back to blank. -->
+                  <div class="color-field">
+                    <input type="color" value="{{ row.color_override or '#000000' }}"
+                           aria-label="Tap {{ row.tap }} colour override picker">
+                    <input type="text" class="hex-text" name="color_override" data-hex-text data-allow-empty
+                           value="{{ row.color_override }}" placeholder="#780606"
+                           spellcheck="false" autocomplete="off" maxlength="7">
+                    <button type="button" class="hex-clear" data-hex-clear
+                            title="Clear colour override" aria-label="Clear colour override">×</button>
+                  </div>
                 </div>
               </div>
               <p class="hint">Saturation: blank = full colour; lower mutes the swatch &amp; glass (e.g. 60 = 60%). Colour override: an exact <code>#rrggbb</code> that wins over the calculated colour everywhere.</p>
@@ -292,6 +322,20 @@
                 <label>Custom image</label>
                 {% if row.image_url and row.override %}<img class="override-thumb" src="{{ row.image_url }}" alt="current image">{% endif %}
                 <input type="file" name="image" accept="image/*">
+                <!-- Live colour preview: mirrors exactly how the board computes the
+                     beer's colour (override wins, else EBC muted by saturation). -->
+                <div class="color-preview">
+                  <span class="color-preview-swatch" data-color-indicator></span>
+                  <span class="hint" style="margin:0">Live colour — what the TV will show for this beer.</span>
+                </div>
+              </div>
+              <!-- Feature 4: Brewfather note tokens that reproduce this custom
+                   entry, so the operator can paste them into the matching batch. -->
+              <div class="field">
+                <label>Brewfather batch-note tokens</label>
+                <textarea class="token-block" data-token-block rows="4" readonly aria-label="Brewfather tokens for tap {{ row.tap }}"></textarea>
+                <button type="button" class="btn token-copy" data-token-copy>Copy tokens</button>
+                <p class="hint">Paste these into the matching Brewfather batch's notes so the sync reproduces this look. Name/ABV/IBU/OG/FG come from Brewfather's own batch fields, not tokens.</p>
               </div>
               <button class="btn primary save-override" type="submit">Save tap {{ row.tap }}</button>
             </div>
@@ -302,6 +346,6 @@
     </div>
   </main>
 
-  <script src="/static/js/admin.js" defer></script>
+  <script src="/static/js/admin.js?v={{ asset_v }}" defer></script>
 </body>
 </html>

@@ -51,17 +51,21 @@ cocktail — even if Brewfather knows nothing about it, and the sync never touch
 **On a timer** (every `SYNC_INTERVAL_MINUTES`, default 15) and whenever you click
 **Sync Brewfather now**, the app:
 
-1. Lists your **Completed** batches in one paginated request per page
-   (`complete=True`, 50 per page), so a single call carries all the data it needs
-   — ABV, IBU, colour, notes and the image. Cost is `ceil(batches / 50)` calls,
-   comfortably under Brewfather's limit of **500 calls/hour per key**.
+1. Lists your **Completed** batches (plus **Conditioning** ones if you enabled
+   that — see below) in one paginated request per page (`complete=True`, 50 per
+   page), so a single call carries all the data it needs — ABV, IBU, colour, notes
+   and the image. Cost is `ceil(batches / 50)` calls per status, comfortably under
+   Brewfather's limit of **500 calls/hour per key**.
 2. Reads a `tap:N` token from each batch's notes to decide which tap it belongs to.
 3. Writes a small Markdown file per tap (and downloads the beer's image).
 4. Sets aside (archives) any Brewfather tap that no longer maps to a slot.
 
-**Which batches sync:** only **Completed** ones. Planning, Brewing, Fermenting and
-Archived batches are ignored, so a beer you're still working on never appears until
-you mark it Completed.
+**Which batches sync:** **Completed** ones by default. Planning, Brewing, Fermenting
+and Archived batches are ignored, so a beer you're still working on never appears
+until you mark it Completed. Tick **Include Conditioning batches** on the Settings
+tab to *also* pull batches still in **Conditioning** (lagering / maturing) — handy
+for a beer that's already on tap but too green to mark Completed. When two batches
+(say a Conditioning and a Completed one) claim the same tap, the most recent wins.
 
 **Batch-note tokens** — put any of these anywhere in a batch's notes:
 
@@ -79,8 +83,8 @@ Tokens are stripped from any text shown on the card. The same controls live in
 
 - **Change detection** skips rewriting files and re-downloading images for batches
   that haven't changed, so most syncs are nearly free.
-- **Conflicts** (two Completed batches claiming one tap) resolve to the most
-  recently updated batch, and the clash is logged.
+- **Conflicts** (two batches claiming one tap) resolve to the most recently
+  updated batch, and the clash is logged.
 - **A failed sync changes nothing** — the last good board stays exactly as it was.
 - A rate-limit response (HTTP 429) is honoured (respecting `Retry-After`) and makes
   no changes.

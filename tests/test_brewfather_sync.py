@@ -138,7 +138,7 @@ class _FakeResp:
         return self._d
 
 
-def test_list_completed_batches_uses_complete_and_paginates():
+def test_list_batches_uses_complete_and_paginates():
     pages = [
         [{"_id": str(i), "status": "Completed"} for i in range(brewfather.PAGE_SIZE)],
         [{"_id": "last", "status": "Completed"}],
@@ -150,13 +150,47 @@ def test_list_completed_batches_uses_complete_and_paginates():
             calls.append(params)
             return _FakeResp(pages[len(calls) - 1])
 
-    out = brewfather._list_completed_batches(FakeClient())
+    out = brewfather._list_batches(FakeClient(), ["Completed"])
     assert len(out) == brewfather.PAGE_SIZE + 1
+    assert calls[0]["status"] == "Completed"
     assert calls[0]["complete"] == "True"        # one call returns full data
     assert calls[0]["limit"] == brewfather.PAGE_SIZE
     assert "start_after" not in calls[0]
     # Second page requested with the last _id of the first page.
     assert calls[1]["start_after"] == str(brewfather.PAGE_SIZE - 1)
+
+
+def test_list_batches_merges_statuses_and_dedupes():
+    # A batch id appearing under both requested statuses is returned once.
+    pages = {
+        "Completed": [{"_id": "c1", "status": "Completed"},
+                      {"_id": "shared", "status": "Completed"}],
+        "Conditioning": [{"_id": "shared", "status": "Conditioning"},
+                         {"_id": "k1", "status": "Conditioning"}],
+    }
+
+    class FakeClient:
+        def get(self, path, params=None):
+            # One (short) page per status stops pagination immediately.
+            return _FakeResp(pages[params["status"]])
+
+    out = brewfather._list_batches(FakeClient(), ["Completed", "Conditioning"])
+    ids = [b["_id"] for b in out]
+    assert ids.count("shared") == 1
+    assert set(ids) == {"c1", "shared", "k1"}
+
+
+def test_list_batches_refilters_unwanted_status():
+    # Defensive re-filter drops a batch the API returns in a status we didn't ask for.
+    pages = {"Completed": [{"_id": "c1", "status": "Completed"},
+                           {"_id": "x", "status": "Conditioning"}]}
+
+    class FakeClient:
+        def get(self, path, params=None):
+            return _FakeResp(pages[params["status"]])
+
+    out = brewfather._list_batches(FakeClient(), ["Completed"])
+    assert [b["_id"] for b in out] == ["c1"]
 
 
 # ---- sync orchestration (network mocked) -------------------------------
@@ -170,9 +204,28 @@ def _batch(bid, tap, name, **extra):
 
 @pytest.fixture
 def mock_network(monkeypatch):
-    """Patch the (now single) list call + image download so sync runs offline."""
+    """Patch the batch fetch + image download so sync runs offline.
+
+    The fake fetch mirrors the real `_list_batches`: it returns only batches whose
+    status is among the requested statuses, deduped by _id — so run_sync tests
+    genuinely exercise the include_conditioning status selection.
+    """
     state = {"batches": [], "downloads": {}}
-    monkeypatch.setattr(brewfather, "_list_completed_batches", lambda c: state["batches"])
+
+    def fake_list(client, statuses):
+        wanted = {str(s).lower() for s in statuses}
+        out, seen = [], set()
+        for b in state["batches"]:
+            if str(b.get("status", "")).lower() not in wanted:
+                continue
+            bid = str(b.get("_id") or b.get("id"))
+            if bid in seen:
+                continue
+            seen.add(bid)
+            out.append(b)
+        return out
+
+    monkeypatch.setattr(brewfather, "_list_batches", fake_list)
 
     def fake_download(client, url, stem):
         name = state["downloads"].get(stem)
@@ -197,6 +250,23 @@ def test_sync_writes_bf_tap(mock_network):
     data = md.read_tap_file(md.bf_md_path(2))
     assert data["name"] == "Tap Two Ale"
     assert data["source"] == "brewfather"
+
+
+def test_sync_includes_conditioning_when_enabled(mock_network):
+    _set_creds()
+    config_store.update_config(include_conditioning=True)
+    mock_network["batches"] = [_batch("c1", 3, "Lagering Pils", status="Conditioning")]
+    result = brewfather.run_sync()
+    assert result["written"] == 1
+    assert md.read_tap_file(md.bf_md_path(3))["name"] == "Lagering Pils"
+
+
+def test_sync_ignores_conditioning_when_disabled(mock_network):
+    _set_creds()  # include_conditioning defaults False
+    mock_network["batches"] = [_batch("c1", 3, "Lagering Pils", status="Conditioning")]
+    result = brewfather.run_sync()
+    assert result["written"] == 0
+    assert not md.bf_md_path(3).exists()
 
 
 def test_sync_writes_saturation_token(mock_network):
@@ -266,10 +336,10 @@ def test_failed_sync_makes_no_destructive_changes(mock_network, write_tap, monke
     _set_creds()
     write_tap("bf", 1, name="Existing", abv=5, ebc=10)
 
-    def boom(client):
+    def boom(client, statuses):
         raise httpx.ConnectError("network down")
 
-    monkeypatch.setattr(brewfather, "_list_completed_batches", boom)
+    monkeypatch.setattr(brewfather, "_list_batches", boom)
     result = brewfather.run_sync()
     assert result["ok"] is False
     assert md.bf_md_path(1).exists()
@@ -281,11 +351,11 @@ def test_rate_limit_429_is_reported_without_changes(mock_network, write_tap, mon
     _set_creds()
     write_tap("bf", 1, name="Existing", abv=5, ebc=10)
 
-    def boom(client):
+    def boom(client, statuses):
         resp = httpx.Response(429, headers={"Retry-After": "120"}, request=httpx.Request("GET", "http://x"))
         raise httpx.HTTPStatusError("rate limited", request=resp.request, response=resp)
 
-    monkeypatch.setattr(brewfather, "_list_completed_batches", boom)
+    monkeypatch.setattr(brewfather, "_list_batches", boom)
     result = brewfather.run_sync()
     assert result["ok"] is False
     assert "rate limit" in result["message"].lower()

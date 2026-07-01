@@ -94,6 +94,15 @@ def test_admin_page_renders_all_tabs():
         assert needle in html, needle
 
 
+def test_admin_assets_are_cache_busted():
+    # The admin JS/CSS carry a ?v=<mtime> token so a rebuild/edit is picked up
+    # without a manual hard-refresh (the admin browser caches them aggressively).
+    c = _login(TestClient(app))
+    html = c.get("/admin").text
+    assert "/static/js/admin.js?v=" in html
+    assert "/static/css/admin.css?v=" in html
+
+
 def test_wrong_password_401():
     r = client.post("/admin/login", data={"password": "nope"}, follow_redirects=False)
     assert r.status_code == 401
@@ -316,3 +325,62 @@ def test_manual_sync_skips_without_credentials():
     r = c.post("/admin/sync")
     assert r.status_code == 200
     assert r.json().get("skipped") is True
+
+
+# ---- live colour preview endpoint (Feature 3) --------------------------
+
+def test_preview_color_override_wins():
+    from app.colors import ebc_to_hex
+    r = client.get("/api/preview-color", params={"ebc": "40", "hex": "#780606"})
+    assert r.status_code == 200
+    body = r.json()
+    # The exact hex override beats the EBC colour, exactly as the board resolves it.
+    assert body["color_hex"] == "#780606"
+    assert body["color_hex"] != ebc_to_hex(40)
+    assert body["text_color"] in ("#f5f5f5", "#161616")
+
+
+def test_preview_color_ebc_matches_colours_module():
+    from app.colors import ebc_to_hex
+    # sat is a percentage (30 -> 0.3); the result must match the server colour model.
+    r = client.get("/api/preview-color", params={"ebc": "40", "sat": "30"})
+    assert r.json()["color_hex"] == ebc_to_hex(40, 0.3)
+
+
+def test_preview_color_converts_srm_unit():
+    from app.colors import ebc_to_hex
+    config_store.update_config(color_unit="srm")
+    r = client.get("/api/preview-color", params={"ebc": "10"})
+    # 10 SRM -> ~19.7 EBC, matching _color_to_ebc in save_override.
+    assert r.json()["color_hex"] == ebc_to_hex(10 * 1.97)
+
+
+def test_preview_color_blank_is_grey():
+    r = client.get("/api/preview-color")
+    assert r.json()["color_hex"] == "#cccccc"  # ebc_to_hex(None)
+
+
+# ---- passwordless demo admin (Feature 6) -------------------------------
+
+def test_demo_open_admin_without_password(monkeypatch):
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
+    r = TestClient(app).get("/admin", follow_redirects=False)
+    assert r.status_code == 200
+    assert "Demo mode" in r.text  # the open-admin banner renders
+
+
+def test_demo_with_password_still_requires_login(monkeypatch):
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("ADMIN_PASSWORD", "secret")
+    r = TestClient(app).get("/admin", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/admin/login"
+
+
+def test_no_demo_no_password_admin_denied(monkeypatch):
+    monkeypatch.setenv("DEMO_MODE", "false")
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
+    r = TestClient(app).get("/admin", follow_redirects=False)
+    assert r.status_code == 303  # fail-closed, unchanged
+    assert r.headers["location"] == "/admin/login"

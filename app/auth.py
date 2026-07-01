@@ -33,6 +33,22 @@ def _admin_password() -> str:
     return os.environ.get("ADMIN_PASSWORD", "")
 
 
+def _demo_mode() -> bool:
+    """True when DEMO_MODE is enabled (mirrors the parsing in app/demo.py)."""
+    return os.environ.get("DEMO_MODE", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def demo_admin_open() -> bool:
+    """True when the admin is intentionally open: demo mode AND no password set.
+
+    A pure evaluation convenience so the single-command demo needs zero login. The
+    instant an ADMIN_PASSWORD is configured, normal signed-cookie auth applies —
+    so production (and any box with a password) is unaffected, and the non-demo
+    no-password case stays fail-closed.
+    """
+    return _demo_mode() and not _admin_password()
+
+
 def _session_secret() -> str:
     # Fall back to ADMIN_PASSWORD so the app still boots if SESSION_SECRET is
     # unset, but log loudly — sessions then rotate if the password changes.
@@ -139,6 +155,11 @@ def clear_session(response: Response) -> None:
 
 
 def has_valid_session(request: Request) -> bool:
+    # Demo convenience: an unconfigured demo box (DEMO_MODE + no ADMIN_PASSWORD)
+    # opens the admin transparently — this makes require_admin pass, the /admin
+    # dashboard render, and /admin/login redirect straight through.
+    if demo_admin_open():
+        return True
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         return False

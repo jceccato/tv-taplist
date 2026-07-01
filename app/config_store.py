@@ -23,6 +23,9 @@ log = logging.getLogger("taplist.config")
 DEFAULT_CONFIG: dict[str, Any] = {
     "brewfather_user_id": "",
     "brewfather_api_key": "",
+    # Brewfather sync scope: by default only Completed batches sync. When on, also
+    # pull Conditioning batches (a beer that is on tap but still lagering/maturing).
+    "include_conditioning": False,
     "num_taps": 0,
     "hide_vacant_taps": False,
     "announcement_text": "",
@@ -96,6 +99,7 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     merged["announcement_text"] = str(merged["announcement_text"] or "")
     merged["brewfather_user_id"] = str(merged["brewfather_user_id"] or "")
     merged["brewfather_api_key"] = str(merged["brewfather_api_key"] or "")
+    merged["include_conditioning"] = bool(merged["include_conditioning"])
 
     # Display options.
     merged["color_unit"] = "srm" if str(merged["color_unit"]).lower() == "srm" else "ebc"

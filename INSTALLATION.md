@@ -39,12 +39,16 @@ One command pulls the image and runs a self-contained demo with six sample beers
 
 ```bash
 docker run -d --name tv-taplist-demo -p 8080:8080 \
-  -e DEMO_MODE=true -e ADMIN_PASSWORD=demo -e SESSION_SECRET=demo \
+  -e DEMO_MODE=true \
   ghcr.io/OWNER/tv-taplist:latest
 ```
 
 - **Display:** <http://localhost:8080/>
-- **Admin:** <http://localhost:8080/admin> (password `demo`)
+- **Admin:** <http://localhost:8080/admin> (open — no login)
+
+In demo mode with **no `ADMIN_PASSWORD`**, the admin is intentionally open so the
+demo is genuinely one command. **Set `ADMIN_PASSWORD` the moment you expose the box
+to anyone** — the instant a password is set, normal login applies again.
 
 Remove it with `docker rm -f tv-taplist-demo`. The demo is for evaluation only —
 use a real install below for anything that stays up.
@@ -151,9 +155,11 @@ The board shows Brewfather batches you mark as on tap:
 3. Set the batch **status to Completed**.
 
 On the next sync (every `SYNC_INTERVAL_MINUTES`, or click **Sync Brewfather now**)
-the beer appears on tap `N`. Only **Completed** batches sync — Planning, Brewing,
-Fermenting and Archived batches are ignored, so works-in-progress never show up by
-accident.
+the beer appears on tap `N`. **Completed** batches sync by default — Planning,
+Brewing, Fermenting and Archived batches are ignored, so works-in-progress never
+show up by accident. To also show a beer that's on tap but still **Conditioning**
+(lagering / maturing), tick **Include Conditioning batches** on the admin Settings
+tab.
 
 You can drive the swatch and glass straight from the batch notes with extra
 tokens:

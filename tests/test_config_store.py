@@ -89,3 +89,9 @@ def test_coerce_custom_theme_fills_invalid_colours():
     # Invalid colours fall back to the default palette; valid ones are kept.
     assert cfg["theme_custom"]["bg"] == config_store.DEFAULT_THEME["bg"]
     assert cfg["theme_custom"]["text"] == "#abcdef"
+
+
+def test_include_conditioning_defaults_false_and_coerces_bool():
+    assert config_store.DEFAULT_CONFIG["include_conditioning"] is False
+    cfg = config_store.update_config(include_conditioning="yes")  # truthy -> bool True
+    assert cfg["include_conditioning"] is True

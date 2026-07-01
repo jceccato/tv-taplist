@@ -24,6 +24,64 @@
     return body;
   }
 
+  // ---- shared hex colour field ----
+  // Mirror app/colors.py parse_hex_color so the client and server never disagree:
+  // accept #rrggbb / rrggbb / #rgb / rgb; return normalised "#rrggbb" or null.
+  function normalizeHex(value) {
+    if (typeof value !== "string") return null;
+    const m = /^#?([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.exec(value.trim());
+    if (!m) return null;
+    let h = m[1];
+    if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+    return "#" + h.toLowerCase();
+  }
+
+  // Wire a native <input type="color"> swatch to an adjacent hex text input so
+  // they stay two-way in sync. Which one carries the submitted `name` differs by
+  // use (theme = the swatch, override = the text); the sync is symmetric either
+  // way. `data-allow-empty` on the text means blank is valid (e.g. "no override").
+  function wireColorField(container) {
+    const swatch = container.querySelector('input[type="color"]');
+    const text = container.querySelector("[data-hex-text]");
+    if (!swatch || !text) return;
+    const allowEmpty = text.hasAttribute("data-allow-empty");
+
+    function setInvalid(on) {
+      text.classList.toggle("invalid", on);
+      if (on) text.setAttribute("aria-invalid", "true");
+      else text.removeAttribute("aria-invalid");
+    }
+
+    // Typing a valid hex updates the swatch; invalid text marks the field and
+    // leaves the swatch unchanged (last valid colour). Blank clears when allowed.
+    text.addEventListener("input", () => {
+      const raw = text.value.trim();
+      if (raw === "" && allowEmpty) { setInvalid(false); return; }
+      const hex = normalizeHex(raw);
+      if (hex) { swatch.value = hex; setInvalid(false); }
+      else { setInvalid(true); }
+    });
+
+    // Picking in the swatch writes a normalised #rrggbb back into the text box.
+    // Re-dispatch `input` on the text so downstream listeners (the live preview
+    // and token block) update as if the operator had typed it.
+    swatch.addEventListener("input", () => {
+      text.value = swatch.value;
+      setInvalid(false);
+      text.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const clearBtn = container.querySelector("[data-hex-clear]");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => {
+        text.value = "";
+        setInvalid(false);
+        text.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    }
+  }
+  document.querySelectorAll(".color-field").forEach(wireColorField);
+
   // ---- settings form ----
   const settingsForm = document.getElementById("settings-form");
   if (settingsForm) {
@@ -106,6 +164,103 @@
     row.addEventListener("submit", (e) => {
       e.preventDefault();
       submitOverride(row, true);
+    });
+
+    setupOverrideDynamic(row);
+  });
+
+  // Live colour preview + Brewfather token block for one override row. Both react
+  // to the colour-override / colour / saturation / glass fields as they change.
+  function setupOverrideDynamic(row) {
+    const tap = row.dataset.tap;
+    const colorInput = row.querySelector('input[name="color"]');
+    const satInput = row.querySelector('input[name="saturation"]');
+    const overrideInput = row.querySelector('input[name="color_override"]');
+    const glassSelect = row.querySelector('select[name="glass"]');
+    const indicator = row.querySelector("[data-color-indicator]");
+    const tokenBox = row.querySelector("[data-token-block]");
+
+    // ---- Feature 3: live colour indicator (server computes it, one source) ----
+    let previewTimer = null;
+    let previewSeq = 0;  // guards against a slow older fetch painting over a newer one
+    async function refreshIndicator() {
+      if (!indicator) return;
+      const params = new URLSearchParams();
+      const color = colorInput ? colorInput.value.trim() : "";
+      const sat = satInput ? satInput.value.trim() : "";
+      const override = overrideInput ? overrideInput.value.trim() : "";
+      // `color` is in the admin's display unit; the server converts SRM->EBC.
+      if (color !== "") params.set("ebc", color);
+      if (sat !== "") params.set("sat", sat);
+      if (override !== "") params.set("hex", override);
+      const seq = ++previewSeq;
+      try {
+        const resp = await fetch("/api/preview-color?" + params.toString());
+        if (!resp.ok || seq !== previewSeq) return;  // superseded by a newer edit
+        const body = await resp.json();
+        if (seq !== previewSeq) return;
+        indicator.style.background = body.color_hex;
+        indicator.style.borderColor = body.color_hex;
+      } catch (_) { /* offline: leave the last colour */ }
+    }
+    function scheduleIndicator() {
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(refreshIndicator, 150);
+    }
+
+    // ---- Feature 4: Brewfather token block (only set/non-default tokens) ----
+    function buildTokens() {
+      const lines = ["tap:" + tap];  // always included
+      const override = overrideInput ? normalizeHex(overrideInput.value.trim()) : null;
+      if (override) lines.push("colour:" + override);
+      const glass = glassSelect ? glassSelect.value.trim() : "";
+      if (glass) lines.push("glass:" + glass);
+      const satRaw = satInput ? satInput.value.trim() : "";
+      if (satRaw !== "") {
+        const n = Math.round(parseFloat(satRaw));
+        if (!Number.isNaN(n)) lines.push("saturation:" + n);
+      }
+      return lines.join("\n");
+    }
+    function refreshTokens() {
+      if (tokenBox) tokenBox.value = buildTokens();
+    }
+
+    [colorInput, satInput, overrideInput].forEach((el) => {
+      if (el) el.addEventListener("input", () => { scheduleIndicator(); refreshTokens(); });
+    });
+    if (glassSelect) glassSelect.addEventListener("change", refreshTokens);
+
+    refreshIndicator();  // initial paint
+    refreshTokens();
+  }
+
+  // ---- copy the token block (Clipboard API, with an execCommand fallback) ----
+  async function copyText(box) {
+    const text = box.value;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try { await navigator.clipboard.writeText(text); return true; } catch (_) { /* fall through */ }
+    }
+    // Fallback for older browsers / non-secure (HTTP) contexts.
+    try {
+      box.removeAttribute("readonly");
+      box.select();
+      const ok = document.execCommand("copy");
+      box.setAttribute("readonly", "");
+      window.getSelection().removeAllRanges();
+      return ok;
+    } catch (_) {
+      box.setAttribute("readonly", "");
+      return false;
+    }
+  }
+  document.querySelectorAll("[data-token-copy]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const box = btn.closest(".override-fields").querySelector("[data-token-block]");
+      if (!box) return;
+      const ok = await copyText(box);
+      showToast(ok ? "Brewfather tokens copied." : "Copy failed — select and copy manually.",
+                ok ? "ok" : "err");
     });
   });
 

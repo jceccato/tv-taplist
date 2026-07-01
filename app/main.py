@@ -5,6 +5,7 @@ Routes
 Public display:
   GET  /                -> TV display page (fully self-contained, local assets)
   GET  /api/board       -> fully-resolved board JSON (frontend never parses md)
+  GET  /api/preview-color -> computed swatch colour for the admin live preview
   GET  /img/{filename}  -> tap image from /data/taps (path-sanitised)
   GET  /img/placeholder -> fallback image
   GET  /healthz         -> lightweight healthcheck
@@ -41,7 +42,14 @@ from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
 from .beer_glass import GLASS_KEYS, GLASS_TYPES, beer_glass_svg
 from .board import build_board
 from .brewfather import run_sync
-from .colors import ebc_to_srm, parse_hex_color, parse_saturation, srm_to_ebc
+from .colors import (
+    ebc_to_hex,
+    ebc_to_srm,
+    parse_hex_color,
+    parse_saturation,
+    srm_to_ebc,
+    text_color_for,
+)
 from .config_store import (
     MAX_VENUE_LOGO_VH,
     brewfather_credentials,
@@ -77,6 +85,11 @@ async def lifespan(app: FastAPI):
     load_config()  # first-run bootstrap of config.json
     _ensure_local_placeholder()
     maybe_seed_demo()
+    if auth.demo_admin_open():
+        log.warning(
+            "DEMO_MODE with no ADMIN_PASSWORD: /admin is OPEN (no login required). "
+            "Set ADMIN_PASSWORD before exposing this box to anyone."
+        )
     start_scheduler()
     # Kick an immediate sync in the background so the box is fresh on boot
     # without blocking startup. (No-ops cleanly if credentials are unset.)
@@ -124,6 +137,39 @@ async def display_page(request: Request):
 async def api_board():
     # No-store so proxies never serve a stale board to a TV.
     return JSONResponse(build_board(), headers={"Cache-Control": "no-store"})
+
+
+def _optional_number(value: str) -> float | None:
+    """Parse an optional numeric query value; blank / non-numeric -> None."""
+    v = (value or "").strip()
+    if v == "":
+        return None
+    try:
+        return float(v)
+    except ValueError:
+        return None
+
+
+@app.get("/api/preview-color")
+async def api_preview_color(ebc: str = "", sat: str = "", hex: str = ""):
+    """Compute a beer's swatch colour for the admin's live override preview.
+
+    The single source of truth is app/colors.py, and the precedence mirrors
+    board.resolve_tap exactly: an explicit ``hex`` override wins, otherwise the
+    EBC colour muted by saturation. ``ebc`` arrives in the admin's *display unit*
+    (SRM is converted to EBC first, matching `_color_to_ebc` in save_override);
+    ``sat`` is a percentage handled by parse_saturation. A blank/invalid colour
+    with no override yields the neutral grey ebc_to_hex(None) returns.
+    """
+    override = parse_hex_color(hex)
+    if override:
+        color_hex = override
+    else:
+        ebc_val = _optional_number(ebc)
+        if ebc_val is not None and load_config().get("color_unit") == "srm":
+            ebc_val = srm_to_ebc(ebc_val)
+        color_hex = ebc_to_hex(ebc_val, parse_saturation(sat))
+    return {"color_hex": color_hex, "text_color": text_color_for(color_hex)}
 
 
 @app.get("/healthz")
@@ -237,6 +283,22 @@ async def logout():
 
 # ---- admin: dashboard ----------------------------------------------------
 
+def _asset_version() -> str:
+    """Cache-busting token = newest mtime of the admin static assets.
+
+    The admin browser disk-caches CSS/JS aggressively, so a rebuilt image (or an
+    edited file in dev) otherwise needs a manual hard-refresh to take effect.
+    Keying the asset URLs to their mtime makes the next normal load pick them up.
+    """
+    latest = 0.0
+    for rel in ("css/admin.css", "js/admin.js"):
+        try:
+            latest = max(latest, (STATIC_DIR / rel).stat().st_mtime)
+        except OSError:
+            pass
+    return str(int(latest))
+
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
     if not auth.has_valid_session(request):
@@ -250,6 +312,7 @@ async def admin_page(request: Request):
             "request": request,
             "cfg": cfg,
             "rows": rows,
+            "asset_v": _asset_version(),
             "bf": brewfather_credentials(),
             "color_label": "SRM" if cfg.get("color_unit") == "srm" else "EBC",
             "venue_logo_url": "/img/venue-logo" if venue_logo_path() else None,
@@ -259,6 +322,8 @@ async def admin_page(request: Request):
             "theme_fields": THEME_FIELD_LABELS,
             "theme_custom": cfg.get("theme_custom") or DEFAULT_THEME,
             "glass_types": GLASS_TYPES,
+            # Banner when the admin is open with no login (demo mode, no password).
+            "demo_open": auth.demo_admin_open(),
         },
     )
 
@@ -336,6 +401,7 @@ async def save_settings(
     _: None = Depends(auth.require_admin),
     brewfather_user_id: str = Form(""),
     brewfather_api_key: str = Form(""),
+    include_conditioning: bool = Form(False),
     num_taps: int = Form(...),
     hide_vacant_taps: bool = Form(False),
     announcement_text: str = Form(""),
@@ -374,6 +440,7 @@ async def save_settings(
     }
 
     updates = {
+        "include_conditioning": include_conditioning,
         "num_taps": num_taps,
         "hide_vacant_taps": hide_vacant_taps,
         "announcement_text": announcement_text,

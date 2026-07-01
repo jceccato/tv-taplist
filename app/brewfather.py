@@ -352,35 +352,51 @@ def _client(user_id: str, api_key: str) -> httpx.Client:
     )
 
 
-def _list_completed_batches(client: httpx.Client) -> list[dict[str, Any]]:
-    """Return FULL Completed batch objects, paginated with start_after.
+def _list_batches(client: httpx.Client, statuses: list[str]) -> list[dict[str, Any]]:
+    """Return FULL batch objects for the wanted statuses, paginated + deduped.
 
-    Uses complete=True so a single call per page carries all the data we map
-    (ABV/IBU/colour/notes/image), eliminating per-batch detail calls.
+    The Brewfather ``/batches`` ``status`` param takes a SINGLE status, so we fetch
+    once per wanted status and merge, deduping by ``_id`` (a batch is only ever in
+    one status, but the dedupe stays safe if the API ever returns one twice).
+    ``complete=True`` means each page carries all the data we map
+    (ABV/IBU/colour/notes/image), so there are no per-batch detail calls. Cost is
+    ceil(N/50) calls **per status** — still far under the 500/hour key limit.
     """
+    wanted = {str(s).lower() for s in statuses}
     out: list[dict[str, Any]] = []
-    start_after: str | None = None
-    for _ in range(MAX_PAGES):
-        params: dict[str, Any] = {
-            "status": "Completed",
-            "complete": "True",
-            "limit": PAGE_SIZE,
-        }
-        if start_after:
-            params["start_after"] = start_after
-        resp = client.get("/batches", params=params)
-        resp.raise_for_status()
-        page = resp.json()
-        if not isinstance(page, list) or not page:
-            break
-        # Defensive: re-filter in case the server ignores the status param.
-        out.extend(b for b in page if str(b.get("status", "")).lower() == "completed")
-        if len(page) < PAGE_SIZE:
-            break  # last page
-        last_id = page[-1].get("_id") or page[-1].get("id")
-        if not last_id:
-            break
-        start_after = str(last_id)
+    seen: set[str] = set()
+    for status_name in statuses:
+        start_after: str | None = None
+        for _ in range(MAX_PAGES):
+            params: dict[str, Any] = {
+                "status": status_name,
+                "complete": "True",
+                "limit": PAGE_SIZE,
+            }
+            if start_after:
+                params["start_after"] = start_after
+            resp = client.get("/batches", params=params)
+            resp.raise_for_status()
+            page = resp.json()
+            if not isinstance(page, list) or not page:
+                break
+            for b in page:
+                # Defensive: re-filter in case the server ignores the status param.
+                if str(b.get("status", "")).lower() not in wanted:
+                    continue
+                bid = b.get("_id") or b.get("id")
+                key = str(bid) if bid else None
+                if key is not None:
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                out.append(b)
+            if len(page) < PAGE_SIZE:
+                break  # last page
+            last_id = page[-1].get("_id") or page[-1].get("id")
+            if not last_id:
+                break
+            start_after = str(last_id)
     return out
 
 
@@ -510,7 +526,13 @@ def run_sync() -> dict[str, Any]:
     ensure_dirs()
     creds = brewfather_credentials()
     user_id, api_key = creds["user_id"], creds["api_key"]
-    num_taps = int(load_config().get("num_taps", 0) or 0)
+    cfg = load_config()
+    num_taps = int(cfg.get("num_taps", 0) or 0)
+    # Statuses to pull: always Completed, plus Conditioning when the operator
+    # opts in (a beer on tap but still lagering / too green to mark Completed).
+    statuses = ["Completed"]
+    if bool(cfg.get("include_conditioning", False)):
+        statuses.append("Conditioning")
 
     if not user_id or not api_key:
         msg = "sync skipped: Brewfather credentials not configured"
@@ -524,8 +546,8 @@ def run_sync() -> dict[str, Any]:
                  "env" if creds["key_from_env"] else "config")
         try:
             with _client(user_id, api_key) as client:
-                batches = _list_completed_batches(client)
-                log.info("fetched %d completed batches", len(batches))
+                batches = _list_batches(client, statuses)
+                log.info("fetched %d batches (statuses=%s)", len(batches), statuses)
 
                 desired = _build_desired_map(batches)
                 # Only manage taps within the configured count.
