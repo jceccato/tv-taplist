@@ -721,6 +721,7 @@ launch_screen() {
     box_bottom
     echo
     read -r -p "  Choose [S, A, R, Q]: " choice || true
+    choice="${choice:-S}"
 
     case "$(echo "$choice" | tr '[:lower:]' '[:upper:]')" in
       S) guided_setup ;;
