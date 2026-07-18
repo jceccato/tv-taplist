@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TV Tap List - guided installer.                  Version: 1.5.2
+# TV Tap List - guided installer.                  Version: 1.6.0
 #
 # One-liner (from any directory):
 #   bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/setup)
@@ -18,7 +18,7 @@ set -euo pipefail
 
 # --- handle --version / -v flag ----------------------------------------------
 if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
-  echo "TV Tap List setup script v1.5.2"
+  echo "TV Tap List setup script v1.6.0"
   echo "Repo: https://github.com/jceccato/tv-taplist"
   exit 0
 fi
@@ -309,6 +309,7 @@ load_env() {
   BF_KEY="$(env_get BREWFATHER_API_KEY || true)"
   SYNC_MIN="$(env_get SYNC_INTERVAL_MINUTES || true)"
   FORWARDED="$(env_get FORWARDED_ALLOW_IPS || true)"
+  DEMO_MODE="$(env_get DEMO_MODE || true)"
 }
 
 # Apply sane defaults for anything still empty
@@ -321,6 +322,7 @@ apply_defaults() {
   [ -n "$PGID_VAL" ] || PGID_VAL="$(id -g)"
   [ -n "$SYNC_MIN" ] || SYNC_MIN="15"
   [ -n "$FORWARDED" ] || FORWARDED="127.0.0.1"
+  [ -n "$DEMO_MODE" ] || DEMO_MODE="false"
 }
 
 # --- display helpers for the menu --------------------------------------------
@@ -333,13 +335,23 @@ status_line() { # label value [extra]
 }
 
 # Fixed-width menu row (no color codes - safe for printf %-*s padding)
+# Truncates long values so the box border stays aligned.
+MAX_VAL=33
+shorter() {
+  local v="$1" max="${2:-$MAX_VAL}"
+  if [ "${#v}" -gt "$max" ]; then
+    printf '...%s' "${v: -$((max - 3))}"
+  else
+    printf '%s' "$v"
+  fi
+}
 menu_row() {
-  printf "$BOX_V %-18s %-34s $BOX_V\n" "$1" "$2"
+  printf "$BOX_V %-18s %-*s $BOX_V\n" "$1" "$MAX_VAL" "$(shorter "$2")"
 }
 
 # Guided-mode step tracker (set by guided_setup, empty = standalone mode)
 GUIDED_STEP=""
-TOTAL_STEPS=6
+TOTAL_STEPS=7
 
 section_header() { # title description
   local title="$1" desc="$2"
@@ -601,6 +613,19 @@ section_brewfather() {
   esac
 }
 
+# --- section: Demo Mode -------------------------------------------------------
+section_demo() {
+  section_header "Demo Mode" "Seeds sample taps on a fresh data directory for offline demos."
+  echo
+  status_line "Current:" "$([ "$DEMO_MODE" = "true" ] && echo 'ON' || echo 'OFF')"
+  echo
+  if yesno "  Enable demo mode? (sample taps, no Brewfather needed)" "$([ "$DEMO_MODE" = "true" ] && echo 'Y' || echo 'N')"; then
+    DEMO_MODE="true"; ok "Demo mode: ON"; sleep 1
+  else
+    DEMO_MODE="false"; ok "Demo mode: OFF"; sleep 1
+  fi
+}
+
 # --- section: Review & Deploy -----------------------------------------------
 section_review() {
   clear 2>/dev/null || true
@@ -622,6 +647,7 @@ section_review() {
   else
     status_line "Brewfather:"      "not configured"
   fi
+  status_line "Demo mode:"         "$([ "$DEMO_MODE" = "true" ] && echo 'ON' || echo 'OFF')"
   echo
 
   if [ -z "$ADMIN_PASSWORD" ] || [ "$ADMIN_PASSWORD" = "changeme" ]; then
@@ -654,7 +680,7 @@ DATA_DIR_HOST=$DATA_DIR
 PUID=$PUID_VAL
 PGID=$PGID_VAL
 FORWARDED_ALLOW_IPS=$FORWARDED
-DEMO_MODE=false
+DEMO_MODE=$DEMO_MODE
 BREWFATHER_USER_ID=$BF_USER
 BREWFATHER_API_KEY=$BF_KEY
 SYNC_INTERVAL_MINUTES=$SYNC_MIN
@@ -664,6 +690,27 @@ EOF
 
       if [ "$choice" = "D" ] || [ "$choice" = "d" ]; then
         echo
+        # Check if container is already running
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'tv-taplist'; then
+          warn "tv-taplist is already running."
+          echo
+          echo "  R) Redeploy  - stop, remove, and start fresh"
+          echo "  S) Stop       - stop the container"
+          echo "  T) Start      - start if stopped"
+          echo "  L) Leave it   - do nothing"
+          echo
+          read -r -p "  Choose [L]: " caction || true
+          caction="${caction:-L}"
+          case "$(echo "$caction" | tr '[:lower:]' '[:upper:]')" in
+            R) $COMPOSE down; $COMPOSE up -d; ok "Redeployed." ;;
+            S) $COMPOSE stop; ok "Stopped." ;;
+            T) $COMPOSE start; ok "Started." ;;
+            L) ok "Left running." ;;
+            *) warn "Invalid, leaving as-is." ;;
+          esac
+          exit 0
+        fi
+
         if ! sudo docker info >/dev/null 2>&1; then
           warn "Docker daemon is not running."
           info "  sudo systemctl start docker"
@@ -719,7 +766,7 @@ EOF
 
 # --- guided setup wizard (steps through 1-6, then review) --------------------
 guided_setup() {
-  local steps=(section_password section_timezone section_port section_datadir section_ownership section_brewfather)
+  local steps=(section_password section_timezone section_port section_datadir section_ownership section_brewfather section_demo)
 
   for i in "${!steps[@]}"; do
     GUIDED_STEP=$((i + 1))
@@ -757,12 +804,13 @@ advanced_menu() {
     else
       menu_row "6) Brewfather"    "(not set)"
     fi
+    menu_row "7) Demo mode"      "$([ "$DEMO_MODE" = "true" ] && echo 'ON' || echo 'OFF')"
     box_mid
     box_line "  R) Review & Deploy"
     box_line "  B) Back to main menu"
     box_bottom
     echo
-    read -r -p "  Choose [1-6, R, B]: " choice || true
+    read -r -p "  Choose [1-7, R, B]: " choice || true
 
     case "$(echo "$choice" | tr '[:lower:]' '[:upper:]')" in
       1) GUIDED_STEP=""; section_password ;;
@@ -771,6 +819,7 @@ advanced_menu() {
       4) GUIDED_STEP=""; section_datadir ;;
       5) GUIDED_STEP=""; section_ownership ;;
       6) GUIDED_STEP=""; section_brewfather ;;
+      7) GUIDED_STEP=""; section_demo ;;
       R) section_review ;;
       B) return ;;
       *) warn "Invalid choice."; sleep 1 ;;
@@ -784,7 +833,7 @@ launch_screen() {
     clear 2>/dev/null || true
     box_top
     box_line "            TV Tap List Setup"
-    box_line "              $(dim 'v1.5.2')"
+    box_line "              $(dim 'v1.6.0')"
     box_mid
     menu_row "Admin password"  "$(masked "$ADMIN_PASSWORD")"
     menu_row "Timezone"        "$TZ_VAL"
@@ -796,6 +845,7 @@ launch_screen() {
     else
       menu_row "Brewfather"    "(not set)"
     fi
+    menu_row "Demo mode"      "$([ "$DEMO_MODE" = "true" ] && echo 'ON' || echo 'OFF')"
     box_mid
     box_line "  S) Start guided setup  (recommended)"
     box_line "  A) Advanced menu       (jump to any setting)"
