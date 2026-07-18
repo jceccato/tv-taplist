@@ -1,0 +1,4 @@
+#!/bin/sh
+# TV Tap List - one-liner installer
+# Usage: bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/setup)
+exec bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/scripts/setup.sh)

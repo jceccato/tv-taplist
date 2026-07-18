@@ -2,7 +2,7 @@
 # TV Tap List - guided installer.                  Version: 1.5.0
 #
 # One-liner (from any directory):
-#   bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/scripts/setup.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/setup)
 #
 # Or the long way:
 #   git clone https://github.com/jceccato/tv-taplist.git
