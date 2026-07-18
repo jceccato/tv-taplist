@@ -5,12 +5,12 @@ services:
   taplist:
     build: .
     # To run a prebuilt image instead of building, comment out `build: .` above
-    # and set: image: ghcr.io/OWNER/tv-taplist:latest
+    # and set: image: ghcr.io/jceccato/tv-taplist:latest
     image: tv-taplist:latest
     container_name: tv-taplist
     restart: unless-stopped
     ports:
-      # host:container — point your reverse proxy / TV at the host port.
+      # host:container - point your reverse proxy / TV at the host port.
       - "${PORT:-8080}:8080"
     environment:
       # --- secrets (set real values in .env) ---

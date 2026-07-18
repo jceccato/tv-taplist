@@ -2,12 +2,12 @@
 
 Two supported ways to run this on an Unraid server:
 
-- **[Option A — Compose Manager](#option-a--compose-manager-build-from-source)** —
+- **[Option A - Compose Manager](#option-a--compose-manager-build-from-source)** --
   build the image from the repo on the Unraid box. Closest to the bundled
   `docker-compose.yml`; no external registry needed.
-- **[Option B — Docker template](#option-b--docker-template-prebuilt-image)** —
+- **[Option B - Docker template](#option-b--docker-template-prebuilt-image)** --
   point Unraid's **Add Container** at a prebuilt GHCR image
-  (`ghcr.io/OWNER/tv-taplist`). No building on the server.
+  (`ghcr.io/jceccato/tv-taplist`). No building on the server.
 
 Both end up at the same place: the admin at `http://<tower-ip>:8080/admin` and the
 TV display at `http://<tower-ip>:8080/`.
@@ -20,29 +20,29 @@ TV display at `http://<tower-ip>:8080/`.
 |---------|--------------|-----|
 | `PUID` | **99** (`nobody`) | The container's entrypoint chowns `/data` to this uid so the non-root app can write. 99/100 is the standard Unraid owner for `appdata`. |
 | `PGID` | **100** (`users`) | Matching gid for `appdata`. |
-| Data path | `/mnt/user/appdata/tv-taplist` → `/data` | Persists `config.json`, `taps/`, `old_beers/` on the array. |
-| Port | `8080` (host) → `8080` (container) | The web UI. Change the host side if 8080 is taken. |
+| Data path | `/mnt/user/appdata/tv-taplist` -> `/data` | Persists `config.json`, `taps/`, `old_beers/` on the array. |
+| Port | `8080` (host) -> `8080` (container) | The web UI. Change the host side if 8080 is taken. |
 | `TZ` | e.g. `Australia/Sydney` | Archive timestamps + the 03:30 daily cleanup boundary. |
 
 Secrets you must set: **`ADMIN_PASSWORD`** and **`SESSION_SECRET`** (a long random
-string — generate one in the Unraid terminal with `openssl rand -hex 32`).
+string - generate one in the Unraid terminal with `openssl rand -hex 32`).
 
 ---
 
-## Option A — Compose Manager (build from source)
+## Option A - Compose Manager (build from source)
 
 This uses the repo's own `docker-compose.yml`, which builds the image locally.
 
 ### 1. Install the plugin
-**Apps** (Community Applications) → search **Compose Manager** → Install. This
-adds the `docker compose` binary and a **Docker → Compose** UI.
+**Apps** (Community Applications) -> search **Compose Manager** -> Install. This
+adds the `docker compose` binary and a **Docker -> Compose** UI.
 
 ### 2. Get the code and configure it
 Open the Unraid **terminal** (`>_` in the top bar):
 
 ```bash
 # Clone into a share (keep the build context on the array, not on the flash/boot):
-git clone https://github.com/OWNER/tv-taplist.git /mnt/user/appdata/tv-taplist-src
+git clone https://github.com/jceccato/tv-taplist.git /mnt/user/appdata/tv-taplist-src
 cd /mnt/user/appdata/tv-taplist-src
 
 # Secrets + ops, from the template:
@@ -62,7 +62,7 @@ PGID=100
 FORWARDED_ALLOW_IPS=127.0.0.1
 ```
 
-Point the data directory at `appdata` so it's separate from the source checkout —
+Point the data directory at `appdata` so it's separate from the source checkout --
 add this to `.env` (the compose file maps `DATA_DIR_HOST` to `/data`):
 
 ```ini
@@ -78,7 +78,7 @@ docker compose up -d --build
 #   DEMO_MODE=true docker compose up -d --build
 ```
 
-…or add it as a managed stack: **Docker → Compose → Add New Stack**, name it
+…or add it as a managed stack: **Docker -> Compose -> Add New Stack**, name it
 `tv-taplist`, set its directory to `/mnt/user/appdata/tv-taplist-src`, then
 **Compose Up**. The container then appears on the **Docker** tab like any other.
 
@@ -91,21 +91,21 @@ docker compose up -d --build
 
 ---
 
-## Option B — Docker template (prebuilt image)
+## Option B - Docker template (prebuilt image)
 
 Use this if a prebuilt GHCR image is available (e.g.
-`ghcr.io/OWNER/tv-taplist:latest`). No building on the server, and Unraid shows an
-**update ready** badge when the image changes. Replace `OWNER` throughout with the
+`ghcr.io/jceccato/tv-taplist:latest`). No building on the server, and Unraid shows an
+**update ready** badge when the image changes. Replace `jceccato` throughout with the
 owner of the image you're pulling.
 
 ### Add the container by hand
-**Docker → Add Container**, switch the toggle to **Advanced View**, then:
+**Docker -> Add Container**, switch the toggle to **Advanced View**, then:
 
 - **Name:** `tv-taplist`
-- **Repository:** `ghcr.io/OWNER/tv-taplist:latest`
+- **Repository:** `ghcr.io/jceccato/tv-taplist:latest`
 - **Network Type:** `bridge`
-- **Port:** add → Name `WebUI`, Container Port `8080`, Host Port `8080`, TCP
-- **Path:** add → Container Path `/data`, Host Path
+- **Port:** add -> Name `WebUI`, Container Port `8080`, Host Port `8080`, TCP
+- **Path:** add -> Container Path `/data`, Host Path
   `/mnt/user/appdata/tv-taplist`, Access `Read/Write`
 - **Variables** (add one each):
   | Name | Value | Notes |
@@ -126,15 +126,15 @@ Click **Apply**. Unraid pulls the image and starts it.
 ### Or drop in a template file
 Save the XML below as
 `/boot/config/plugins/dockerMan/templates-user/my-tv-taplist.xml` (replace
-`OWNER`). It then shows up under **Add Container → Template:
+`jceccato`). It then shows up under **Add Container -> Template:
 tv-taplist** with all fields pre-filled:
 
 ```xml
 <?xml version="1.0"?>
 <Container version="2">
   <Name>tv-taplist</Name>
-  <Repository>ghcr.io/OWNER/tv-taplist:latest</Repository>
-  <Registry>https://github.com/OWNER/tv-taplist/pkgs/container/tv-taplist</Registry>
+  <Repository>ghcr.io/jceccato/tv-taplist:latest</Repository>
+  <Registry>https://github.com/jceccato/tv-taplist/pkgs/container/tv-taplist</Registry>
   <Network>bridge</Network>
   <Privileged>false</Privileged>
   <Overview>Offline-first digital beer tap list for TVs. Syncs from Brewfather when online and keeps serving the last cached data when the internet is down.</Overview>
@@ -160,14 +160,14 @@ tv-taplist** with all fields pre-filled:
 
 ## First-run check
 
-1. Browse to `http://<tower-ip>:8080/` — you should see the display (empty taps,
+1. Browse to `http://<tower-ip>:8080/` - you should see the display (empty taps,
    or demo beers if you set `DEMO_MODE=true`).
 2. Go to `/admin`, log in with `ADMIN_PASSWORD`, enter your Brewfather **User ID**
    + **API key** (or set them as env vars), set the **tap count**, and hit
    **Sync Brewfather now**.
 3. Point the TV's browser at `http://<tower-ip>:8080/` in kiosk/full-screen.
 
-If `/data` ever fails to persist, it's almost always a `PUID`/`PGID` mismatch —
+If `/data` ever fails to persist, it's almost always a `PUID`/`PGID` mismatch --
 confirm they're **99/100** and that the host path is `/mnt/user/appdata/tv-taplist`.
 
 ---
@@ -186,5 +186,5 @@ proxy already running on Unraid:
   the Nginx `location` block (the same headers apply in SWAG/NPM advanced config).
 - Optionally expose only `/` publicly and keep `/admin` on the LAN/VPN.
 
-> Avoid `FORWARDED_ALLOW_IPS=*` — it trusts forwarded headers from anywhere, which
+> Avoid `FORWARDED_ALLOW_IPS=*` - it trusts forwarded headers from anywhere, which
 > defeats the spoofing protection.

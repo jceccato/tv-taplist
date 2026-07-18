@@ -1,11 +1,12 @@
-"""APScheduler setup for the two recurring jobs.
+"""APScheduler setup for the recurring jobs.
 
 - Brewfather sync: every SYNC_INTERVAL_MINUTES (default 15; env-configurable).
+- Update check: once per day at 03:00 local time (polls GitHub for new releases).
 - Archive cleanup: once per day at 03:30 local time.
 
-Both jobs already take JOB_LOCK internally, so even though APScheduler runs them
-on a thread pool they never interleave file writes. max_instances=1 prevents a
-slow sync from stacking up.
+All jobs take JOB_LOCK internally, so even though APScheduler runs them on a
+thread pool they never interleave file writes. max_instances=1 prevents a slow
+job from stacking up.
 
 Brewfather's limit is 500 calls/hour/key. With the complete=True paginated
 fetch, each sync costs ceil(completed_batches / 50) calls, so even a 5-minute
@@ -21,6 +22,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from .brewfather import run_sync
 from .cleanup import run_cleanup
 from .timezone import local_tzinfo
+from .update_check import check_for_updates
 
 log = logging.getLogger("taplist.scheduler")
 
@@ -53,6 +55,15 @@ def start_scheduler() -> BackgroundScheduler:
         coalesce=True,
     )
     scheduler.add_job(
+        _safe_update_check,
+        "cron",
+        hour=3,
+        minute=0,
+        id="update_check",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
         _safe_cleanup,
         "cron",
         hour=3,
@@ -62,7 +73,7 @@ def start_scheduler() -> BackgroundScheduler:
         coalesce=True,
     )
     scheduler.start()
-    log.info("scheduler started (sync every %dm, cleanup daily 03:30 %s)",
+    log.info("scheduler started (sync every %dm, update check 03:00, cleanup 03:30 %s)",
              SYNC_INTERVAL_MINUTES, tz)
     _scheduler = scheduler
     return scheduler
@@ -87,3 +98,10 @@ def _safe_cleanup() -> None:
         run_cleanup()
     except Exception:  # noqa: BLE001
         log.exception("unhandled error in cleanup job")
+
+
+def _safe_update_check() -> None:
+    try:
+        check_for_updates()
+    except Exception:  # noqa: BLE001
+        log.exception("unhandled error in update check job")

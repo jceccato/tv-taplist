@@ -72,6 +72,15 @@ legend { padding: 0 0.5rem; color: var(--accent); font-weight: 600; }
 .status-grid .v { display: block; font-weight: 600; word-break: break-word; }
 .status-grid .v.err { color: var(--danger); }
 
+.status-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+
+.update-link {
+  display: inline-block; background: var(--ok); color: #0a1a10;
+  padding: 0.15rem 0.6rem; border-radius: 6px; font-weight: 700;
+  text-decoration: none; font-size: 0.85rem;
+}
+.update-link:hover { filter: brightness(1.1); }
+
 .overrides { display: grid; gap: 1rem; }
 .override-row { border: 1px solid var(--border); border-radius: 10px; padding: 0.9rem 1rem; background: var(--panel-2); }
 .override-head { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }

@@ -24,7 +24,7 @@ production box behind HTTPS. For *how it all works* once it's running, see
 ## Prerequisites
 
 - A host that runs **Docker** with the **Compose** plugin (Linux, a Raspberry Pi,
-  a NUC, Unraid, a VM — anything Docker supports). Install Docker from
+  a NUC, Unraid, a VM - anything Docker supports). Install Docker from
   <https://docs.docker.com/engine/install/>.
 - A **TV or screen** with a browser you can put into kiosk / full-screen mode and
   point at the host.
@@ -40,20 +40,20 @@ One command pulls the image and runs a self-contained demo with six sample beers
 ```bash
 docker run -d --name tv-taplist-demo -p 8080:8080 \
   -e DEMO_MODE=true \
-  ghcr.io/OWNER/tv-taplist:latest
+  ghcr.io/jceccato/tv-taplist:latest
 ```
 
 - **Display:** <http://localhost:8080/>
-- **Admin:** <http://localhost:8080/admin> (open — no login)
+- **Admin:** <http://localhost:8080/admin> (open - no login)
 
 In demo mode with **no `ADMIN_PASSWORD`**, the admin is intentionally open so the
 demo is genuinely one command. **Set `ADMIN_PASSWORD` the moment you expose the box
-to anyone** — the instant a password is set, normal login applies again.
+to anyone** - the instant a password is set, normal login applies again.
 
-Remove it with `docker rm -f tv-taplist-demo`. The demo is for evaluation only —
+Remove it with `docker rm -f tv-taplist-demo`. The demo is for evaluation only --
 use a real install below for anything that stays up.
 
-> Replace `OWNER` with the published image owner. If no image is published yet,
+> Replace `jceccato` with the published image owner. If no image is published yet,
 > build from source via the [guided installer](#guided-installer-recommended) or
 > [manual Compose](#manual-docker-compose).
 
@@ -64,7 +64,7 @@ use a real install below for anything that stays up.
 The installer asks a few questions, writes your `.env`, and starts the container.
 
 ```bash
-git clone https://github.com/OWNER/tv-taplist.git
+git clone https://github.com/jceccato/tv-taplist.git
 cd tv-taplist
 ./scripts/setup.sh
 ```
@@ -72,9 +72,9 @@ cd tv-taplist
 It prompts for:
 
 - **Admin password** (or generates one for you).
-- **Timezone, host port, data directory, PUID/PGID** — sensible defaults are
+- **Timezone, host port, data directory, PUID/PGID** - sensible defaults are
   detected from your system.
-- **Brewfather User ID + API key** — optional; you can skip and add them in `/admin`
+- **Brewfather User ID + API key** - optional; you can skip and add them in `/admin`
   later. (See [Getting your Brewfather API key](#getting-your-brewfather-api-key).)
 
 It generates a strong `SESSION_SECRET`, writes a `.env` (owner-readable only), and
@@ -82,7 +82,7 @@ offers to build and start the container. When it finishes, open
 `http://<host>:<port>/admin`, set your **tap count**, and click **Sync Brewfather
 now**.
 
-Re-run `./scripts/setup.sh` any time to change settings — it prefills from your
+Re-run `./scripts/setup.sh` any time to change settings - it prefills from your
 existing `.env`.
 
 ---
@@ -92,21 +92,21 @@ existing `.env`.
 Prefer to do it by hand:
 
 ```bash
-git clone https://github.com/OWNER/tv-taplist.git
+git clone https://github.com/jceccato/tv-taplist.git
 cd tv-taplist
 cp .env.example .env
 # Edit .env: set ADMIN_PASSWORD and SESSION_SECRET at minimum.
-#   SESSION_SECRET — generate with: openssl rand -hex 32
+#   SESSION_SECRET - generate with: openssl rand -hex 32
 docker compose up -d --build
 ```
 
 Key `.env` values are documented inline and in [Environment
 variables](#environment-variables). To run a **prebuilt image** instead of
 building locally, comment out `build: .` in `docker-compose.yml` and set
-`image: ghcr.io/OWNER/tv-taplist:latest`.
+`image: ghcr.io/jceccato/tv-taplist:latest`.
 
 The compose file maps `${DATA_DIR_HOST:-./taplist_data}` on the host to `/data` in
-the container — that host folder is where your beers live (see [The data
+the container - that host folder is where your beers live (see [The data
 directory](#the-data-directory)).
 
 ---
@@ -118,31 +118,31 @@ The essentials:
 | Setting | Value | Why |
 |---------|-------|-----|
 | `PUID` / `PGID` | **99** / **100** | Standard Unraid `appdata` owner so `/data` stays writable. |
-| Data path | `/mnt/user/appdata/tv-taplist` → `/data` | Where your beers persist. |
-| Port | `8080` (host) → `8080` (container) | The web UI. |
+| Data path | `/mnt/user/appdata/tv-taplist` -> `/data` | Where your beers persist. |
+| Port | `8080` (host) -> `8080` (container) | The web UI. |
 | `ADMIN_PASSWORD`, `SESSION_SECRET` | *yours* | Required. Generate the secret with `openssl rand -hex 32`. |
 
 You can either build from source with the **Compose Manager** plugin or add a
 **Docker template** pointing at a prebuilt image, then set each environment
-variable in the template. The full step-by-step — plugin install, a ready-to-paste
-template XML, and the reverse-proxy notes for SWAG / Nginx Proxy Manager — is in
+variable in the template. The full step-by-step - plugin install, a ready-to-paste
+template XML, and the reverse-proxy notes for SWAG / Nginx Proxy Manager - is in
 **[UNRAID.md](UNRAID.md)**.
 
 ---
 
 ## Getting your Brewfather API key
 
-1. In Brewfather, go to **Settings → API**.
+1. In Brewfather, go to **Settings -> API**.
 2. **Generate** an API key. Give it at least **Read Batches** scope (add **Read
    Recipes** too so colour/recipe fields are available).
 3. Copy your **User ID** and the **API key**.
 4. Provide them either:
    - in the installer / `.env` as `BREWFATHER_USER_ID` and `BREWFATHER_API_KEY`
-     (kept off disk — never written to `config.json`), **or**
-   - in `/admin` → **Settings → Brewfather** (stored in `config.json`).
+     (kept off disk - never written to `config.json`), **or**
+   - in `/admin` -> **Settings -> Brewfather** (stored in `config.json`).
 
 When both env vars are set, the admin fields lock and show *"managed via
-environment"* — the recommended way to keep the key off disk.
+environment"* - the recommended way to keep the key off disk.
 
 ---
 
@@ -155,7 +155,7 @@ The board shows Brewfather batches you mark as on tap:
 3. Set the batch **status to Completed**.
 
 On the next sync (every `SYNC_INTERVAL_MINUTES`, or click **Sync Brewfather now**)
-the beer appears on tap `N`. **Completed** batches sync by default — Planning,
+the beer appears on tap `N`. **Completed** batches sync by default - Planning,
 Brewing, Fermenting and Archived batches are ignored, so works-in-progress never
 show up by accident. To also show a beer that's on tap but still **Conditioning**
 (lagering / maturing), tick **Include Conditioning batches** on the admin Settings
@@ -171,8 +171,8 @@ tokens:
 | `glass:nonicpint` | Glass silhouette: `default`, `nonicpint`, `schooner`, `tulip`, `teku`. |
 | `saturation:60` | Mute the colour to 60 % (a percentage, or a `0`–`1` fraction). |
 
-Tokens are stripped from any text shown on the card. The same controls — plus
-beers Brewfather doesn't know about — are available in `/admin` → **Manual
+Tokens are stripped from any text shown on the card. The same controls - plus
+beers Brewfather doesn't know about - are available in `/admin` -> **Manual
 overrides**. More detail in [FAQ.md](FAQ.md#brewfather-sync).
 
 ---
@@ -181,7 +181,7 @@ overrides**. More detail in [FAQ.md](FAQ.md#brewfather-sync).
 
 | Var | Required | Default | Purpose |
 |-----|----------|---------|---------|
-| `ADMIN_PASSWORD` | **yes** | — | Password for `/admin`. Admin is denied if unset. |
+| `ADMIN_PASSWORD` | **yes** | - | Password for `/admin`. Admin is denied if unset. |
 | `SESSION_SECRET` | recommended | derived from password | Signs session cookies so logins survive restarts. |
 | `TZ` | no | `UTC` | IANA timezone. Drives archive timestamps + the daily cleanup boundary. |
 | `PORT` | no | `8080` | Host port for the web UI. |
@@ -189,8 +189,8 @@ overrides**. More detail in [FAQ.md](FAQ.md#brewfather-sync).
 | `FORWARDED_ALLOW_IPS` | yes (behind proxy) | `127.0.0.1` | IP(s) of the trusted reverse proxy allowed to set `X-Forwarded-*`. |
 | `PUID` / `PGID` | no | `1000` | Host uid/gid that owns the data directory, so the non-root app can write. |
 | `DEMO_MODE` | no | `false` | Seed sample taps on a fresh data directory. |
-| `BREWFATHER_USER_ID` | no | — | Brewfather User ID (overrides config; keeps it off disk). |
-| `BREWFATHER_API_KEY` | no | — | Brewfather API key (overrides config; keeps it off disk). |
+| `BREWFATHER_USER_ID` | no | - | Brewfather User ID (overrides config; keeps it off disk). |
+| `BREWFATHER_API_KEY` | no | - | Brewfather API key (overrides config; keeps it off disk). |
 | `SYNC_INTERVAL_MINUTES` | no | `15` | Minutes between Brewfather syncs. |
 
 ---
@@ -210,7 +210,7 @@ taplist_data/
 ```
 
 Each tap is a small Markdown file with front-matter (name, ABV, IBU, colour, …)
-and a body of tasting notes — open one in any text editor to see exactly what the
+and a body of tasting notes - open one in any text editor to see exactly what the
 board will show. Set `PUID`/`PGID` to the host user that should own these files so
 the non-root container can write them.
 
@@ -242,7 +242,7 @@ server {
 
 Set **`FORWARDED_ALLOW_IPS`** to the proxy's IP **as the container sees it** (often
 the Docker gateway `172.17.0.1`, or `127.0.0.1` for a host-network proxy). Never
-use `*` — that trusts forwarded headers from anywhere and defeats the spoofing
+use `*` - that trusts forwarded headers from anywhere and defeats the spoofing
 protection. You can also expose only `/` publicly and keep `/admin` on the LAN/VPN.
 
 ---
@@ -262,7 +262,7 @@ TV's browser** once so it picks up new CSS/JS instead of its cached copies.
 
 ## First-run checklist
 
-1. Open `http://<host>:<port>/` — you should see the display (empty taps, or demo
+1. Open `http://<host>:<port>/` - you should see the display (empty taps, or demo
    beers if `DEMO_MODE=true`).
 2. Open `/admin`, log in, enter your Brewfather **User ID + API key** (or set them
    as env vars), set the **tap count**, and click **Sync Brewfather now**.

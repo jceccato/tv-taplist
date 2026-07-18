@@ -33,6 +33,17 @@
       <h2>Status</h2>
       <div class="status-grid">
         <div>
+          <span class="k">Version</span>
+          <span class="v" id="status-version">{{ update_current_version }}</span>
+        </div>
+        <div id="status-update-available" hidden>
+          <span class="k">Update</span>
+          <span class="v">
+            <a class="update-link" id="status-update-link" href="#" target="_blank" rel="noopener">Update available</a>
+            <span class="v" id="status-latest-version"></span>
+          </span>
+        </div>
+        <div>
           <span class="k">Last successful sync</span>
           <span class="v" id="status-last-sync">{{ cfg.last_sync_success or "never" }}</span>
         </div>
@@ -45,7 +56,10 @@
           <span class="v {{ 'err' if cfg.last_sync_error else '' }}" id="status-last-error">{{ cfg.last_sync_error or "none" }}</span>
         </div>
       </div>
-      <button class="btn primary" id="sync-now">Sync Brewfather now</button>
+      <div class="status-actions">
+        <button class="btn primary" id="sync-now">Sync Brewfather now</button>
+        <button class="btn" id="check-update-now">Check for updates</button>
+      </div>
     </section>
 
     <!-- ===== Tab navigation ===== -->
@@ -72,7 +86,7 @@
             <label for="bf_key">API Key</label>
             {% if bf.key_from_env %}
               <input id="bf_key" type="password" value="set-via-environment" disabled>
-              <p class="hint">Managed via the <code>BREWFATHER_API_KEY</code> environment variable — not stored in <code>config.json</code>.</p>
+              <p class="hint">Managed via the <code>BREWFATHER_API_KEY</code> environment variable - not stored in <code>config.json</code>.</p>
             {% else %}
               <input id="bf_key" name="brewfather_api_key" type="password" value="{{ cfg.brewfather_api_key }}" autocomplete="off">
               <p class="hint">Stored in plaintext in <code>config.json</code>. Tip: set <code>BREWFATHER_API_KEY</code> in the environment to keep it off disk.</p>
@@ -326,7 +340,7 @@
                      beer's colour (override wins, else EBC muted by saturation). -->
                 <div class="color-preview">
                   <span class="color-preview-swatch" data-color-indicator></span>
-                  <span class="hint" style="margin:0">Live colour — what the TV will show for this beer.</span>
+                  <span class="hint" style="margin:0">Live colour - what the TV will show for this beer.</span>
                 </div>
               </div>
               <!-- Feature 4: Brewfather note tokens that reproduce this custom

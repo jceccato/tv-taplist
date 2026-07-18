@@ -112,7 +112,7 @@ html, body {
   display: grid;
   /* The name and description claim their natural height first; the image+stats
      row (minmax(0,1fr)) takes only what's left. So a tall venue logo (short
-     cards) shrinks the image instead of cropping the name/description — the
+     cards) shrinks the image instead of cropping the name/description - the
      image can never encroach on the text. */
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 0.8vmin;
@@ -195,8 +195,8 @@ html, body {
   96%, 100% { transform: translateY(0); }
 }
 
-/* The foot holds the image and the ABV/IBU/colour stats. By default — when the
-   card has the vertical room — the image sits ABOVE the stats and grows as large
+/* The foot holds the image and the ABV/IBU/colour stats. By default - when the
+   card has the vertical room - the image sits ABOVE the stats and grows as large
    as it can (flex:1), while the stats keep their natural height (flex:0) so the
    colour/EBC stat is never clipped on a tall display. Wide, short cards flip to
    image-beside-stats below, where that gives a bigger image. */
@@ -374,11 +374,11 @@ html, body {
 
 /* ---- Phone / tablet: no separate layout ----
    The board stays a single-screen grid on every device. The "bottom row + ticker
-   cut off on mobile" report wasn't a layout problem — it was `height:100vh`
+   cut off on mobile" report wasn't a layout problem - it was `height:100vh`
    resolving to the *largest* viewport (browser chrome retracted), so on a
    phone/tablet the bottom ~15% of the board sat below the visible fold while
    `overflow:hidden` blocked any scroll to reach it. The `100dvh` heights on
    html/body and .board above size the board to the *visible* viewport instead, so
-   the whole grid — last row and ticker included — fits what's actually on screen.
+   the whole grid - last row and ticker included - fits what's actually on screen.
    (A previous attempt switched portrait phones to a single scrolling column; that
    masked the symptom rather than fixing it, so it's been removed.) */

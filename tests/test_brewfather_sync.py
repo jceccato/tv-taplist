@@ -207,7 +207,7 @@ def mock_network(monkeypatch):
     """Patch the batch fetch + image download so sync runs offline.
 
     The fake fetch mirrors the real `_list_batches`: it returns only batches whose
-    status is among the requested statuses, deduped by _id — so run_sync tests
+    status is among the requested statuses, deduped by _id - so run_sync tests
     genuinely exercise the include_conditioning status selection.
     """
     state = {"batches": [], "downloads": {}}

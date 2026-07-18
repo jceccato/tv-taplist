@@ -14,7 +14,7 @@ Field mapping (verified against a live /v2/batches?complete=True payload):
                  over the computed EBC colour
   glass       <- optional `glass:nonicpint` note token (glassware silhouette)
   description <- tasteNotes, else the recipe style name. The batch notes are NOT
-                 used for the body — they only carry the control tokens
+                 used for the body - they only carry the control tokens
                  (tap:X / saturation:NN / colour:#hex / glass:type), which are all
                  stripped from any text we do show.
 
@@ -89,15 +89,15 @@ MAPPING_VERSION = 6
 # `tap:3`, `tap: 3`, `Tap:3`, etc.
 TAP_TOKEN_RE = re.compile(r"tap\s*:\s*(\d+)", re.IGNORECASE)
 
-# `saturation:60` (= 60% = 0.6) — an optional per-tap colour-saturation override
+# `saturation:60` (= 60% = 0.6) - an optional per-tap colour-saturation override
 # in the batch notes, parsed the same way as the tap token.
 SATURATION_TOKEN_RE = re.compile(r"saturation\s*:\s*([0-9]*\.?[0-9]+)", re.IGNORECASE)
 
-# `colour:#780606` / `color:#780606` — force an exact swatch/glass colour,
+# `colour:#780606` / `color:#780606` - force an exact swatch/glass colour,
 # overriding the computed EBC colour.
 COLOR_TOKEN_RE = re.compile(r"colou?r\s*:\s*(#?[0-9a-fA-F]{6})", re.IGNORECASE)
 
-# `glass:nonicpint` — choose the glassware silhouette for this beer's placeholder.
+# `glass:nonicpint` - choose the glassware silhouette for this beer's placeholder.
 GLASS_TOKEN_RE = re.compile(r"glass\s*:\s*([a-zA-Z]+)", re.IGNORECASE)
 
 # A Brewfather batch's own `name` defaults to a generic "Batch" / "Batch #12";
@@ -173,7 +173,7 @@ def _extract_ebc(batch: dict[str, Any]) -> float | None:
     """Return colour as EBC (our internal storage unit).
 
     A *measured EBC* reading (explicit unit) is used as-is. Everything else
-    Brewfather exposes for colour — estimatedColor, color, recipe.color — is in
+    Brewfather exposes for colour - estimatedColor, color, recipe.color - is in
     SRM despite the generic name. This was verified against a live payload: an
     English Porter's styleColorMin/Max come back as 20/30, which is the BJCP
     *SRM* range (the EBC range would be ~39/59). So those are converted with
@@ -200,7 +200,7 @@ def _first_gravity(obj: dict[str, Any], *keys: str) -> float | None:
     """First plausible specific-gravity value (1.0 < sg < 1.2) among keys.
 
     Brewfather sends OG/FG as specific gravity (e.g. 1.052). An unset value comes
-    back as 0 or 1.0, and a Plato-stored field would be out of the SG range — both
+    back as 0 or 1.0, and a Plato-stored field would be out of the SG range - both
     are rejected so the display hides the stat rather than showing nonsense.
     """
     for key in keys:
@@ -268,8 +268,8 @@ def _extract_description(batch: dict[str, Any]) -> str:
 
     The dedicated tasting-note field wins when present; otherwise we fall back to
     the recipe's style name so the card isn't blank (most Brewfather batches have
-    no tasting notes). The batch notes are deliberately NOT used for the body —
-    they hold the `tap:X` control token, not display text — and any such token is
+    no tasting notes). The batch notes are deliberately NOT used for the body --
+    they hold the `tap:X` control token, not display text - and any such token is
     stripped from whatever text we do show.
     """
     for key in ("tasteNotes", "tastingNotes", "taste_notes", "tasting_notes"):
@@ -355,7 +355,7 @@ def _client(user_id: str, api_key: str) -> httpx.Client:
 def _image_client() -> httpx.Client:
     """A SEPARATE, UNAUTHENTICATED client for downloading batch images.
 
-    Batch image URLs are absolute and off-host — Brewfather serves them from
+    Batch image URLs are absolute and off-host - Brewfather serves them from
     Google Firebase storage / a CDN, not from api.brewfather.app. httpx applies a
     client's ``auth`` to EVERY request it makes, with no host scoping, so reusing
     the Brewfather-authenticated ``_client`` here would transmit the HTTP Basic
@@ -378,7 +378,7 @@ def _list_batches(client: httpx.Client, statuses: list[str]) -> list[dict[str, A
     one status, but the dedupe stays safe if the API ever returns one twice).
     ``complete=True`` means each page carries all the data we map
     (ABV/IBU/colour/notes/image), so there are no per-batch detail calls. Cost is
-    ceil(N/50) calls **per status** — still far under the 500/hour key limit.
+    ceil(N/50) calls **per status** - still far under the 500/hour key limit.
     """
     wanted = {str(s).lower() for s in statuses}
     out: list[dict[str, Any]] = []

@@ -7,7 +7,7 @@
      (rotation_seconds) and is restarted on manual navigation.
    - On poll we compute the page layout. If the layout (which taps sit on which
      page) and the display settings are unchanged, we update only the cards whose
-     data changed — no full grid re-render. Otherwise we rebuild, keeping the
+     data changed - no full grid re-render. Otherwise we rebuild, keeping the
      current page index.
    - Colour is computed server-side (app/colors.py) and delivered per tap as
      color_hex / text_color (honouring any per-beer override), so the swatch, the
@@ -72,14 +72,14 @@
   }
 
   function fmtNum(v, suffix = "") {
-    if (v === null || v === undefined || v === "") return "—";
+    if (v === null || v === undefined || v === "") return "-";
     return `${v}${suffix}`;
   }
 
   function gravity(v) {
-    if (isEmpty(v)) return "—";
+    if (isEmpty(v)) return "-";
     const n = Number(v);
-    return Number.isFinite(n) ? n.toFixed(3) : "—";
+    return Number.isFinite(n) ? n.toFixed(3) : "-";
   }
 
   function isEmpty(v) {
@@ -102,7 +102,7 @@
     return state.settings.color_unit === "srm" ? "SRM" : "EBC";
   }
   function colorValue(ebc) {
-    if (isEmpty(ebc)) return "—";
+    if (isEmpty(ebc)) return "-";
     const v = state.settings.color_unit === "srm" ? Number(ebc) / EBC_PER_SRM : Number(ebc);
     return String(Math.round(v));
   }

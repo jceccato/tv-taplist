@@ -17,3 +17,7 @@ scratchpad
 .git/
 .claude/
 CLAUDE.md
+tests/
+taplist_data*/
+# docs/ holds README media (e.g. screenshot.png); not needed in the image.
+docs/

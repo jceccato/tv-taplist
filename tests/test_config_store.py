@@ -1,4 +1,4 @@
-"""Config load/save safety — especially the "don't clobber on a flaky read" guard.
+"""Config load/save safety - especially the "don't clobber on a flaky read" guard.
 
 A transient read failure (e.g. a Docker Desktop bind mount on Windows briefly
 failing a read) must never cause update_config to overwrite the operator's saved

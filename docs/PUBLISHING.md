@@ -2,9 +2,9 @@
 
 How to publish **your own fork** of TV Tap List to a public GitHub repo with an
 automated Docker image on GitHub Container Registry, so other homebrewers can run
-it with one command. The CI does the build and push — you just tag and push code.
+it with one command. The CI does the build and push - you just tag and push code.
 
-> **You** run the push — these are instructions, not something that happens
+> **You** run the push - these are instructions, not something that happens
 > automatically. Nothing here sends data anywhere until you create the remote and
 > `git push`.
 
@@ -16,20 +16,20 @@ After your fork and image are published, anyone can run it:
 
 ```bash
 # Option 1: clone and build
-git clone https://github.com/OWNER/tv-taplist.git
+git clone https://github.com/jceccato/tv-taplist.git
 cd tv-taplist
 cp .env.example .env   # edit secrets
 docker compose up -d --build
 
 # Option 2: prebuilt GHCR image (skip the build)
 # In docker-compose.yml, comment out `build: .` and set:
-#   image: ghcr.io/OWNER/tv-taplist:latest
+#   image: ghcr.io/jceccato/tv-taplist:latest
 # Then:
 cp .env.example .env   # edit secrets
 docker compose up -d
 ```
 
-Replace `OWNER` with the GitHub username where the repo and image live.
+Replace `jceccato` with the GitHub username where the repo and image live.
 
 ---
 
@@ -49,9 +49,9 @@ to `ghcr.io/<repository>`.
 
 **What the workflow uses:**
 
-- **`secrets.GITHUB_TOKEN`** — built-in; no setup needed. It authenticates to
+- **`secrets.GITHUB_TOKEN`** - built-in; no setup needed. It authenticates to
   `ghcr.io` with `packages: write` permission, scoped to the current repo.
-- **`github.repository`** — the owner/repo slug (e.g. `jceccato/tv-taplist`), so
+- **`github.repository`** - the owner/repo slug (e.g. `jceccato/tv-taplist`), so
   the image path is always correct.
 
 There are no custom secrets to configure. Fork the repo, and the workflow just
@@ -64,19 +64,19 @@ works.
 After forking, make these changes so your fork is a self-contained publishable
 project pointing at your own images:
 
-### 1. Replace `OWNER` placeholders
+### 1. Replace `jceccato` placeholders
 
-The repo uses `OWNER` as a placeholder for the GitHub username in:
+The repo uses `jceccato` as a placeholder for the GitHub username in:
 
-- `docker-compose.yml` — the commented-out `image:` line
-- `README.md` / `INSTALLATION.md` — the `docker run` and `git clone` lines
+- `docker-compose.yml` - the commented-out `image:` line
+- `README.md` / `INSTALLATION.md` - the `docker run` and `git clone` lines
 
-Search for `OWNER` and replace with your GitHub username.
+Search for `jceccato` and replace with your GitHub username.
 
 ### 2. Update docker-compose.yml
 
 Switch the compose file from building locally to pulling your prebuilt image
-(optional — you can ship it with `build: .` as the default; both work):
+(optional - you can ship it with `build: .` as the default; both work):
 
 ```yaml
 services:
@@ -88,7 +88,7 @@ services:
 ### 3. Make the GHCR package public
 
 After the first successful CI run, the package is private by default. Go to
-**GitHub → your repo → Packages**, find `tv-taplist`, open **Package settings**,
+**GitHub -> your repo -> Packages**, find `tv-taplist`, open **Package settings**,
 and change visibility to **Public**.
 
 ### 4. Keep or replace the licence
@@ -102,8 +102,8 @@ picker via the web UI.
 
 ### 5. Set repo description + topics
 
-Add a one-line description and topics — `homebrew`, `brewfather`, `tap-list`,
-`fastapi`, `docker`, `raspberry-pi`, `digital-signage` — so the repo is
+Add a one-line description and topics - `homebrew`, `brewfather`, `tap-list`,
+`fastapi`, `docker`, `raspberry-pi`, `digital-signage` - so the repo is
 discoverable.
 
 ---
@@ -126,7 +126,7 @@ Rules of thumb:
 - Increment the **patch** version (e.g. `v1.0.1`) for bugfixes.
 
 Only tag on `main`. The CI builds and publishes a tagged image for every `v*`
-tag pushed; users pin to `ghcr.io/OWNER/tv-taplist:v1.0.0` for stable releases
+tag pushed; users pin to `ghcr.io/jceccato/tv-taplist:v1.0.0` for stable releases
 or track `latest` for the bleeding edge.
 
 The Dockerfile accepts a `VERSION` build arg. To embed the version in the
@@ -138,7 +138,7 @@ where you need it. The CI already passes `VERSION=${{ steps.meta.outputs.version
 
 ## Security: pre-publish safety checklist
 
-The repo stores your real secrets — Brewfather API key, admin password — in
+The repo stores your real secrets - Brewfather API key, admin password - in
 git-ignored files (`.env`, `taplist_data/`). Publishing is the one operation
 where a mistake exposes them. Run these checks **before** every public push.
 
@@ -148,12 +148,12 @@ Run each from the repo root. Each should report what's noted in **bold**.
 
 ```bash
 # .env must NOT be tracked:
-git ls-files --error-unmatch .env 2>/dev/null && echo "TRACKED — STOP" || echo "OK: .env untracked"
+git ls-files --error-unmatch .env 2>/dev/null && echo "TRACKED - STOP" || echo "OK: .env untracked"
 
 # Your live data directory must NOT be tracked:
 git ls-files taplist_data data | head   # -> **prints nothing**
 
-# Full list of what WILL be published — eyeball it for anything private:
+# Full list of what WILL be published - eyeball it for anything private:
 git ls-files
 ```
 
@@ -163,7 +163,7 @@ A secret committed once stays in history even after the file is deleted:
 
 ```bash
 # Did .env or a data dir EVER get committed?
-git log --all --oneline -- .env .env.* taplist_data/ data/
+git log --all --oneline - .env .env.* taplist_data/ data/
 #  -> **prints nothing** = clean.
 
 # Grep history for secret-shaped strings:
@@ -173,7 +173,7 @@ git log -p --all | grep -niE 'api[_-]?key|password|session_secret|brewfather_api
 
 ### Automated scan with gitleaks
 
-No install needed — run via Docker:
+No install needed - run via Docker:
 
 ```bash
 docker run --rm -v "$(pwd):/repo" zricethezav/gitleaks:latest detect --source=/repo -v
@@ -181,7 +181,7 @@ docker run --rm -v "$(pwd):/repo" zricethezav/gitleaks:latest detect --source=/r
 
 ### If a secret IS in history
 
-Don't just delete the file in a new commit — it's still in the old ones. Rewrite
+Don't just delete the file in a new commit - it's still in the old ones. Rewrite
 history with [`git filter-repo`](https://github.com/newren/git-filter-repo)
 **before** adding any remote:
 
@@ -193,15 +193,15 @@ git filter-repo --path taplist_data --invert-paths
 
 Then **rotate everything**, because the secret was on disk in a shareable form:
 
-- **Brewfather API key** — Brewfather → *Settings → API* → regenerate.
-- **`ADMIN_PASSWORD`** — pick a new one.
-- **`SESSION_SECRET`** — regenerate (`openssl rand -hex 32`).
+- **Brewfather API key** - Brewfather -> *Settings -> API* -> regenerate.
+- **`ADMIN_PASSWORD`** - pick a new one.
+- **`SESSION_SECRET`** - regenerate (`openssl rand -hex 32`).
 
 ### Everyday hygiene
 
 - Keep doing your real config in `.env` and the admin UI; both stay git-ignored.
 - If you need to share a config sample, copy to `.env.example` and replace every
-  value with a placeholder — never put a real key there.
-- Treat `taplist_data/` as private forever — it contains `config.json` with your
+  value with a placeholder - never put a real key there.
+- Treat `taplist_data/` as private forever - it contains `config.json` with your
   Brewfather key in plaintext. It's git-ignored and in `.dockerignore`; never
   un-ignore it.

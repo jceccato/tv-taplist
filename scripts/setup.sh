@@ -4,7 +4,7 @@
 # Asks a handful of questions, writes a .env you can re-edit later, and (optionally)
 # starts the container with Docker Compose. Run it from a checkout of the repo:
 #
-#   git clone https://github.com/OWNER/tv-taplist.git
+#   git clone https://github.com/jceccato/tv-taplist.git
 #   cd tv-taplist
 #   ./scripts/setup.sh
 #
@@ -75,7 +75,7 @@ detect_tz() {
   else echo "UTC"; fi
 }
 
-bold "TV Tap List — guided installer"
+bold "TV Tap List - guided installer"
 echo
 if [ -f "$ENV_FILE" ]; then
   warn "A .env already exists; its values are shown as defaults below."
@@ -106,8 +106,8 @@ PUID="$(ask "  PUID (host user id that should own the data)" "$(env_get PUID || 
 PGID="$(ask "  PGID (host group id)" "$(env_get PGID || id -g)")"
 
 echo
-bold "3) Brewfather (optional — you can also add these later in /admin)"
-info "Get them in Brewfather: Settings → API → Generate. You need the User ID and"
+bold "3) Brewfather (optional - you can also add these later in /admin)"
+info "Get them in Brewfather: Settings -> API -> Generate. You need the User ID and"
 info "an API key with 'Read Batches' (and 'Read Recipes') scope."
 BF_USER=""; BF_KEY=""
 if yesno "  Enter Brewfather credentials now?" "N"; then
@@ -122,12 +122,12 @@ FORWARDED="$(env_get FORWARDED_ALLOW_IPS || echo 127.0.0.1)"
 # --- write .env --------------------------------------------------------------
 echo
 if [ -f "$ENV_FILE" ] && ! yesno "Overwrite existing .env?" "Y"; then
-  die "Aborted — left your .env untouched."
+  die "Aborted - left your .env untouched."
 fi
 
 umask 077  # .env holds secrets; keep it owner-only
 cat > "$ENV_FILE" <<EOF
-# Written by scripts/setup.sh — safe to edit by hand.
+# Written by scripts/setup.sh - safe to edit by hand.
 ADMIN_PASSWORD=$ADMIN_PASSWORD
 SESSION_SECRET=$SESSION_SECRET
 TZ=$TZ_VAL

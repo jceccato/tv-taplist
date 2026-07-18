@@ -19,7 +19,7 @@ Dockerfile  text eol=lf
 *.svg       text eol=lf
 .env.example text eol=lf
 
-# Binary assets — never normalize.
+# Binary assets - never normalize.
 *.png  binary
 *.jpg  binary
 *.jpeg binary

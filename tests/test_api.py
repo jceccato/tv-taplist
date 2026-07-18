@@ -389,7 +389,7 @@ def test_no_demo_no_password_admin_denied(monkeypatch):
 # ---- review-fix regressions -------------------------------------------
 
 def test_display_assets_are_cache_busted():
-    # The TV display CSS/JS carry a ?v=<mtime> token too — the display is the
+    # The TV display CSS/JS carry a ?v=<mtime> token too - the display is the
     # hardest surface to hard-refresh, so it must pick up a rebuild automatically.
     html = client.get("/").text
     assert "/static/css/display.css?v=" in html

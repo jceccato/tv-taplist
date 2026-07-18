@@ -32,7 +32,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_archive_age_days": 180,
     "max_archive_storage_mb": 2048,
     # Display options.
-    "color_unit": "ebc",            # "ebc" or "srm" — colour stat display unit
+    "color_unit": "ebc",            # "ebc" or "srm" - colour stat display unit
     "show_abv": True,               # global show/hide for each stat
     "show_ibu": True,
     "show_color": True,
@@ -55,6 +55,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Optional venue/company logo at the top of the display.
     "venue_logo": None,             # filename under /data (e.g. venue_logo.png) or null
     "venue_logo_height_vh": 0,      # 0..33 (% of viewport height; 0 hides the header)
+    # Update checker — polls GitHub once per day for new releases.
+    "update_check_enabled": True,     # operator can disable for air-gapped deploys
+    "update_last_check": None,        # ISO8601 of last check
+    "update_latest_version": None,    # e.g. "v1.2.3" or "unreleased"
+    "update_latest_url": None,        # release HTML URL
     # Status fields, updated by the sync job so an unattended box is debuggable.
     "last_sync_success": None,   # ISO8601 string of last *successful* sync
     "last_sync_error": None,     # human-readable last error, or null
@@ -155,7 +160,7 @@ class ConfigUnreadable(RuntimeError):
     """config.json is present but could not be read/parsed (after retries).
 
     Raised so a read-modify-write (update_config) can REFUSE to overwrite an
-    existing-but-momentarily-unreadable config with defaults — which would
+    existing-but-momentarily-unreadable config with defaults - which would
     silently wipe the operator's settings. This matters in practice: a bind
     mount on Docker Desktop / Windows can fail or briefly mis-report a read,
     and the sync job writes config (sync status) every cycle.

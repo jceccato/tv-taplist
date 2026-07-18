@@ -2,18 +2,17 @@
 demoed and screenshotted fully offline with no Brewfather credentials.
 
 Enabled with DEMO_MODE=true. Seeding only happens when /data/taps has no tap
-files yet, so it never clobbers real data on a configured box. Sample images
-reuse the bundled placeholder (copied locally), keeping everything offline.
+files yet, so it never clobbers real data on a configured box. Beer-glass
+images are generated on-the-fly from EBC values (fully offline).
 """
 from __future__ import annotations
 
 import logging
 import os
-import shutil
 
 from . import markdown_store as md
 from .config_store import load_config, save_config
-from .paths import TAPS_DIR, ensure_dirs, placeholder_path
+from .paths import TAPS_DIR, ensure_dirs
 from .timezone import iso_now
 
 log = logging.getLogger("taplist.demo")
@@ -47,28 +46,15 @@ def maybe_seed_demo() -> None:
         return
 
     log.info("seeding %d demo taps", len(SAMPLE_TAPS))
-    src_placeholder = placeholder_path()
 
     for tap, name, abv, ibu, ebc, source, desc in SAMPLE_TAPS:
-        stem = f"{'custom' if source == 'custom' else 'bf'}_tap_{tap}"
-        image_name = None
-        if src_placeholder is not None:
-            # Copy the placeholder locally as this tap's image (offline-safe).
-            ext = src_placeholder.suffix
-            dest = TAPS_DIR / f"{stem}{ext}"
-            try:
-                shutil.copyfile(src_placeholder, dest)
-                image_name = dest.name
-            except OSError as exc:
-                log.warning("could not copy demo image for %s: %s", stem, exc)
-
         front_matter = {
             "name": name,
             "abv": abv,
             "ibu": ibu,
             "ebc": ebc,
             "source": source,
-            "image": image_name,
+            "image": None,
             "updated": iso_now(),
         }
         path = md.custom_md_path(tap) if source == "custom" else md.bf_md_path(tap)
@@ -78,6 +64,6 @@ def maybe_seed_demo() -> None:
     cfg = load_config()
     cfg["num_taps"] = max(cfg.get("num_taps", 0), len(SAMPLE_TAPS))
     if not cfg.get("announcement_text"):
-        cfg["announcement_text"] = "Now pouring — ask staff for samples!  •  Demo mode"
+        cfg["announcement_text"] = "Now pouring - ask staff for samples!  •  Demo mode"
     save_config(cfg)
     log.info("demo seed complete: num_taps=%d", cfg["num_taps"])

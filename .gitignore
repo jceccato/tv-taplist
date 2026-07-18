@@ -39,7 +39,10 @@ Thumbs.db
 Desktop.ini
 
 # ── Appdata ──────────────────────────────────────────────────────────────────
-taplist_data/
+# Any local data directory (a bind-mounted /data). The glob covers taplist_data,
+# taplist_data_demo, taplist_data_v2, and any future variant, so a stray local
+# run directory can never be committed.
+taplist_data*/
 
 # ── Logs ──────────────────────────────────────────────────────────────────
 *.log

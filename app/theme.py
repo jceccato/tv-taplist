@@ -39,7 +39,7 @@ THEME_FIELD_LABELS: list[tuple[str, str]] = [
     ("vacant", "Vacant tap fill"),
 ]
 
-# The shipped default palette — identical to the :root values in display.css.
+# The shipped default palette - identical to the :root values in display.css.
 DEFAULT_THEME: dict[str, str] = {
     "bg": "#0d0f14",
     "bg_card": "#181b23",
@@ -60,7 +60,7 @@ THEMES: dict[str, dict[str, Any]] = {
     },
     "oled": {
         "label": "OLED true black",
-        "hint": "Pure-black background — best contrast and lowest power on OLED panels.",
+        "hint": "Pure-black background - best contrast and lowest power on OLED panels.",
         "colors": {
             "bg": "#000000",
             "bg_card": "#0a0a0c",

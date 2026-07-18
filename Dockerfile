@@ -31,7 +31,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Application code and bundled (committed) assets — no Node/Tailwind/PostCSS.
+# Application code and bundled (committed) assets - no Node/Tailwind/PostCSS.
 COPY app ./app
 COPY static ./static
 COPY templates ./templates

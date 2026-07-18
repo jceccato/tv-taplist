@@ -259,7 +259,7 @@
       const box = btn.closest(".override-fields").querySelector("[data-token-block]");
       if (!box) return;
       const ok = await copyText(box);
-      showToast(ok ? "Brewfather tokens copied." : "Copy failed — select and copy manually.",
+      showToast(ok ? "Brewfather tokens copied." : "Copy failed - select and copy manually.",
                 ok ? "ok" : "err");
     });
   });
@@ -321,7 +321,7 @@
       try {
         const res = await postForm("/admin/sync", new FormData());
         if (res && res.ok) {
-          showToast(`Sync OK — ${res.written} written, ${res.archived} archived.`, "ok");
+          showToast(`Sync OK - ${res.written} written, ${res.archived} archived.`, "ok");
           if (res.timestamp) {
             const el = document.getElementById("status-last-sync");
             if (el) el.textContent = res.timestamp;
@@ -338,6 +338,56 @@
       } finally {
         syncBtn.disabled = false;
         syncBtn.textContent = original;
+      }
+    });
+  }
+
+  // ---- update check ----
+  const updateAvailable = document.getElementById("status-update-available");
+  const updateLink = document.getElementById("status-update-link");
+  const latestVersion = document.getElementById("status-latest-version");
+  const versionEl = document.getElementById("status-version");
+
+  async function refreshUpdateStatus() {
+    try {
+      const resp = await fetch("/api/update-status");
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (versionEl) versionEl.textContent = data.current_version || "dev";
+      if (data.update_available && updateAvailable && updateLink && latestVersion) {
+        updateAvailable.hidden = false;
+        updateLink.textContent = "Update available";
+        updateLink.href = data.latest_url || "#";
+        latestVersion.textContent = data.latest_version;
+      } else if (updateAvailable) {
+        updateAvailable.hidden = true;
+      }
+    } catch (_) { /* offline: leave the last state */ }
+  }
+
+  // Poll on load and every 5 minutes (lightweight, no auth needed).
+  refreshUpdateStatus();
+  setInterval(refreshUpdateStatus, 5 * 60 * 1000);
+
+  const checkUpdateBtn = document.getElementById("check-update-now");
+  if (checkUpdateBtn) {
+    checkUpdateBtn.addEventListener("click", async () => {
+      checkUpdateBtn.disabled = true;
+      const original = checkUpdateBtn.textContent;
+      checkUpdateBtn.textContent = "Checking…";
+      try {
+        const res = await postForm("/admin/check-update", new FormData());
+        if (res && res.update_available) {
+          showToast("Update available: " + res.latest_version, "ok");
+        } else if (res) {
+          showToast("Up to date (" + res.current_version + ").", "ok");
+        }
+        refreshUpdateStatus();
+      } catch (err) {
+        showToast("Update check failed: " + err.message, "err");
+      } finally {
+        checkUpdateBtn.disabled = false;
+        checkUpdateBtn.textContent = original;
       }
     });
   }

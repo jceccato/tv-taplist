@@ -57,6 +57,7 @@ from .config_store import (
     update_config,
 )
 from .theme import DEFAULT_THEME, THEME_FIELD_LABELS, THEME_KEYS, THEMES
+from .update_check import check_for_updates, current_version, is_update_available
 from .demo import maybe_seed_demo
 from .paths import (
     DATA_DIR,
@@ -130,7 +131,7 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 @app.get("/", response_class=HTMLResponse)
 async def display_page(request: Request):
-    # Cache-bust the TV's CSS/JS by mtime — the display is the hardest surface to
+    # Cache-bust the TV's CSS/JS by mtime - the display is the hardest surface to
     # hard-refresh, so it must pick up a rebuild on the next normal load.
     return templates.TemplateResponse(
         "display.html",
@@ -309,7 +310,7 @@ def _asset_version(*rels: str) -> str:
     """Cache-busting token = newest mtime among the given static assets.
 
     Browsers disk-cache CSS/JS aggressively, so a rebuilt image (or an edited file
-    in dev) otherwise needs a manual hard-refresh to take effect — annoying for the
+    in dev) otherwise needs a manual hard-refresh to take effect - annoying for the
     admin, and worse for a wall-mounted TV that is painful to hard-refresh. Keying
     each asset URL to its mtime makes the next normal load pick the new file up.
     """
@@ -347,6 +348,8 @@ async def admin_page(request: Request):
             "glass_types": GLASS_TYPES,
             # Banner when the admin is open with no login (demo mode, no password).
             "demo_open": auth.demo_admin_open(),
+            # Update check status for the admin status panel.
+            "update_current_version": current_version(),
         },
     )
 
@@ -677,4 +680,32 @@ async def save_override(
 async def trigger_sync(_: None = Depends(auth.require_admin)):
     # Run synchronously so the admin sees the result; sync takes JOB_LOCK itself.
     result = run_sync()
+    return result
+
+
+# ---- admin: update check --------------------------------------------------
+
+@app.get("/api/update-status")
+async def api_update_status():
+    """Return the current update-check state from config.json.
+    
+    Public (no auth) so the admin page can poll it. Contains no secrets — just
+    version strings and a URL.
+    """
+    cfg = load_config()
+    cur = current_version()
+    return {
+        "current_version": cur,
+        "latest_version": cfg.get("update_latest_version"),
+        "latest_url": cfg.get("update_latest_url"),
+        "update_available": is_update_available(cfg.get("update_latest_version"), cur),
+        "last_check": cfg.get("update_last_check"),
+        "enabled": cfg.get("update_check_enabled", True),
+    }
+
+
+@app.post("/admin/check-update")
+async def trigger_update_check(_: None = Depends(auth.require_admin)):
+    """Run an update check immediately (admin button)."""
+    result = check_for_updates()
     return result

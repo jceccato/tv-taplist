@@ -115,8 +115,8 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS) -> dict[str, Any]:
         "fg": _num(data.get("fg")),
         "color_hex": color_hex,
         "text_color": text_color_for(color_hex),
-        # The swatch shows whenever the colour is known — from an EBC value OR an
-        # explicit override — even if the EBC *stat* itself is hidden/empty.
+        # The swatch shows whenever the colour is known - from an EBC value OR an
+        # explicit override - even if the EBC *stat* itself is hidden/empty.
         "color_known": ebc is not None or color_override is not None,
         "description": (data.get("description") or "").strip(),
         "image_url": _image_url_for(stem, ebc, saturation, glass, color_override),
