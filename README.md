@@ -101,9 +101,7 @@ guarantee, archiving, and security — is in **[FAQ.md](FAQ.md)**.
   Unraid, manual Compose, env vars, reverse proxy, Brewfather API key.
 - **[FAQ.md](FAQ.md)** — how everything works, in depth.
 - **[UNRAID.md](UNRAID.md)** — the deep-dive Unraid walkthrough.
-- **[PUBLISHING.md](PUBLISHING.md)** — fork it and publish your own image safely.
 
 ## License
 
-No license file yet — a permissive (MIT) template is ready in
-[PUBLISHING.md](PUBLISHING.md).
+No license file yet.

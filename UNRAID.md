@@ -6,8 +6,8 @@ Two supported ways to run this on an Unraid server:
   build the image from the repo on the Unraid box. Closest to the bundled
   `docker-compose.yml`; no external registry needed.
 - **[Option B — Docker template](#option-b--docker-template-prebuilt-image)** —
-  point Unraid's **Add Container** at a prebuilt image (e.g. a GHCR image you
-  published per [PUBLISHING.md](PUBLISHING.md)). No building on the server.
+  point Unraid's **Add Container** at a prebuilt GHCR image
+  (`ghcr.io/OWNER/tv-taplist`). No building on the server.
 
 Both end up at the same place: the admin at `http://<tower-ip>:8080/admin` and the
 TV display at `http://<tower-ip>:8080/`.
@@ -42,7 +42,7 @@ Open the Unraid **terminal** (`>_` in the top bar):
 
 ```bash
 # Clone into a share (keep the build context on the array, not on the flash/boot):
-git clone https://github.com/<you>/tv-taplist.git /mnt/user/appdata/tv-taplist-src
+git clone https://github.com/OWNER/tv-taplist.git /mnt/user/appdata/tv-taplist-src
 cd /mnt/user/appdata/tv-taplist-src
 
 # Secrets + ops, from the template:
@@ -93,15 +93,16 @@ docker compose up -d --build
 
 ## Option B — Docker template (prebuilt image)
 
-Use this if a GHCR image exists (e.g. `ghcr.io/<you>/tv-taplist:latest` from
-[PUBLISHING.md §5](PUBLISHING.md#5-make-it-usable-for-others)). No building on the
-server, and Unraid shows an **update ready** badge when the image changes.
+Use this if a prebuilt GHCR image is available (e.g.
+`ghcr.io/OWNER/tv-taplist:latest`). No building on the server, and Unraid shows an
+**update ready** badge when the image changes. Replace `OWNER` throughout with the
+owner of the image you're pulling.
 
 ### Add the container by hand
 **Docker → Add Container**, switch the toggle to **Advanced View**, then:
 
 - **Name:** `tv-taplist`
-- **Repository:** `ghcr.io/<you>/tv-taplist:latest`
+- **Repository:** `ghcr.io/OWNER/tv-taplist:latest`
 - **Network Type:** `bridge`
 - **Port:** add → Name `WebUI`, Container Port `8080`, Host Port `8080`, TCP
 - **Path:** add → Container Path `/data`, Host Path
@@ -125,15 +126,15 @@ Click **Apply**. Unraid pulls the image and starts it.
 ### Or drop in a template file
 Save the XML below as
 `/boot/config/plugins/dockerMan/templates-user/my-tv-taplist.xml` (replace
-`YOUR_GITHUB_USER`). It then shows up under **Add Container → Template:
+`OWNER`). It then shows up under **Add Container → Template:
 tv-taplist** with all fields pre-filled:
 
 ```xml
 <?xml version="1.0"?>
 <Container version="2">
   <Name>tv-taplist</Name>
-  <Repository>ghcr.io/YOUR_GITHUB_USER/tv-taplist:latest</Repository>
-  <Registry>https://github.com/YOUR_GITHUB_USER/tv-taplist/pkgs/container/tv-taplist</Registry>
+  <Repository>ghcr.io/OWNER/tv-taplist:latest</Repository>
+  <Registry>https://github.com/OWNER/tv-taplist/pkgs/container/tv-taplist</Registry>
   <Network>bridge</Network>
   <Privileged>false</Privileged>
   <Overview>Offline-first digital beer tap list for TVs. Syncs from Brewfather when online and keeps serving the last cached data when the internet is down.</Overview>
