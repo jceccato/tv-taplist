@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TV Tap List - guided installer.                  Version: 1.4.3
+# TV Tap List - guided installer.                  Version: 1.4.4
 #
 # One-liner (from any directory):
 #   bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/scripts/setup.sh)
@@ -18,7 +18,7 @@ set -euo pipefail
 
 # --- handle --version / -v flag ----------------------------------------------
 if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
-  echo "TV Tap List setup script v1.4.3"
+  echo "TV Tap List setup script v1.4.4"
   echo "Repo: https://github.com/jceccato/tv-taplist"
   exit 0
 fi
@@ -711,7 +711,7 @@ launch_screen() {
     clear 2>/dev/null || true
     box_top
     box_line "            TV Tap List Setup"
-    box_line "              $(dim 'v1.4.3')"
+    box_line "              $(dim 'v1.4.4')"
     box_mid
     menu_row "Admin password"  "$(masked "$ADMIN_PASSWORD")"
     menu_row "Timezone"        "$TZ_VAL"
@@ -724,13 +724,13 @@ launch_screen() {
       menu_row "Brewfather"    "(not set)"
     fi
     box_mid
-    box_line "  S) Start guided setup  (walk through each step)"
+    box_line "  S) Start guided setup  (recommended)"
     box_line "  A) Advanced menu       (jump to any setting)"
     box_line "  R) Review & Deploy     (write .env and start)"
     box_line "  Q) Quit without saving"
     box_bottom
     echo
-    read -r -p "  Choose [S, A, R, Q]: " choice || true
+    read -r -p "  Choose [S] A R Q: " choice || true
     choice="${choice:-S}"
 
     case "$(echo "$choice" | tr '[:lower:]' '[:upper:]')" in
