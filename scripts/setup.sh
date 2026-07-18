@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TV Tap List - guided installer.                  Version: 1.5.1
+# TV Tap List - guided installer.                  Version: 1.5.2
 #
 # One-liner (from any directory):
 #   bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/setup)
@@ -18,7 +18,7 @@ set -euo pipefail
 
 # --- handle --version / -v flag ----------------------------------------------
 if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
-  echo "TV Tap List setup script v1.5.1"
+  echo "TV Tap List setup script v1.5.2"
   echo "Repo: https://github.com/jceccato/tv-taplist"
   exit 0
 fi
@@ -673,13 +673,22 @@ EOF
         fi
         # Daemon is up, but user might need group access
         if ! docker info >/dev/null 2>&1; then
-          warn "You don't have permission to use Docker."
-          info "Run this to activate the docker group, then re-run:"
-          info "  newgrp docker"
-          if [ -f "$ENV_FILE" ]; then
-            info "Your .env is saved - after 'newgrp docker', run:"
-            info "  cd $(pwd) && $COMPOSE up -d"
+          info "Activating docker group (you need it to talk to Docker)..."
+          if command -v sg >/dev/null 2>&1; then
+            sg docker -c "cd $REPO_ROOT && $COMPOSE up -d" 2>/dev/null && {
+              ok "Container deployed with docker group."
+              box_top
+              box_line "$(bold '  Ready!')"
+              box_mid
+              box_line "  Display:  http://localhost:$PORT_VAL/"
+              box_line "  Admin:    http://localhost:$PORT_VAL/admin"
+              box_bottom
+              exit 0
+            }
           fi
+          warn "Could not use Docker. Run this in a terminal, then re-deploy:"
+          info "  newgrp docker"
+          info "  cd $REPO_ROOT && $COMPOSE up -d"
           echo
           read -r -p "  Press Enter to continue (deploy skipped)..." _ || true
           return
@@ -775,7 +784,7 @@ launch_screen() {
     clear 2>/dev/null || true
     box_top
     box_line "            TV Tap List Setup"
-    box_line "              $(dim 'v1.5.1')"
+    box_line "              $(dim 'v1.5.2')"
     box_mid
     menu_row "Admin password"  "$(masked "$ADMIN_PASSWORD")"
     menu_row "Timezone"        "$TZ_VAL"
