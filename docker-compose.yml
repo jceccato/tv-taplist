@@ -1,7 +1,7 @@
 # Single-container deployment for the digital tap list.
 # Run scripts/setup.sh, or copy .env.example to .env and edit it, before
 # `docker compose up -d`.
-version: "3.8"
+version: "2.1"
 services:
   taplist:
     # To build from source instead of pulling a prebuilt image, comment out
