@@ -113,7 +113,7 @@ ensure_compose() {
     fi
   fi
 
-  # Check Docker Compose (prefer v2 plugin, fall back to v1)
+  # Check Docker Compose (prefer v2 plugin, fall back to v1 standalone)
   if docker compose version >/dev/null 2>&1; then
     COMPOSE="docker compose"
     return
@@ -126,11 +126,26 @@ ensure_compose() {
   warn "Docker Compose is not installed."
   if [ -f /etc/debian_version ]; then
     echo
-    if yesno "Install Docker Compose plugin now? (requires sudo)" "Y"; then
-      info "Installing Docker Compose plugin..."
-      sudo apt-get update -qq && sudo apt-get install -y docker-compose-plugin
-      COMPOSE="docker compose"
-      ok "Docker Compose plugin installed."
+    if yesno "Install Docker Compose now? (requires sudo)" "Y"; then
+      info "Trying docker-compose-plugin (v2)..."
+      if sudo apt-get update -qq && sudo apt-get install -y docker-compose-plugin 2>/dev/null; then
+        COMPOSE="docker compose"
+        ok "Docker Compose v2 installed."
+        return
+      fi
+      info "docker-compose-plugin not available, trying docker-compose (v1)..."
+      if sudo apt-get install -y docker-compose 2>/dev/null; then
+        COMPOSE="docker-compose"
+        ok "Docker Compose v1 installed."
+        return
+      fi
+      warn "Could not install via apt. Trying pip..."
+      if command -v pip3 >/dev/null 2>&1 && sudo pip3 install docker-compose 2>/dev/null; then
+        COMPOSE="docker-compose"
+        ok "Docker Compose installed via pip."
+        return
+      fi
+      die "Could not install Docker Compose. See https://docs.docker.com/compose/install/"
     else
       die "Docker Compose is required."
     fi
