@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TV Tap List - guided installer.                  Version: 1.4.1
+# TV Tap List - guided installer.                  Version: 1.4.2
 #
 # One-liner (from any directory):
 #   bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/scripts/setup.sh)
@@ -18,7 +18,7 @@ set -euo pipefail
 
 # --- handle --version / -v flag ----------------------------------------------
 if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
-  echo "TV Tap List setup script v1.4.1"
+  echo "TV Tap List setup script v1.4.2"
   echo "Repo: https://github.com/jceccato/tv-taplist"
   exit 0
 fi
@@ -47,9 +47,10 @@ BOX_W=55
 
 box_top()    { printf "$BOX_TL"; printf '%*s' "$BOX_W" | tr ' ' "$BOX_H"; printf "$BOX_TR\n"; }
 box_line() {
-  local content="$1" stripped="$1"
+  local content="$1" stripped="$1" ansi_re
   # Strip ANSI escape codes so we can pad to the right visible width
-  while [[ "$stripped" =~ $'\x1b'\[[0-9]*;?[0-9]*m ]]; do
+  ansi_re=$'\x1b''\[[0-9]*;?[0-9]*m'
+  while [[ "$stripped" =~ $ansi_re ]]; do
     stripped="${stripped//${BASH_REMATCH[0]}/}"
   done
   local pad=$((BOX_W - ${#stripped} - 2))
@@ -710,7 +711,7 @@ launch_screen() {
     clear 2>/dev/null || true
     box_top
     box_line "            TV Tap List Setup"
-    box_line "              $(dim 'v1.4.1')"
+    box_line "              $(dim 'v1.4.2')"
     box_mid
     menu_row "Admin password"  "$(masked "$ADMIN_PASSWORD")"
     menu_row "Timezone"        "$TZ_VAL"
