@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TV Tap List - guided installer.
+# TV Tap List - guided installer.                  Version: 1.3.0
 #
 # One-liner (from any directory):
 #   bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/scripts/setup.sh)
@@ -9,9 +9,19 @@
 #   cd tv-taplist
 #   bash scripts/setup.sh
 #
+# Check what version you're running:
+#   curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/scripts/setup.sh | head -2
+#
 # Safe to re-run: loads your current .env as defaults, never starts anything
 # without asking.
 set -euo pipefail
+
+# --- handle --version / -v flag ----------------------------------------------
+if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
+  echo "TV Tap List setup script v1.3.0"
+  echo "Repo: https://github.com/jceccato/tv-taplist"
+  exit 0
+fi
 
 # URL of the docker-compose.yml (downloaded in remote mode)
 COMPOSE_RAW_URL="https://raw.githubusercontent.com/jceccato/tv-taplist/main/docker-compose.yml"
@@ -127,25 +137,27 @@ ensure_compose() {
   if [ -f /etc/debian_version ]; then
     echo
     if yesno "Install Docker Compose now? (requires sudo)" "Y"; then
+      info "Updating package lists..."
+      sudo apt-get update -qq 2>/dev/null || true
       info "Trying docker-compose-plugin (v2)..."
-      if sudo apt-get update -qq && sudo apt-get install -y docker-compose-plugin 2>/dev/null; then
+      if sudo apt-get install -y docker-compose-plugin 2>/dev/null; then
         COMPOSE="docker compose"
         ok "Docker Compose v2 installed."
         return
       fi
-      info "docker-compose-plugin not available, trying docker-compose (v1)..."
+      info "Trying docker-compose (v1 apt)..."
       if sudo apt-get install -y docker-compose 2>/dev/null; then
         COMPOSE="docker-compose"
-        ok "Docker Compose v1 installed."
+        ok "Docker Compose v1 (apt) installed."
         return
       fi
-      warn "Could not install via apt. Trying pip..."
+      info "docker-compose not in apt, trying pip..."
       if command -v pip3 >/dev/null 2>&1 && sudo pip3 install docker-compose 2>/dev/null; then
         COMPOSE="docker-compose"
         ok "Docker Compose installed via pip."
         return
       fi
-      die "Could not install Docker Compose. See https://docs.docker.com/compose/install/"
+      die "Could not auto-install Docker Compose.\n       Manual install: sudo apt-get install -y docker-compose\n       Or see: https://docs.docker.com/compose/install/"
     else
       die "Docker Compose is required."
     fi
@@ -689,6 +701,7 @@ launch_screen() {
     clear 2>/dev/null || true
     box_top
     box_line "            TV Tap List Setup"
+    box_line "              $(dim 'v1.3.0')"
     box_mid
     menu_row "Admin password"  "$(masked "$ADMIN_PASSWORD")"
     menu_row "Timezone"        "$TZ_VAL"
