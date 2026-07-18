@@ -180,7 +180,7 @@ Inside `app/`, each module has a clear responsibility:
 
 - Use present tense, imperative mood ("Add feature" not "Added feature").
 - Reference issue numbers where applicable.
-- If you used AI assistance, end with a `Co-Authored-By: Claude ...` trailer
+- If you used AI assistance, note it in the body.
   (or equivalent for other tools).
 
 ### What makes a good PR
