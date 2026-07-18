@@ -7,6 +7,11 @@ ENV PYTHONUNBUFFERED=1 \
     DATA_DIR=/data \
     PORT=8080
 
+# Build-time version tag (git tag or short SHA), made available as an env var
+# so the update checker can compare against the latest GitHub release.
+ARG VERSION=dev
+ENV TVTAPLIST_VERSION=$VERSION
+
 # Runtime-only OS deps:
 #   tzdata -> honour the TZ env var for archive timestamps / daily boundary
 #   gosu   -> drop privileges from the perms-fixing entrypoint to the app user
@@ -35,6 +40,7 @@ RUN chmod +x /entrypoint.sh
 
 VOLUME ["/data"]
 EXPOSE 8080
+LABEL tv-taplist-version=${TVTAPLIST_VERSION}
 
 # Hit the lightweight health endpoint. Shell form so ${PORT} expands at runtime.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

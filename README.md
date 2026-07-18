@@ -104,4 +104,6 @@ guarantee, archiving, and security — is in **[FAQ.md](FAQ.md)**.
 
 ## License
 
-No license file yet.
+AGPLv3. See [LICENSE](LICENSE). In short: you may use, modify, and redistribute
+this software, but if you offer a network-accessible service based on it, you
+must also make the source code (including your changes) available to its users.
