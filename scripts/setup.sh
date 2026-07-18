@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TV Tap List - guided installer.                  Version: 1.4.4
+# TV Tap List - guided installer.                  Version: 1.5.0
 #
 # One-liner (from any directory):
 #   bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/scripts/setup.sh)
@@ -18,7 +18,7 @@ set -euo pipefail
 
 # --- handle --version / -v flag ----------------------------------------------
 if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
-  echo "TV Tap List setup script v1.4.4"
+  echo "TV Tap List setup script v1.5.0"
   echo "Repo: https://github.com/jceccato/tv-taplist"
   exit 0
 fi
@@ -114,7 +114,9 @@ bootstrap_repo() {
 
 # --- ensure docker & docker compose are available ----------------------------
 ensure_compose() {
-  # Check Docker
+  local need_newgrp=false
+
+  # --- Docker binary ---------------------------------------------------------
   if ! command -v docker >/dev/null 2>&1; then
     warn "Docker is not installed."
     if [ -f /etc/debian_version ]; then
@@ -122,9 +124,9 @@ ensure_compose() {
       echo
       if yesno "Install Docker now? (requires sudo)" "Y"; then
         info "Installing Docker..."
-        sudo apt-get update -qq && sudo apt-get install -y docker.io
-        sudo usermod -aG docker "$USER" 2>/dev/null || true
-        ok "Docker installed. You may need to log out and back in for group changes."
+        sudo apt-get update -qq 2>/dev/null || true
+        sudo apt-get install -y docker.io
+        need_newgrp=true
       else
         die "Docker is required. See https://docs.docker.com/engine/install/"
       fi
@@ -133,7 +135,39 @@ ensure_compose() {
     fi
   fi
 
-  # Check Docker Compose (prefer v2 plugin, fall back to v1 standalone)
+  # --- Docker daemon ---------------------------------------------------------
+  if ! sudo docker info >/dev/null 2>&1; then
+    info "Starting Docker daemon..."
+    sudo systemctl start docker 2>/dev/null || sudo service docker start 2>/dev/null || true
+    sudo systemctl enable docker 2>/dev/null || true
+    sleep 2
+    if ! sudo docker info >/dev/null 2>&1; then
+      sleep 3
+      if ! sudo docker info >/dev/null 2>&1; then
+        die "Docker daemon failed to start. Check: sudo systemctl status docker"
+      fi
+    fi
+    ok "Docker daemon is running."
+  fi
+
+  # --- User in docker group --------------------------------------------------
+  if ! docker info >/dev/null 2>&1; then
+    warn "You are not in the 'docker' group."
+    sudo usermod -aG docker "$USER" 2>/dev/null || true
+    need_newgrp=true
+  fi
+
+  if $need_newgrp; then
+    warn "Added you to the 'docker' group."
+    info "Run this to activate it in this shell, then re-run setup:"
+    info "  newgrp docker"
+    echo
+    if ! docker info >/dev/null 2>&1; then
+      ok "Setup will continue, but you'll need the docker group to deploy."
+    fi
+  fi
+
+  # --- Docker Compose (prefer v2 plugin, fall back to v1 standalone) ---------
   if docker compose version >/dev/null 2>&1; then
     COMPOSE="docker compose"
     return
@@ -620,6 +654,20 @@ EOF
 
       if [ "$choice" = "D" ] || [ "$choice" = "d" ]; then
         echo
+        if ! docker info >/dev/null 2>&1; then
+          warn "Cannot connect to Docker."
+          if groups "$USER" | grep -qv docker; then
+            info "You're not in the 'docker' group. Run:"
+            info "  newgrp docker"
+            info "Then re-run the one-liner and deploy."
+          else
+            info "Is the Docker daemon running?"
+            info "  sudo systemctl start docker"
+          fi
+          echo
+          read -r -p "  Press Enter to continue (deploy skipped)..." _ || true
+          return
+        fi
         bold "Starting container..."
         $COMPOSE up -d
         echo
@@ -711,7 +759,7 @@ launch_screen() {
     clear 2>/dev/null || true
     box_top
     box_line "            TV Tap List Setup"
-    box_line "              $(dim 'v1.4.4')"
+    box_line "              $(dim 'v1.5.0')"
     box_mid
     menu_row "Admin password"  "$(masked "$ADMIN_PASSWORD")"
     menu_row "Timezone"        "$TZ_VAL"
