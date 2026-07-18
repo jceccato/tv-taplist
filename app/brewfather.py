@@ -48,7 +48,7 @@ import httpx
 
 from . import markdown_store as md
 from .archive import archive_tap
-from .atomic import JOB_LOCK, atomic_write_bytes
+from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
 from .beer_glass import GLASS_KEYS
 from .colors import EBC_PER_SRM, parse_hex_color, parse_saturation
 from .config_store import (
@@ -352,6 +352,24 @@ def _client(user_id: str, api_key: str) -> httpx.Client:
     )
 
 
+def _image_client() -> httpx.Client:
+    """A SEPARATE, UNAUTHENTICATED client for downloading batch images.
+
+    Batch image URLs are absolute and off-host — Brewfather serves them from
+    Google Firebase storage / a CDN, not from api.brewfather.app. httpx applies a
+    client's ``auth`` to EVERY request it makes, with no host scoping, so reusing
+    the Brewfather-authenticated ``_client`` here would transmit the HTTP Basic
+    Auth header (User ID + API key) to those third-party hosts on the very first
+    request. This client carries no credentials, so an image fetch can never leak
+    the Brewfather key regardless of where the URL (or a redirect) points.
+    """
+    return httpx.Client(
+        timeout=HTTP_TIMEOUT,
+        headers={"User-Agent": "tv-taplist/1.0"},
+        follow_redirects=True,
+    )
+
+
 def _list_batches(client: httpx.Client, statuses: list[str]) -> list[dict[str, Any]]:
     """Return FULL batch objects for the wanted statuses, paginated + deduped.
 
@@ -400,14 +418,16 @@ def _list_batches(client: httpx.Client, statuses: list[str]) -> list[dict[str, A
     return out
 
 
-def _download_image(client: httpx.Client, url: str, stem: str) -> str | None:
+def _download_image(img_client: httpx.Client, url: str, stem: str) -> str | None:
     """Download a tap image, preserving the source extension. Returns filename.
 
+    ``img_client`` MUST be the unauthenticated image client (see `_image_client`)
+    so the Brewfather credentials are never sent to the third-party image host.
     A failed download returns None and must NOT delete an already-good cached
     image (caller keeps the existing one).
     """
     try:
-        resp = client.get(url, timeout=HTTP_TIMEOUT, follow_redirects=True)
+        resp = img_client.get(url)
         resp.raise_for_status()
     except (httpx.HTTPError, OSError) as exc:
         log.warning("image download failed for %s (%s): %s", stem, url, exc)
@@ -428,7 +448,6 @@ def _download_image(client: httpx.Client, url: str, stem: str) -> str | None:
     for old in md.IMAGE_EXTS:
         old_path = TAPS_DIR / f"{stem}{old}"
         if old_path.exists() and old_path.suffix != ext:
-            from .atomic import safe_unlink
             safe_unlink(old_path)
 
     dest = TAPS_DIR / f"{stem}{ext}"
@@ -467,15 +486,19 @@ def _build_desired_map(batches: list[dict[str, Any]]) -> dict[int, dict[str, Any
     return desired
 
 
-def _write_bf_tap(client: httpx.Client, tap: int, batch: dict[str, Any], rev: int) -> None:
-    """Write bf_tap_X.md (+ image) for one desired tap, recording the batch rev."""
+def _write_bf_tap(img_client: httpx.Client, tap: int, batch: dict[str, Any], rev: int) -> None:
+    """Write bf_tap_X.md (+ image) for one desired tap, recording the batch rev.
+
+    ``img_client`` is the unauthenticated image client used for the (off-host)
+    image download; the beer fields are already present in the batch object.
+    """
     stem = f"bf_tap_{tap}"
     ebc = _extract_ebc(batch)
     image_url = _extract_image_url(batch)
 
     image_name: str | None = None
     if image_url:
-        image_name = _download_image(client, image_url, stem)
+        image_name = _download_image(img_client, image_url, stem)
     if image_name is None:
         # Keep any previously cached image; otherwise leave null (placeholder).
         existing = md.find_image_for(stem)
@@ -545,7 +568,10 @@ def run_sync() -> dict[str, Any]:
         log.info("sync starting (credentials from %s)",
                  "env" if creds["key_from_env"] else "config")
         try:
-            with _client(user_id, api_key) as client:
+            # Two clients: the authenticated API client, and a separate
+            # credential-free client for the off-host image downloads so the
+            # Brewfather key is never sent to a third-party image host.
+            with _client(user_id, api_key) as client, _image_client() as img_client:
                 batches = _list_batches(client, statuses)
                 log.info("fetched %d batches (statuses=%s)", len(batches), statuses)
 
@@ -566,7 +592,7 @@ def run_sync() -> dict[str, Any]:
                     if _is_unchanged(tap, entry["batch"], rev):
                         unchanged += 1
                         continue
-                    _write_bf_tap(client, tap, entry["batch"], rev)
+                    _write_bf_tap(img_client, tap, entry["batch"], rev)
                     written += 1
 
                 # Archive any existing bf_tap that is no longer desired and is
