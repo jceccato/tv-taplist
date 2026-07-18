@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TV Tap List - guided installer.                  Version: 1.5.0
+# TV Tap List - guided installer.                  Version: 1.5.1
 #
 # One-liner (from any directory):
 #   bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/setup)
@@ -18,7 +18,7 @@ set -euo pipefail
 
 # --- handle --version / -v flag ----------------------------------------------
 if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
-  echo "TV Tap List setup script v1.5.0"
+  echo "TV Tap List setup script v1.5.1"
   echo "Repo: https://github.com/jceccato/tv-taplist"
   exit 0
 fi
@@ -88,12 +88,22 @@ bootstrap_repo() {
     echo
     bold "TV Tap List - remote installer"
     echo
-    info "No docker-compose.yml found nearby - switching to remote install mode."
-    info "I'll download what's needed into a new directory."
-    echo
-    read -r -p "  Install into directory [./tv-taplist]: " dir || true
-    dir="${dir:-./tv-taplist}"
-    REPO_ROOT="$(cd "$(dirname "$dir")" 2>/dev/null && pwd)/$(basename "$dir")" || REPO_ROOT="$(pwd)/$(basename "$dir")"
+
+    # Check if tv-taplist already exists in current directory
+    if [ -d "./tv-taplist" ] && [ -f "./tv-taplist/docker-compose.yml" ]; then
+      info "Found existing tv-taplist/ directory."
+      if yesno "  Use it?" "Y"; then
+        REPO_ROOT="$(cd ./tv-taplist && pwd)"
+      fi
+    fi
+
+    if [ -z "$REPO_ROOT" ]; then
+      info "I'll download what's needed into a new directory."
+      echo
+      read -r -p "  Install into directory [./tv-taplist]: " dir || true
+      dir="${dir:-./tv-taplist}"
+      REPO_ROOT="$(cd "$(dirname "$dir")" 2>/dev/null && pwd)/$(basename "$dir")" || REPO_ROOT="$(pwd)/$(basename "$dir")"
+    fi
     mkdir -p "$REPO_ROOT"
 
     info "Downloading docker-compose.yml..."
@@ -654,15 +664,21 @@ EOF
 
       if [ "$choice" = "D" ] || [ "$choice" = "d" ]; then
         echo
+        if ! sudo docker info >/dev/null 2>&1; then
+          warn "Docker daemon is not running."
+          info "  sudo systemctl start docker"
+          echo
+          read -r -p "  Press Enter to continue (deploy skipped)..." _ || true
+          return
+        fi
+        # Daemon is up, but user might need group access
         if ! docker info >/dev/null 2>&1; then
-          warn "Cannot connect to Docker."
-          if groups "$USER" | grep -qv docker; then
-            info "You're not in the 'docker' group. Run:"
-            info "  newgrp docker"
-            info "Then re-run the one-liner and deploy."
-          else
-            info "Is the Docker daemon running?"
-            info "  sudo systemctl start docker"
+          warn "You don't have permission to use Docker."
+          info "Run this to activate the docker group, then re-run:"
+          info "  newgrp docker"
+          if [ -f "$ENV_FILE" ]; then
+            info "Your .env is saved - after 'newgrp docker', run:"
+            info "  cd $(pwd) && $COMPOSE up -d"
           fi
           echo
           read -r -p "  Press Enter to continue (deploy skipped)..." _ || true
@@ -759,7 +775,7 @@ launch_screen() {
     clear 2>/dev/null || true
     box_top
     box_line "            TV Tap List Setup"
-    box_line "              $(dim 'v1.5.0')"
+    box_line "              $(dim 'v1.5.1')"
     box_mid
     menu_row "Admin password"  "$(masked "$ADMIN_PASSWORD")"
     menu_row "Timezone"        "$TZ_VAL"
