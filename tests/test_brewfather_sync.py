@@ -403,3 +403,18 @@ def test_download_image_preserves_source_extension():
     name = brewfather._download_image(FakeClient(), "http://x/pic.webp", "bf_tap_9")
     assert name == "bf_tap_9.webp"
     assert (paths.TAPS_DIR / "bf_tap_9.webp").exists()
+
+
+def test_image_client_carries_no_credentials():
+    # Regression guard: batch image URLs are absolute/off-host, and httpx applies
+    # a client's auth to EVERY host. The image client MUST therefore be
+    # unauthenticated, or the Brewfather Basic-Auth header (User ID + API key)
+    # would leak to the third-party image host on the first request.
+    api = brewfather._client("user", "key")
+    img = brewfather._image_client()
+    try:
+        assert api.auth is not None          # API client keeps its credentials
+        assert img.auth is None              # image client carries none
+    finally:
+        api.close()
+        img.close()

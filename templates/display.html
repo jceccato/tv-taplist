@@ -6,7 +6,7 @@
   <title>Tap List</title>
   <!-- All assets are served locally by the container. No external origins. -->
   <link rel="icon" href="/static/placeholder.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/css/display.css">
+  <link rel="stylesheet" href="/static/css/display.css?v={{ asset_v }}">
 </head>
 <body>
   <div id="board" class="board">
@@ -31,6 +31,6 @@
   <!-- Shown only if the very first board fetch fails (cold start, no cache) -->
   <div id="boot-error" class="boot-error" hidden>Loading tap list…</div>
 
-  <script src="/static/js/display.js" defer></script>
+  <script src="/static/js/display.js?v={{ asset_v }}" defer></script>
 </body>
 </html>

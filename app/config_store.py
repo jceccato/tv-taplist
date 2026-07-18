@@ -61,6 +61,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "last_sync_attempt": None,   # ISO8601 of last attempt (success or fail)
 }
 
+# Upper bound on the tap count. Well above any real venue; guards /api/board and
+# the admin's per-tap rows from an accidental or pasted absurd value that would
+# balloon every board build (each tap does per-slot filesystem probing).
+MAX_NUM_TAPS = 200
 # Cap the venue logo at a third of the screen height (per the design).
 MAX_VENUE_LOGO_VH = 33
 # Pagination / rotation bounds (the per-count grid layouts are tuned up to 8).
@@ -83,7 +87,7 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
 
     # Type coercion guards against hand-edited config files.
     try:
-        merged["num_taps"] = max(0, int(merged["num_taps"]))
+        merged["num_taps"] = max(0, min(MAX_NUM_TAPS, int(merged["num_taps"])))
     except (TypeError, ValueError):
         merged["num_taps"] = 0
     try:

@@ -1,6 +1,6 @@
 """Atomic file writes and the cross-job lock.
 
-Three writers touch /data/taps while the display reads it: the 10-minute
+Three writers touch /data/taps while the display reads it: the periodic
 Brewfather sync, the daily cleanup, and admin edits. Every write lands in a
 temp file in the *same directory* and is then os.replace()'d onto the target,
 which is an atomic rename on the same filesystem. Readers therefore always see

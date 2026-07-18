@@ -179,6 +179,8 @@ def build_board() -> dict[str, Any]:
         "venue_logo_url": venue_logo_url,
         "venue_logo_height_vh": logo_height,
         "taps": taps,
-        "last_sync_success": cfg.get("last_sync_success"),
-        "last_sync_error": cfg.get("last_sync_error"),
+        # Sync status (last_sync_*) is deliberately NOT exposed here: /api/board is
+        # public and unauthenticated, the display never consumes it, and
+        # last_sync_error can carry upstream API error text. It stays in
+        # config.json and is shown only on the authenticated admin page.
     }

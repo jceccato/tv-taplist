@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import time
@@ -99,6 +100,16 @@ class _Attempts:
 _failed: dict[str, _Attempts] = {}
 
 
+def _prune_expired(now: float) -> None:
+    """Drop fully-expired windows so the map can't grow unbounded over time.
+
+    Only IPs that failed within the last window are ever retained. Cheap: the map
+    only holds IPs that have failed recently, and this runs on failures.
+    """
+    for ip in [ip for ip, rec in _failed.items() if now - rec.first_ts > LOCKOUT_WINDOW_SECONDS]:
+        _failed.pop(ip, None)
+
+
 def is_locked_out(ip: str) -> bool:
     rec = _failed.get(ip)
     if rec is None:
@@ -111,8 +122,9 @@ def is_locked_out(ip: str) -> bool:
 
 
 def record_failure(ip: str) -> None:
-    rec = _failed.get(ip)
     now = time.time()
+    _prune_expired(now)
+    rec = _failed.get(ip)
     if rec is None or now - rec.first_ts > LOCKOUT_WINDOW_SECONDS:
         _failed[ip] = _Attempts(count=1, first_ts=now)
     else:
@@ -127,8 +139,6 @@ def record_success(ip: str) -> None:
 
 def verify_password(candidate: str) -> bool:
     """Constant-ish time comparison against ADMIN_PASSWORD."""
-    import hmac
-
     expected = _admin_password()
     if not expected:
         # No password configured: deny all admin access (fail closed).

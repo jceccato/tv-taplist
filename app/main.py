@@ -130,7 +130,12 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 @app.get("/", response_class=HTMLResponse)
 async def display_page(request: Request):
-    return templates.TemplateResponse("display.html", {"request": request})
+    # Cache-bust the TV's CSS/JS by mtime — the display is the hardest surface to
+    # hard-refresh, so it must pick up a rebuild on the next normal load.
+    return templates.TemplateResponse(
+        "display.html",
+        {"request": request, "asset_v": _asset_version("css/display.css", "js/display.js")},
+    )
 
 
 @app.get("/api/board")
@@ -192,14 +197,31 @@ def _safe_tap_image(filename: str) -> Path | None:
     return None
 
 
+def _img_headers(max_age: int) -> dict[str, str]:
+    """Common headers for the /img routes: caching + SVG script neutralisation.
+
+    Tap images and venue logos may be SVG. Embedded via ``<img>`` an SVG can't run
+    script, but opened *directly* it is a document that could execute embedded
+    JavaScript in our origin. ``script-src 'none'`` blocks every script vector
+    (``<script>``, inline handlers, ``javascript:``) and ``sandbox`` isolates the
+    document further; a resource's own CSP is ignored when it is embedded as an
+    image, so the display is unaffected. ``nosniff`` stops MIME re-interpretation.
+    """
+    return {
+        "Cache-Control": f"public, max-age={max_age}",
+        "Content-Security-Policy": "script-src 'none'; sandbox",
+        "X-Content-Type-Options": "nosniff",
+    }
+
+
 @app.get("/img/placeholder")
 async def img_placeholder():
     p = placeholder_path()
     if p is None:
         # Inline 1x1 transparent SVG so the display never shows a broken image.
         svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'
-        return Response(svg, media_type="image/svg+xml")
-    return FileResponse(p, headers={"Cache-Control": "public, max-age=300"})
+        return Response(svg, media_type="image/svg+xml", headers=_img_headers(300))
+    return FileResponse(p, headers=_img_headers(300))
 
 
 @app.get("/img/beer-glass")
@@ -213,7 +235,7 @@ async def img_beer_glass(ebc: float | None = None, sat: float | None = None,
     return Response(
         beer_glass_svg(ebc, sat, glass, hex),
         media_type="image/svg+xml",
-        headers={"Cache-Control": "public, max-age=300"},
+        headers=_img_headers(300),
     )
 
 
@@ -223,7 +245,7 @@ async def img_venue_logo():
     p = venue_logo_path()
     if p is None:
         raise HTTPException(status_code=404, detail="no venue logo")
-    return FileResponse(p, headers={"Cache-Control": "public, max-age=60"})
+    return FileResponse(p, headers=_img_headers(60))
 
 
 @app.get("/img/{filename}")
@@ -233,7 +255,7 @@ async def img_file(filename: str):
         # Fall back to placeholder rather than 404 so the TV never shows a
         # broken-image icon if a file was archived mid-cycle.
         return await img_placeholder()
-    return FileResponse(p, headers={"Cache-Control": "public, max-age=60"})
+    return FileResponse(p, headers=_img_headers(60))
 
 
 # ---- admin: auth ---------------------------------------------------------
@@ -283,15 +305,16 @@ async def logout():
 
 # ---- admin: dashboard ----------------------------------------------------
 
-def _asset_version() -> str:
-    """Cache-busting token = newest mtime of the admin static assets.
+def _asset_version(*rels: str) -> str:
+    """Cache-busting token = newest mtime among the given static assets.
 
-    The admin browser disk-caches CSS/JS aggressively, so a rebuilt image (or an
-    edited file in dev) otherwise needs a manual hard-refresh to take effect.
-    Keying the asset URLs to their mtime makes the next normal load pick them up.
+    Browsers disk-cache CSS/JS aggressively, so a rebuilt image (or an edited file
+    in dev) otherwise needs a manual hard-refresh to take effect — annoying for the
+    admin, and worse for a wall-mounted TV that is painful to hard-refresh. Keying
+    each asset URL to its mtime makes the next normal load pick the new file up.
     """
     latest = 0.0
-    for rel in ("css/admin.css", "js/admin.js"):
+    for rel in rels:
         try:
             latest = max(latest, (STATIC_DIR / rel).stat().st_mtime)
         except OSError:
@@ -312,7 +335,7 @@ async def admin_page(request: Request):
             "request": request,
             "cfg": cfg,
             "rows": rows,
-            "asset_v": _asset_version(),
+            "asset_v": _asset_version("css/admin.css", "js/admin.js"),
             "bf": brewfather_credentials(),
             "color_label": "SRM" if cfg.get("color_unit") == "srm" else "EBC",
             "venue_logo_url": "/img/venue-logo" if venue_logo_path() else None,
@@ -479,6 +502,29 @@ async def save_settings(
     return {"ok": True}
 
 
+# ---- admin: uploads ------------------------------------------------------
+
+# Cap uploaded images / logos. Admin-only, but bound the in-memory read so a
+# stray huge file can't spike memory; well above any real logo or beer photo.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+def _read_upload_capped(upload: UploadFile) -> bytes:
+    """Read an upload fully into memory, rejecting anything over the cap (413).
+
+    Reads at most cap+1 bytes, so an oversized file is refused without slurping
+    the whole thing. Callers MUST invoke this (and validate the extension) before
+    any filesystem side effect, so a rejected upload never deletes existing data.
+    """
+    data = upload.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Image too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+        )
+    return data
+
+
 # ---- admin: venue logo ---------------------------------------------------
 
 @app.post("/admin/venue-logo")
@@ -490,22 +536,26 @@ async def venue_logo(
 ):
     """Upload or remove the venue logo (stored under /data as venue_logo.<ext>)."""
     with JOB_LOCK:
-        # Always clear any existing logo first so we never keep two extensions.
-        for ext in VENUE_LOGO_EXTS:
-            safe_unlink(DATA_DIR / f"venue_logo{ext}")
-
         if remove or image is None or not image.filename:
+            for ext in VENUE_LOGO_EXTS:
+                safe_unlink(DATA_DIR / f"venue_logo{ext}")
             update_config(venue_logo=None)
             log.info("venue logo removed")
             return {"ok": True, "venue_logo_url": None}
 
+        # Validate the extension and read/size-check the bytes BEFORE removing the
+        # current logo, so a rejected upload never leaves the venue with no logo.
         ext = Path(image.filename).suffix.lower()
         if ext == ".jpeg":
             ext = ".jpg"
         if ext not in VENUE_LOGO_EXTS:
             raise HTTPException(status_code=422, detail=f"Unsupported image type: {ext}")
+        data = _read_upload_capped(image)
+        # Clear any existing logo (possibly a different extension), then write.
+        for old_ext in VENUE_LOGO_EXTS:
+            safe_unlink(DATA_DIR / f"venue_logo{old_ext}")
         dest = DATA_DIR / f"venue_logo{ext}"
-        atomic_write_bytes(dest, image.file.read())
+        atomic_write_bytes(dest, data)
         update_config(venue_logo=dest.name)
         log.info("venue logo uploaded (%s)", dest.name)
         return {"ok": True, "venue_logo_url": "/img/venue-logo"}
@@ -522,13 +572,15 @@ def _save_uploaded_image(upload: UploadFile, tap: int) -> str | None:
         ext = ".jpg"
     if ext not in md.IMAGE_EXTS:
         raise HTTPException(status_code=422, detail=f"Unsupported image type: {ext}")
+    # Read + size-check before touching the filesystem, so a rejected upload never
+    # deletes the beer's existing image.
+    data = _read_upload_capped(upload)
     stem = f"custom_tap_{tap}"
     # Remove any prior custom image with a different extension.
     for old in md.IMAGE_EXTS:
         old_path = TAPS_DIR / f"{stem}{old}"
         if old_path.exists() and old != ext:
             safe_unlink(old_path)
-    data = upload.file.read()
     dest = TAPS_DIR / f"{stem}{ext}"
     atomic_write_bytes(dest, data)
     return dest.name
@@ -584,13 +636,9 @@ async def save_override(
             log.info("override cleared for tap %d (archived=%s)", tap, archived)
             return {"ok": True, "override": False}
 
-        # Enabling/saving an override: write custom_tap_X.md (+ optional image),
-        # and archive any Brewfather data for this slot.
-        image_name = _save_uploaded_image(image, tap) if image is not None else None
-        if image_name is None:
-            existing = md.find_image_for(f"custom_tap_{tap}")
-            image_name = existing.name if existing else None
-
+        # Enabling/saving an override. Parse EVERY field that can reject the
+        # request (the numeric fields raise 422) BEFORE any filesystem side effect,
+        # so a bad value never leaves an orphaned image with no md file.
         glass_key = glass.strip()
         front_matter = {
             "name": name.strip() or f"Tap {tap}",
@@ -605,9 +653,16 @@ async def save_override(
             "show_og": _tri_from_form(show_og),
             "show_fg": _tri_from_form(show_fg),
             "source": "custom",
-            "image": image_name,
             "updated": iso_now(),
         }
+
+        # Now the side effects: save the image (also validated before it writes),
+        # keep any prior image if none was uploaded, then write custom_tap_X.md.
+        image_name = _save_uploaded_image(image, tap) if image is not None else None
+        if image_name is None:
+            existing = md.find_image_for(f"custom_tap_{tap}")
+            image_name = existing.name if existing else None
+        front_matter["image"] = image_name
         md.write_tap_file(md.custom_md_path(tap), front_matter, description)
 
         # Archive any bf_tap_X for this slot so it is set aside cleanly.

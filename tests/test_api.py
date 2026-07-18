@@ -384,3 +384,53 @@ def test_no_demo_no_password_admin_denied(monkeypatch):
     r = TestClient(app).get("/admin", follow_redirects=False)
     assert r.status_code == 303  # fail-closed, unchanged
     assert r.headers["location"] == "/admin/login"
+
+
+# ---- review-fix regressions -------------------------------------------
+
+def test_display_assets_are_cache_busted():
+    # The TV display CSS/JS carry a ?v=<mtime> token too — the display is the
+    # hardest surface to hard-refresh, so it must pick up a rebuild automatically.
+    html = client.get("/").text
+    assert "/static/css/display.css?v=" in html
+    assert "/static/js/display.js?v=" in html
+
+
+def test_api_board_omits_sync_status():
+    # /api/board is public and unauthenticated; sync status/error (which can carry
+    # upstream API error text) must NOT leak there.
+    config_store.update_config(num_taps=1, last_sync_error="boom: upstream 500 body",
+                               last_sync_success="2026-01-01T00:00:00")
+    board = client.get("/api/board").json()
+    assert "last_sync_error" not in board
+    assert "last_sync_success" not in board
+
+
+def test_img_responses_carry_svg_csp():
+    # Every /img response neutralises script in a directly-opened SVG.
+    for path in ("/img/beer-glass", "/img/placeholder"):
+        r = client.get(path)
+        assert r.status_code == 200
+        assert "script-src 'none'" in r.headers.get("content-security-policy", "")
+        assert r.headers.get("x-content-type-options") == "nosniff"
+
+
+def test_oversized_upload_is_rejected(monkeypatch):
+    from app import main
+    monkeypatch.setattr(main, "MAX_UPLOAD_BYTES", 8)  # tiny cap for the test
+    c = _login(TestClient(app))
+    r = c.post("/admin/venue-logo",
+               files={"image": ("logo.png", b"\x89PNG\r\n\x1a\n-oversized", "image/png")})
+    assert r.status_code == 413
+
+
+def test_bad_number_does_not_orphan_uploaded_image():
+    # Validation runs before any filesystem write, so a rejected override never
+    # leaves an orphaned image with no md file.
+    c = _login(TestClient(app))
+    r = c.post("/admin/override/1",
+               data={"enabled": "true", "name": "Bad", "abv": "not-a-number"},
+               files={"image": ("beer.png", b"\x89PNG\r\n\x1a\n", "image/png")})
+    assert r.status_code == 422
+    assert md.find_image_for("custom_tap_1") is None
+    assert not md.custom_md_path(1).exists()
