@@ -59,13 +59,19 @@ use a real install below for anything that stays up.
 
 ## Guided installer (recommended)
 
-The installer asks a few questions, writes your `.env`, pulls the image, and starts
-the container.
+One command from any directory. It asks a few questions, writes your `.env`,
+installs Docker if needed, pulls the image, and starts the container.
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/setup)
+```
+
+Or if you prefer the long way:
 
 ```bash
 git clone https://github.com/jceccato/tv-taplist.git
 cd tv-taplist
-./scripts/setup.sh
+bash scripts/setup.sh
 ```
 
 It prompts for:
@@ -81,9 +87,9 @@ offers to pull and start the container. When it finishes, open
 `http://<host>:<port>/admin`, set your **tap count**, and click **Sync Brewfather
 now**.
 
-Re-run `./scripts/setup.sh` any time to change settings - it prefills from your
-existing `.env`. The installer pulls the prebuilt image by default; if you want to
-build from source instead, see [BUILDING.md](BUILDING.md).
+Run the same one-liner any time to change settings - it detects your existing
+directory and prefills from your `.env`. The installer pulls the prebuilt image by
+default; if you want to build from source instead, see [BUILDING.md](BUILDING.md).
 
 ---
 

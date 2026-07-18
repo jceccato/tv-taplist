@@ -47,18 +47,20 @@ Stop and remove it when you're done: `docker rm -f tv-taplist-demo`.
 
 ## Set it up for real
 
-Pick the path that matches where you're running it:
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/setup)
+```
+
+The guided installer asks a few questions (admin password, timezone, Brewfather
+details), installs Docker Compose if needed, writes the config, and starts the
+container. Full env var reference, reverse-proxy/HTTPS setup, and the Brewfather API
+key walkthrough: [INSTALLATION.md](docs/INSTALLATION.md).
 
 | Path | Best for | Guide |
 |------|----------|-------|
 | **Guided installer** | Linux / Raspberry Pi / NUC | [INSTALLATION.md -> Guided installer](docs/INSTALLATION.md#guided-installer-recommended) |
 | **Unraid** | Unraid servers | [INSTALLATION.md -> Unraid](docs/INSTALLATION.md#unraid) · [UNRAID.md](docs/UNRAID.md) |
 | **Manual Docker Compose** | You already run Compose | [INSTALLATION.md -> Manual](docs/INSTALLATION.md#manual-docker-compose) |
-
-The installer asks a handful of questions (admin password, timezone, your
-Brewfather details), writes the config for you, and starts the container. Full env
-var reference, reverse-proxy/HTTPS setup, and how to get your Brewfather API key all
-live in [INSTALLATION.md](docs/INSTALLATION.md).
 
 ---
 
