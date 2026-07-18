@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TV Tap List - guided installer.                  Version: 1.6.0
+# TV Tap List - guided installer.                  Version: 1.6.1
 #
 # One-liner (from any directory):
 #   bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/setup)
@@ -18,7 +18,7 @@ set -euo pipefail
 
 # --- handle --version / -v flag ----------------------------------------------
 if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
-  echo "TV Tap List setup script v1.6.0"
+  echo "TV Tap List setup script v1.6.1"
   echo "Repo: https://github.com/jceccato/tv-taplist"
   exit 0
 fi
@@ -724,14 +724,23 @@ EOF
           if command -v sg >/dev/null 2>&1; then
             sg docker -c "cd $REPO_ROOT && $COMPOSE up -d" 2>/dev/null && {
               ok "Container deployed with docker group."
+              local ip="$(detect_ip)"
               box_top
               box_line "$(bold '  Ready!')"
               box_mid
               box_line "  Display:  http://localhost:$PORT_VAL/"
+              [ -n "$ip" ] && box_line "           http://$ip:$PORT_VAL/"
               box_line "  Admin:    http://localhost:$PORT_VAL/admin"
               box_bottom
               exit 0
-            }
+}
+
+detect_ip() {
+  # Get the primary non-loopback IPv4 address
+  ip -4 addr show scope global 2>/dev/null | grep -oP 'inet \K[\d.]+' | head -1 || \
+  hostname -I 2>/dev/null | awk '{print $1}' || \
+  echo ""
+}
           fi
           warn "Could not use Docker. Run this in a terminal, then re-deploy:"
           info "  newgrp docker"
@@ -743,10 +752,12 @@ EOF
         bold "Starting container..."
         $COMPOSE up -d
         echo
+        local ip="$(detect_ip)"
         box_top
         box_line "$(bold '  Ready!')"
         box_mid
         box_line "  Display:  http://localhost:$PORT_VAL/"
+        [ -n "$ip" ] && box_line "           http://$ip:$PORT_VAL/"
         box_line "  Admin:    http://localhost:$PORT_VAL/admin"
         box_bottom
       else
@@ -833,7 +844,7 @@ launch_screen() {
     clear 2>/dev/null || true
     box_top
     box_line "            TV Tap List Setup"
-    box_line "              $(dim 'v1.6.0')"
+    box_line "              $(dim 'v1.6.1')"
     box_mid
     menu_row "Admin password"  "$(masked "$ADMIN_PASSWORD")"
     menu_row "Timezone"        "$TZ_VAL"
