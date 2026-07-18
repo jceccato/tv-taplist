@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # TV Tap List - guided installer.
 #
-# Run from the repo root:
+# One-liner (from any directory):
+#   bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/scripts/setup.sh)
+#
+# Or the long way:
 #   git clone https://github.com/jceccato/tv-taplist.git
 #   cd tv-taplist
 #   bash scripts/setup.sh
@@ -10,11 +13,8 @@
 # without asking.
 set -euo pipefail
 
-# --- locate the repo root (this script lives in scripts/) --------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-cd "$REPO_ROOT"
-ENV_FILE="$REPO_ROOT/.env"
+# URL of the docker-compose.yml (downloaded in remote mode)
+COMPOSE_RAW_URL="https://raw.githubusercontent.com/jceccato/tv-taplist/main/docker-compose.yml"
 
 # --- terminal helpers --------------------------------------------------------
 bold()   { printf '\033[1m%s\033[0m\n' "$1"; }
@@ -40,16 +40,104 @@ box_line()   { printf "$BOX_V %-*s $BOX_V\n" "$((BOX_W - 2))" "$1"; }
 box_mid()    { printf "$BOX_V%*s$BOX_V\n" "$((BOX_W + 1))" | tr ' ' "$BOX_H"; }
 box_bottom() { printf "$BOX_BL"; printf '%*s' "$BOX_W" | tr ' ' "$BOX_H"; printf "$BOX_BR\n"; }
 
-# --- prerequisites -----------------------------------------------------------
-[ -f "$REPO_ROOT/docker-compose.yml" ] || die "Run this from the repo root (docker-compose.yml not found)."
-command -v docker >/dev/null 2>&1 || die "Docker is not installed. See https://docs.docker.com/engine/install/"
-if docker compose version >/dev/null 2>&1; then
-  COMPOSE="docker compose"
-elif command -v docker-compose >/dev/null 2>&1; then
-  COMPOSE="docker-compose"
-else
-  die "Docker Compose is not available. Install the Docker Compose plugin."
-fi
+# --- detect context: repo checkout vs remote one-liner -----------------------
+REPO_ROOT=""
+ENV_FILE=""
+
+bootstrap_repo() {
+  # Case 1: running from scripts/setup.sh inside a cloned repo
+  local bs="${BASH_SOURCE[0]:-}"
+  case "$bs" in
+    ""|/dev/stdin|/dev/fd/*|/bin/bash|bash) ;;  # piped/remote modes
+    *)
+      local script_parent
+      script_parent="$(cd "$(dirname "$bs")" 2>/dev/null && pwd)" || true
+      if [ -n "$script_parent" ] && [ -f "$script_parent/../docker-compose.yml" ]; then
+        REPO_ROOT="$(cd "$script_parent/.." && pwd)"
+      fi
+      ;;
+  esac
+
+  # Case 2: running from the repo root (docker-compose.yml in cwd)
+  if [ -z "$REPO_ROOT" ] && [ -f "./docker-compose.yml" ]; then
+    REPO_ROOT="$(pwd)"
+  fi
+
+  # Case 3: remote mode (piped from curl, or no compose file found)
+  if [ -z "$REPO_ROOT" ]; then
+    echo
+    bold "TV Tap List - remote installer"
+    echo
+    info "No docker-compose.yml found nearby - switching to remote install mode."
+    info "I'll download what's needed into a new directory."
+    echo
+    read -r -p "  Install into directory [./tv-taplist]: " dir || true
+    dir="${dir:-./tv-taplist}"
+    REPO_ROOT="$(cd "$(dirname "$dir")" 2>/dev/null && pwd)/$(basename "$dir")" || REPO_ROOT="$(pwd)/$(basename "$dir")"
+    mkdir -p "$REPO_ROOT"
+
+    info "Downloading docker-compose.yml..."
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsSL "$COMPOSE_RAW_URL" -o "$REPO_ROOT/docker-compose.yml"
+    elif command -v wget >/dev/null 2>&1; then
+      wget -q "$COMPOSE_RAW_URL" -O "$REPO_ROOT/docker-compose.yml"
+    else
+      die "Need curl or wget to download files. Install one and re-run."
+    fi
+    ok "Ready."
+    echo
+  fi
+
+  cd "$REPO_ROOT"
+  ENV_FILE="$REPO_ROOT/.env"
+}
+
+# --- ensure docker & docker compose are available ----------------------------
+ensure_compose() {
+  # Check Docker
+  if ! command -v docker >/dev/null 2>&1; then
+    warn "Docker is not installed."
+    if [ -f /etc/debian_version ]; then
+      info "Detected Debian / Ubuntu / Raspberry Pi OS."
+      echo
+      if yesno "Install Docker now? (requires sudo)" "Y"; then
+        info "Installing Docker..."
+        sudo apt-get update -qq && sudo apt-get install -y docker.io
+        sudo usermod -aG docker "$USER" 2>/dev/null || true
+        ok "Docker installed. You may need to log out and back in for group changes."
+      else
+        die "Docker is required. See https://docs.docker.com/engine/install/"
+      fi
+    else
+      die "Docker is required. See https://docs.docker.com/engine/install/"
+    fi
+  fi
+
+  # Check Docker Compose (prefer v2 plugin, fall back to v1)
+  if docker compose version >/dev/null 2>&1; then
+    COMPOSE="docker compose"
+    return
+  elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE="docker-compose"
+    return
+  fi
+
+  # Neither available - offer to install
+  warn "Docker Compose is not installed."
+  if [ -f /etc/debian_version ]; then
+    echo
+    if yesno "Install Docker Compose plugin now? (requires sudo)" "Y"; then
+      info "Installing Docker Compose plugin..."
+      sudo apt-get update -qq && sudo apt-get install -y docker-compose-plugin
+      COMPOSE="docker compose"
+      ok "Docker Compose plugin installed."
+    else
+      die "Docker Compose is required."
+    fi
+  else
+    die "Docker Compose is required. See https://docs.docker.com/compose/install/"
+  fi
+}
 
 # --- helpers -----------------------------------------------------------------
 env_get() { [ -f "$ENV_FILE" ] && sed -n "s/^$1=//p" "$ENV_FILE" | head -n1 || true; }
@@ -168,10 +256,26 @@ menu_row() {
   printf "$BOX_V %-18s %-34s $BOX_V\n" "$1" "$2"
 }
 
+# Guided-mode step tracker (set by guided_setup, empty = standalone mode)
+GUIDED_STEP=""
+TOTAL_STEPS=6
+
+section_header() { # title description
+  local title="$1" desc="$2"
+  clear 2>/dev/null || true
+  box_top
+  if [ -n "$GUIDED_STEP" ]; then
+    box_line "$(bold "Step $GUIDED_STEP/$TOTAL_STEPS — $title")"
+  else
+    box_line "$(bold "$title")"
+  fi
+  box_line "$(dim "$desc")"
+  box_bottom
+}
+
 # --- section: Admin Password ------------------------------------------------
 section_password() {
-  clear 2>/dev/null || true
-  box_top; box_line "$(bold 'Admin Password')"; box_line "$(dim 'Protects the /admin settings page.')"; box_bottom
+  section_header "Admin Password" "Protects the /admin settings page."
   echo
   if [ -n "$ADMIN_PASSWORD" ] && [ "$ADMIN_PASSWORD" != "changeme" ]; then
     info "Current password is set $(masked "$ADMIN_PASSWORD")"
@@ -218,8 +322,7 @@ section_password() {
 
 # --- section: Timezone ------------------------------------------------------
 section_timezone() {
-  clear 2>/dev/null || true
-  box_top; box_line "$(bold 'Timezone')"; box_line "$(dim 'Used for archive timestamps and daily cleanup.')"; box_bottom
+  section_header "Timezone" "Used for archive timestamps and daily cleanup."
   echo
 
   local detected_ip="$(detect_tz_ip)"
@@ -276,8 +379,7 @@ section_timezone() {
 
 # --- section: Host Port ------------------------------------------------------
 section_port() {
-  clear 2>/dev/null || true
-  box_top; box_line "$(bold 'Host Port')"; box_line "$(dim 'The port your browser connects to (mapped to container:8080).')"; box_bottom
+  section_header "Host Port" "The port your browser connects to (mapped to container:8080)."
   echo
   status_line "Current:" "${PORT_VAL:-8080}"
   echo
@@ -293,8 +395,7 @@ section_port() {
 
 # --- section: Data Directory ------------------------------------------------
 section_datadir() {
-  clear 2>/dev/null || true
-  box_top; box_line "$(bold 'Data Directory')"; box_line "$(dim 'Where tap data, images, and config.json live on this host.')"; box_bottom
+  section_header "Data Directory" "Where tap data, images, and config.json live on this host."
   echo
   status_line "You are here:" "$(pwd)"
   status_line "Current:" "${DATA_DIR:-not set}"
@@ -356,8 +457,7 @@ section_datadir() {
 
 # --- section: File Ownership ------------------------------------------------
 section_ownership() {
-  clear 2>/dev/null || true
-  box_top; box_line "$(bold 'File Ownership (PUID / PGID)')"; box_line "$(dim 'User & group that own the data files on the host.')"; box_bottom
+  section_header "File Ownership (PUID / PGID)" "User & group that own the data files on the host."
   echo
   status_line "Current user:" "$(id -un) ($(id -u):$(id -g))"
   status_line "Current PUID:" "${PUID_VAL:-$(id -u)}"
@@ -372,8 +472,7 @@ section_ownership() {
 
 # --- section: Brewfather ----------------------------------------------------
 section_brewfather() {
-  clear 2>/dev/null || true
-  box_top; box_line "$(bold 'Brewfather Integration')"; box_line "$(dim 'Optional. Can also be added later in the /admin UI.')"; box_bottom
+  section_header "Brewfather Integration" "Optional. Can also be added later in the /admin UI."
   echo
   info "Get your credentials: web.brewfather.app > Settings > Integration > Generate API-Key"
   echo
@@ -424,7 +523,13 @@ section_brewfather() {
 # --- section: Review & Deploy -----------------------------------------------
 section_review() {
   clear 2>/dev/null || true
-  box_top; box_line "$(bold 'Review & Deploy')"; box_bottom
+  box_top
+  if [ -n "$GUIDED_STEP" ]; then
+    box_line "$(bold "Step $GUIDED_STEP/$TOTAL_STEPS — Review & Deploy")"
+  else
+    box_line "$(bold 'Review & Deploy')"
+  fi
+  box_bottom
   echo
   status_line "Admin password:"    "$(masked "$ADMIN_PASSWORD")"
   status_line "Timezone:"          "$TZ_VAL"
@@ -502,8 +607,31 @@ EOF
   esac
 }
 
-# --- main menu loop ---------------------------------------------------------
-main_menu() {
+# --- guided setup wizard (steps through 1-6, then review) --------------------
+guided_setup() {
+  local steps=(section_password section_timezone section_port section_datadir section_ownership section_brewfather)
+
+  for i in "${!steps[@]}"; do
+    GUIDED_STEP=$((i + 1))
+    "${steps[$i]}"
+  done
+  GUIDED_STEP=""
+
+  # Show a brief "Setup complete" transition before review
+  clear 2>/dev/null || true
+  box_top
+  box_line "$(bold '  Setup complete!')"
+  box_mid
+  box_line "  All settings have been configured."
+  box_line "  Review them before deploying."
+  box_bottom
+  echo
+  read -r -p "  Press Enter to review..." _ || true
+  section_review
+}
+
+# --- advanced menu (individual section access) --------------------------------
+advanced_menu() {
   while true; do
     clear 2>/dev/null || true
     box_top
@@ -521,18 +649,54 @@ main_menu() {
     fi
     box_mid
     box_line "  R) Review & Deploy"
+    box_line "  B) Back to main menu"
+    box_bottom
+    echo
+    read -r -p "  Choose [1-6, R, B]: " choice || true
+
+    case "$(echo "$choice" | tr '[:lower:]' '[:upper:]')" in
+      1) GUIDED_STEP=""; section_password ;;
+      2) GUIDED_STEP=""; section_timezone ;;
+      3) GUIDED_STEP=""; section_port ;;
+      4) GUIDED_STEP=""; section_datadir ;;
+      5) GUIDED_STEP=""; section_ownership ;;
+      6) GUIDED_STEP=""; section_brewfather ;;
+      R) section_review ;;
+      B) return ;;
+      *) warn "Invalid choice."; sleep 1 ;;
+    esac
+  done
+}
+
+# --- launch screen -----------------------------------------------------------
+launch_screen() {
+  while true; do
+    clear 2>/dev/null || true
+    box_top
+    box_line "            TV Tap List Setup"
+    box_mid
+    menu_row "Admin password"  "$(masked "$ADMIN_PASSWORD")"
+    menu_row "Timezone"        "$TZ_VAL"
+    menu_row "Host port"       "$PORT_VAL"
+    menu_row "Data directory"  "$DATA_DIR"
+    menu_row "Ownership"       "$PUID_VAL:$PGID_VAL"
+    if [ -n "$BF_USER" ]; then
+      menu_row "Brewfather"    "$BF_USER"
+    else
+      menu_row "Brewfather"    "(not set)"
+    fi
+    box_mid
+    box_line "  S) Start guided setup  (walk through each step)"
+    box_line "  A) Advanced menu       (jump to any setting)"
+    box_line "  R) Review & Deploy     (write .env and start)"
     box_line "  Q) Quit without saving"
     box_bottom
     echo
-    read -r -p "  Choose [1-6, R, Q]: " choice || true
+    read -r -p "  Choose [S, A, R, Q]: " choice || true
 
     case "$(echo "$choice" | tr '[:lower:]' '[:upper:]')" in
-      1) section_password ;;
-      2) section_timezone ;;
-      3) section_port ;;
-      4) section_datadir ;;
-      5) section_ownership ;;
-      6) section_brewfather ;;
+      S) guided_setup ;;
+      A) advanced_menu ;;
       R) section_review ;;
       Q) echo; info "Quit without saving."; exit 0 ;;
       *) warn "Invalid choice."; sleep 1 ;;
@@ -541,6 +705,8 @@ main_menu() {
 }
 
 # --- startup -----------------------------------------------------------------
+bootstrap_repo
+ensure_compose
 load_env
 apply_defaults
 
@@ -550,4 +716,4 @@ if [ ! -f "$ENV_FILE" ]; then
   [ -n "$tz" ] && TZ_VAL="$tz"
 fi
 
-main_menu
+launch_screen
