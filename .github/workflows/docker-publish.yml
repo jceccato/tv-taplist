@@ -14,7 +14,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write   # create GitHub Releases on tag pushes
       packages: write
     steps:
       - name: Checkout
@@ -47,3 +47,18 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.meta.outputs.version || github.sha }}
+
+      # On a v* tag push, publish a GitHub Release so the in-app update checker
+      # (which reads the /releases/latest API) can detect new versions. A pushed
+      # tag alone is not returned by that API. Uses the runner's preinstalled gh
+      # CLI + the built-in GITHUB_TOKEN; --generate-notes builds notes from the
+      # commits since the previous release, and --latest marks it as newest.
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --latest
