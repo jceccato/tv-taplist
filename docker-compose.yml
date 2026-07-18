@@ -11,31 +11,31 @@ services:
     restart: unless-stopped
     ports:
       # host:container - point your reverse proxy / TV at the host port.
-      - "${PORT:-8080}:8080"
+      - "${PORT}:8080"
     environment:
       # --- secrets (set real values in .env) ---
-      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-changeme}"
-      SESSION_SECRET: "${SESSION_SECRET:-change-this-long-random-secret}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
+      SESSION_SECRET: "${SESSION_SECRET}"
       # --- ops ---
-      TZ: "${TZ:-Australia/Sydney}"
+      TZ: "${TZ}"
       # Trust ONLY your Nginx proxy's IP for X-Forwarded-* headers.
-      FORWARDED_ALLOW_IPS: "${FORWARDED_ALLOW_IPS:-127.0.0.1}"
+      FORWARDED_ALLOW_IPS: "${FORWARDED_ALLOW_IPS}"
       PORT: "8080"
       # Match these to the host user that owns the volume / bind mount.
-      PUID: "${PUID:-1000}"
-      PGID: "${PGID:-1000}"
+      PUID: "${PUID}"
+      PGID: "${PGID}"
       # Set DEMO_MODE=true on a fresh data directory to seed sample taps (offline demo).
-      DEMO_MODE: "${DEMO_MODE:-false}"
+      DEMO_MODE: "${DEMO_MODE}"
       # Optional: Brewfather credentials via env (kept out of config.json on disk).
-      BREWFATHER_USER_ID: "${BREWFATHER_USER_ID:-}"
-      BREWFATHER_API_KEY: "${BREWFATHER_API_KEY:-}"
+      BREWFATHER_USER_ID: "${BREWFATHER_USER_ID}"
+      BREWFATHER_API_KEY: "${BREWFATHER_API_KEY}"
       # Minutes between Brewfather syncs (default 15; well under 500 calls/hour).
-      SYNC_INTERVAL_MINUTES: "${SYNC_INTERVAL_MINUTES:-15}"
+      SYNC_INTERVAL_MINUTES: "${SYNC_INTERVAL_MINUTES}"
     volumes:
       # Map a host directory to /data so config.json, taps/ and old_beers/ persist
       # and stay directly viewable/editable by the server admin. Change the host
       # path with DATA_DIR_HOST in .env (defaults to ./taplist_data beside this file).
-      - "${DATA_DIR_HOST:-./taplist_data}:/data"
+      - "${DATA_DIR_HOST}:/data"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
       interval: 30s

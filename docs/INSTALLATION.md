@@ -133,9 +133,9 @@ reverse-proxy notes for SWAG / Nginx Proxy Manager -- is in
 
 ## Getting your Brewfather API key
 
-1. In Brewfather, go to **Settings -> API**.
-2. **Generate** an API key. Give it at least **Read Batches** scope (add **Read
-   Recipes** too so colour/recipe fields are available).
+1. In Brewfather, go to **Settings > Integration > Generate API-Key**.
+2. Give the key at least the **Read Batches** scope (add **Read Recipes** too
+   so colour/recipe fields are available).
 3. Copy your **User ID** and the **API key**.
 4. Provide them either:
    - in the installer / `.env` as `BREWFATHER_USER_ID` and `BREWFATHER_API_KEY`

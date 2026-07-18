@@ -185,7 +185,7 @@ git filter-repo --path taplist_data --invert-paths
 
 Then **rotate everything**, because the secret was on disk in a shareable form:
 
-- **Brewfather API key** - Brewfather -> *Settings -> API* -> regenerate.
+- **Brewfather API key** - Brewfather -> *Settings > Integration* -> generate a new key.
 - **`ADMIN_PASSWORD`** - pick a new one.
 - **`SESSION_SECRET`** - regenerate (`openssl rand -hex 32`).
 
