@@ -150,7 +150,7 @@ info "Data directory ready: $DATA_DIR_HOST"
 echo
 if yesno "Build and start the container now?" "Y"; then
   bold "Starting…"
-  $COMPOSE up -d --build
+  $COMPOSE up -d
   echo
   bold "Done!"
   info "Display: http://localhost:$PORT/"
@@ -160,5 +160,5 @@ if yesno "Build and start the container now?" "Y"; then
   fi
 else
   bold "Setup complete."
-  info "Start it whenever you're ready:  $COMPOSE up -d --build"
+  info "Start it whenever you're ready:  $COMPOSE up -d"
 fi

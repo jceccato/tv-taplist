@@ -41,8 +41,7 @@ docker run -d --name tv-taplist-demo -p 8080:8080 \
 
 Stop and remove it when you're done: `docker rm -f tv-taplist-demo`.
 
-> Replace `jceccato` with the published image owner. The demo is for evaluation only --
-> see [INSTALLATION.md](docs/INSTALLATION.md) for a real setup.
+> The demo is for evaluation only -- see [INSTALLATION.md](docs/INSTALLATION.md) for a real setup.
 
 ---
 
@@ -95,6 +94,8 @@ guarantee, archiving, and security - is in **[FAQ.md](docs/FAQ.md)**.
   Unraid, manual Compose, env vars, reverse proxy, Brewfather API key.
 - **[FAQ.md](docs/FAQ.md)** - how everything works, in depth.
 - **[UNRAID.md](docs/UNRAID.md)** - the deep-dive Unraid walkthrough.
+- **[BUILDING.md](docs/BUILDING.md)** - build from source (development, customisation,
+  or architectures without a prebuilt image).
 
 ## License
 

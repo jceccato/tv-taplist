@@ -2,12 +2,11 @@
 
 Two supported ways to run this on an Unraid server:
 
-- **[Option A - Compose Manager](#option-a--compose-manager-build-from-source)** --
-  build the image from the repo on the Unraid box. Closest to the bundled
-  `docker-compose.yml`; no external registry needed.
-- **[Option B - Docker template](#option-b--docker-template-prebuilt-image)** --
-  point Unraid's **Add Container** at a prebuilt GHCR image
-  (`ghcr.io/jceccato/tv-taplist`). No building on the server.
+- **[Option A - Docker template (prebuilt image)](#option-a--docker-template-prebuilt-image)** --
+  point Unraid's **Add Container** at the prebuilt GHCR image
+  (`ghcr.io/jceccato/tv-taplist:latest`). No building on the server. **Recommended.**
+- **[Option B - Compose Manager (build from source)](#option-b--compose-manager-build-from-source)** --
+  build the image locally. See [BUILDING.md](BUILDING.md) for the full procedure.
 
 Both end up at the same place: the admin at `http://<tower-ip>:8080/admin` and the
 TV display at `http://<tower-ip>:8080/`.
@@ -29,72 +28,9 @@ string - generate one in the Unraid terminal with `openssl rand -hex 32`).
 
 ---
 
-## Option A - Compose Manager (build from source)
+## Option A - Docker template (prebuilt image)
 
-This uses the repo's own `docker-compose.yml`, which builds the image locally.
-
-### 1. Install the plugin
-**Apps** (Community Applications) -> search **Compose Manager** -> Install. This
-adds the `docker compose` binary and a **Docker -> Compose** UI.
-
-### 2. Get the code and configure it
-Open the Unraid **terminal** (`>_` in the top bar):
-
-```bash
-# Clone into a share (keep the build context on the array, not on the flash/boot):
-git clone https://github.com/jceccato/tv-taplist.git /mnt/user/appdata/tv-taplist-src
-cd /mnt/user/appdata/tv-taplist-src
-
-# Secrets + ops, from the template:
-cp .env.example .env
-nano .env          # set ADMIN_PASSWORD, SESSION_SECRET, TZ, PUID=99, PGID=100
-```
-
-In `.env` set at least:
-
-```ini
-ADMIN_PASSWORD=your-strong-password
-SESSION_SECRET=<paste output of: openssl rand -hex 32>
-TZ=Australia/Sydney
-PUID=99
-PGID=100
-# If you put a reverse proxy in front, set this to the proxy's IP (see below).
-FORWARDED_ALLOW_IPS=127.0.0.1
-```
-
-Point the data directory at `appdata` so it's separate from the source checkout --
-add this to `.env` (the compose file maps `DATA_DIR_HOST` to `/data`):
-
-```ini
-DATA_DIR_HOST=/mnt/user/appdata/tv-taplist
-```
-
-### 3. Bring it up
-Either from the terminal in that directory:
-
-```bash
-docker compose up -d --build
-# First run only, to seed demo taps and verify it works offline:
-#   DEMO_MODE=true docker compose up -d --build
-```
-
-…or add it as a managed stack: **Docker -> Compose -> Add New Stack**, name it
-`tv-taplist`, set its directory to `/mnt/user/appdata/tv-taplist-src`, then
-**Compose Up**. The container then appears on the **Docker** tab like any other.
-
-### 4. Updating later
-```bash
-cd /mnt/user/appdata/tv-taplist-src
-git pull
-docker compose up -d --build
-```
-
----
-
-## Option B - Docker template (prebuilt image)
-
-Use this if a prebuilt GHCR image is available (e.g.
-`ghcr.io/jceccato/tv-taplist:latest`). No building on the server, and Unraid shows an
+Pull the prebuilt GHCR image. No building on the server, and Unraid shows an
 **update ready** badge when the image changes. Replace `jceccato` throughout with the
 owner of the image you're pulling.
 
@@ -155,6 +91,66 @@ tv-taplist** with all fields pre-filled:
   <Config Name="DEMO_MODE" Target="DEMO_MODE" Default="false" Type="Variable" Display="advanced" Required="false">false</Config>
 </Container>
 ```
+
+---
+
+## Option B - Compose Manager (build from source)
+
+This uses the repo's own `docker-compose.yml` to build the image locally. See
+[BUILDING.md](BUILDING.md) for the full build-from-source procedure, including how
+to update later.
+
+### 1. Install the plugin
+**Apps** (Community Applications) -> search **Compose Manager** -> Install. This
+adds the `docker compose` binary and a **Docker -> Compose** UI.
+
+### 2. Get the code and configure it
+Open the Unraid **terminal** (`>_` in the top bar):
+
+```bash
+# Clone into a share (keep the build context on the array, not on the flash/boot):
+git clone https://github.com/jceccato/tv-taplist.git /mnt/user/appdata/tv-taplist-src
+cd /mnt/user/appdata/tv-taplist-src
+
+# Secrets + ops, from the template:
+cp .env.example .env
+nano .env          # set ADMIN_PASSWORD, SESSION_SECRET, TZ, PUID=99, PGID=100
+```
+
+In `.env` set at least:
+
+```ini
+ADMIN_PASSWORD=your-strong-password
+SESSION_SECRET=<paste output of: openssl rand -hex 32>
+TZ=Australia/Sydney
+PUID=99
+PGID=100
+# If you put a reverse proxy in front, set this to the proxy's IP (see below).
+FORWARDED_ALLOW_IPS=127.0.0.1
+```
+
+Point the data directory at `appdata` so it's separate from the source checkout --
+add this to `.env` (the compose file maps `DATA_DIR_HOST` to `/data`):
+
+```ini
+DATA_DIR_HOST=/mnt/user/appdata/tv-taplist
+```
+
+### 3. Switch to source build and bring it up
+
+In `docker-compose.yml`, comment out `image:` and uncomment `build: .` (the compose
+file defaults to pulling the prebuilt image). Then either from the terminal in that
+directory:
+
+```bash
+docker compose up -d --build
+# First run only, to seed demo taps and verify it works offline:
+#   DEMO_MODE=true docker compose up -d --build
+```
+
+...or add it as a managed stack: **Docker -> Compose -> Add New Stack**, name it
+`tv-taplist`, set its directory to `/mnt/user/appdata/tv-taplist-src`, then
+**Compose Up**. The container then appears on the **Docker** tab like any other.
 
 ---
 

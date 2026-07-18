@@ -15,18 +15,16 @@ it with one command. The CI does the build and push - you just tag and push code
 After your fork and image are published, anyone can run it:
 
 ```bash
-# Option 1: clone and build
+# Option 1: pull the prebuilt image (recommended)
+# The compose file defaults to the prebuilt image:
 git clone https://github.com/jceccato/tv-taplist.git
 cd tv-taplist
 cp .env.example .env   # edit secrets
-docker compose up -d --build
-
-# Option 2: prebuilt GHCR image (skip the build)
-# In docker-compose.yml, comment out `build: .` and set:
-#   image: ghcr.io/jceccato/tv-taplist:latest
-# Then:
-cp .env.example .env   # edit secrets
 docker compose up -d
+
+# Option 2: build from source (see docs/BUILDING.md)
+# Uncomment `build: .` in docker-compose.yml, then:
+docker compose up -d --build
 ```
 
 Replace `jceccato` with the GitHub username where the repo and image live.
@@ -68,21 +66,23 @@ project pointing at your own images:
 
 The repo uses `jceccato` as a placeholder for the GitHub username in:
 
-- `docker-compose.yml` - the commented-out `image:` line
+- `docker-compose.yml` - the `image:` line
 - `README.md` / `INSTALLATION.md` - the `docker run` and `git clone` lines
 
 Search for `jceccato` and replace with your GitHub username.
 
-### 2. Update docker-compose.yml
+### 2. Update docker-compose.yml (optional)
 
-Switch the compose file from building locally to pulling your prebuilt image
-(optional - you can ship it with `build: .` as the default; both work):
+The compose file already defaults to pulling the prebuilt image. After replacing
+`jceccato` in step 1, your fork's compose file will pull your image -- no changes
+needed. If you prefer to ship with `build: .` as the default instead, swap the
+commented lines:
 
 ```yaml
 services:
   taplist:
-    #build: .
-    image: ghcr.io/YOUR_USERNAME/tv-taplist:latest
+    # image: ghcr.io/YOUR_USERNAME/tv-taplist:latest
+    build: .
 ```
 
 ### 3. Make the GHCR package public
@@ -108,31 +108,23 @@ discoverable.
 
 ---
 
-## Versioning conventions
+## Versioning
 
-Use **semver** tags pushed to `main`:
+The project follows [Semantic Versioning 2.0.0](https://semver.org). See
+**[VERSIONING.md](VERSIONING.md)** for the full ruleset -- scheme, tagging
+procedure, release checklist, breaking-change policy, and how `MAPPING_VERSION`
+and the update checker fit together.
+
+Quick reference:
 
 ```bash
-git tag v1.0.0
-git push --tags
+git tag -a v1.0.0 -m "Release v1.0.0"
+git push origin main --tags
 ```
 
-Rules of thumb:
-
-- Increment the **major** version (e.g. `v2.0.0`) for breaking changes or
-  migrations users must perform.
-- Increment the **minor** version (e.g. `v1.1.0`) for new features that are
-  backwards-compatible.
-- Increment the **patch** version (e.g. `v1.0.1`) for bugfixes.
-
-Only tag on `main`. The CI builds and publishes a tagged image for every `v*`
-tag pushed; users pin to `ghcr.io/jceccato/tv-taplist:v1.0.0` for stable releases
-or track `latest` for the bleeding edge.
-
-The Dockerfile accepts a `VERSION` build arg. To embed the version in the
-running image, add `ARG VERSION` inside the Dockerfile and write/print it
-where you need it. The CI already passes `VERSION=${{ steps.meta.outputs.version
-|| github.sha }}` as a build arg.
+The CI builds and publishes a tagged image for every `v*` tag pushed; users pin
+to `ghcr.io/jceccato/tv-taplist:v1.0.0` for stable releases or track `latest`
+for the bleeding edge.
 
 ---
 

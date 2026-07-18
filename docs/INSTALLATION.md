@@ -53,15 +53,14 @@ to anyone** - the instant a password is set, normal login applies again.
 Remove it with `docker rm -f tv-taplist-demo`. The demo is for evaluation only --
 use a real install below for anything that stays up.
 
-> Replace `jceccato` with the published image owner. If no image is published yet,
-> build from source via the [guided installer](#guided-installer-recommended) or
-> [manual Compose](#manual-docker-compose).
+> Replace `jceccato` with the image owner if you are pulling from a fork.
 
 ---
 
 ## Guided installer (recommended)
 
-The installer asks a few questions, writes your `.env`, and starts the container.
+The installer asks a few questions, writes your `.env`, pulls the image, and starts
+the container.
 
 ```bash
 git clone https://github.com/jceccato/tv-taplist.git
@@ -78,12 +77,13 @@ It prompts for:
   later. (See [Getting your Brewfather API key](#getting-your-brewfather-api-key).)
 
 It generates a strong `SESSION_SECRET`, writes a `.env` (owner-readable only), and
-offers to build and start the container. When it finishes, open
+offers to pull and start the container. When it finishes, open
 `http://<host>:<port>/admin`, set your **tap count**, and click **Sync Brewfather
 now**.
 
 Re-run `./scripts/setup.sh` any time to change settings - it prefills from your
-existing `.env`.
+existing `.env`. The installer pulls the prebuilt image by default; if you want to
+build from source instead, see [BUILDING.md](BUILDING.md).
 
 ---
 
@@ -97,13 +97,13 @@ cd tv-taplist
 cp .env.example .env
 # Edit .env: set ADMIN_PASSWORD and SESSION_SECRET at minimum.
 #   SESSION_SECRET - generate with: openssl rand -hex 32
-docker compose up -d --build
+docker compose up -d
 ```
 
-Key `.env` values are documented inline and in [Environment
-variables](#environment-variables). To run a **prebuilt image** instead of
-building locally, comment out `build: .` in `docker-compose.yml` and set
-`image: ghcr.io/jceccato/tv-taplist:latest`.
+The compose file pulls `ghcr.io/jceccato/tv-taplist:latest` by default. Key `.env`
+values are documented inline and in [Environment variables](#environment-variables).
+
+To build from source instead, see [BUILDING.md](BUILDING.md).
 
 The compose file maps `${DATA_DIR_HOST:-./taplist_data}` on the host to `/data` in
 the container - that host folder is where your beers live (see [The data
@@ -122,11 +122,12 @@ The essentials:
 | Port | `8080` (host) -> `8080` (container) | The web UI. |
 | `ADMIN_PASSWORD`, `SESSION_SECRET` | *yours* | Required. Generate the secret with `openssl rand -hex 32`. |
 
-You can either build from source with the **Compose Manager** plugin or add a
-**Docker template** pointing at a prebuilt image, then set each environment
-variable in the template. The full step-by-step - plugin install, a ready-to-paste
-template XML, and the reverse-proxy notes for SWAG / Nginx Proxy Manager - is in
-**[UNRAID.md](UNRAID.md)**.
+The recommended Unraid path is a **Docker template** pointing at the prebuilt
+image. Building from source with **Compose Manager** is also supported. The full
+step-by-step -- plugin install, a ready-to-paste template XML, and the
+reverse-proxy notes for SWAG / Nginx Proxy Manager -- is in
+**[UNRAID.md](UNRAID.md)**, and source-build details are in
+**[BUILDING.md](BUILDING.md)**.
 
 ---
 
@@ -252,11 +253,15 @@ protection. You can also expose only `/` publicly and keep `/admin` on the LAN/V
 ```bash
 cd tv-taplist
 git pull
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
-Your data directory and `.env` are untouched. After updating, **hard-refresh the
-TV's browser** once so it picks up new CSS/JS instead of its cached copies.
+Your data directory and `.env` are untouched. The TV picks up new CSS/JS on its
+next poll (assets are cache-busted by mtime) so no manual hard-refresh is needed.
+
+If you are building from source instead of pulling the prebuilt image, see
+[BUILDING.md](BUILDING.md) for the update procedure.
 
 ---
 

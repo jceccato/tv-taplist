@@ -1,12 +1,12 @@
 # Single-container deployment for the digital tap list.
 # Run scripts/setup.sh, or copy .env.example to .env and edit it, before
-# `docker compose up -d --build`.
+# `docker compose up -d`.
 services:
   taplist:
-    build: .
-    # To run a prebuilt image instead of building, comment out `build: .` above
-    # and set: image: ghcr.io/jceccato/tv-taplist:latest
-    image: tv-taplist:latest
+    # To build from source instead of pulling a prebuilt image, comment out
+    # `image:` below and uncomment `build: .`. See docs/BUILDING.md.
+    image: ghcr.io/jceccato/tv-taplist:latest
+    # build: .
     container_name: tv-taplist
     restart: unless-stopped
     ports:
