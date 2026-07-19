@@ -56,18 +56,65 @@ cocktail - even if Brewfather knows nothing about it, and the sync never touches
    page), so a single call carries all the data it needs - ABV, IBU, colour, notes
    and the image. Cost is `ceil(batches / 50)` calls per status, comfortably under
    Brewfather's limit of **500 calls/hour per key**.
-2. Reads a `tap:N` token from each batch's notes to decide which tap it belongs to.
+2. Reads a `tap:N` token from each batch's **Batch Notes** to decide which tap it
+   belongs to.
 3. Writes a small Markdown file per tap (and downloads the beer's image).
 4. Sets aside (archives) any Brewfather tap that no longer maps to a slot.
 
-**Which batches sync:** **Completed** ones by default. Planning, Brewing, Fermenting
-and Archived batches are ignored, so a beer you're still working on never appears
-until you mark it Completed. Tick **Include Conditioning batches** on the Settings
-tab to *also* pull batches still in **Conditioning** (lagering / maturing) - handy
-for a beer that's already on tap but too green to mark Completed. When two batches
-(say a Conditioning and a Completed one) claim the same tap, the most recent wins.
+### Where to put things in Brewfather
 
-**Batch-note tokens** - put any of these anywhere in a batch's notes:
+Understanding which Brewfather fields feed which parts of the card lets you
+control the board directly from the app.
+
+**Batch Notes** - the key:value control field
+
+Found by opening a batch and scrolling toward the bottom, just above the
+**Attachments** section. The Batch Notes text field is available on **every tab**
+of a batch (Planning, Brewing, Fermenting, Completed).
+
+Put your `tap:X`, `colour:#XXXXXX`, `glass:X` and `saturation:X` tokens here -
+one per line, or all on one line. **Batch Notes text is never shown on the tap card.**
+The sync only scans this field for the control tokens and strips them from any
+display text, so nothing you type there (besides the tokens themselves) ever
+appears on the TV.
+
+**Taste Notes** - the card description
+
+Found on the **Completed** tab only, in the **Taste** section (below the rating
+stars). Whatever you type here is synced **1:1 to the card's description / tasting
+notes** - it ends up on the beer card verbatim.
+
+If a batch has no Taste Notes, the beer's style name (e.g. "English Porter") is
+used as a fallback so the card isn't blank.
+
+> **Tip:** Make sure you are on the **Completed** tab when editing Taste Notes.
+> The other tabs (Planning, Brewing, Fermenting) do not show the Taste section.
+
+**Images** - the card photo
+
+By default the board shows a tinted placeholder glass coloured to the beer's EBC.
+You can replace it with an actual beer photo or logo:
+
+1. Upload the image on the **original recipe** in Brewfather (not the batch).
+   Batches inherit their image from the source recipe.
+2. On the next sync the image is downloaded and used on that beer's card.
+
+If you also want to update the beer **name** (which comes from the recipe name),
+that is best done on the original recipe too, since batches pull their name and
+image from their source recipe.
+
+You can also customise the tinted placeholder itself directly in the tokens:
+
+- `colour:#rrggbb` overrides the EBC-derived colour with an exact hex code (for
+  the swatch dot AND the glass placeholder).
+- `saturation:60` mutes the colour (use when a calculated EBC colour looks too
+  vivid for the real beer).
+- `glass:teku` picks a glass silhouette (`default`, `nonicpint`, `schooner`,
+  `tulip`, `teku`).
+
+### Batch-note tokens reference
+
+Put any of these in the **Batch Notes** field:
 
 | Token | Effect |
 |-------|--------|
@@ -76,10 +123,43 @@ for a beer that's already on tap but too green to mark Completed. When two batch
 | `glass:nonicpint` | Glass silhouette: `default`, `nonicpint`, `schooner`, `tulip`, `teku`. |
 | `saturation:60` | Mute the colour to 60 % (a percentage, or a `0`–`1` fraction). |
 
-Tokens are stripped from any text shown on the card. The same controls live in
-`/admin` -> **Manual overrides** for beers you enter by hand.
+The sync scans the **Batch Notes** and **Taste Notes** for these tokens. Any token
+found anywhere is applied, and all tokens are stripped from the description text
+shown on the card. The same controls live in `/admin` -> **Manual overrides** for
+beers you enter by hand.
 
-**Smart and safe:**
+### Tip: use the admin override to build tokens with a GUI
+
+Getting the hex codes, saturation and glassware right by typing blind into
+Brewfather's text field can be fiddly. A faster workflow:
+
+1. Go to `/admin` -> **Manual overrides** and tick the override checkbox for a
+   tap.
+2. Set the colour override, saturation and glassware using the visual pickers
+   and sliders - you get a **live colour preview** that shows exactly what the TV
+   will display.
+3. Scroll down to the **Brewfather batch-note tokens** block at the bottom of
+   that tap's row. It shows the exact tokens (`tap:3`, `colour:#...`, `glass:...`,
+   `saturation:...`) you need, built from what you configured above.
+4. Click **Copy tokens** and paste them into the matching batch's **Batch Notes**
+   in Brewfather.
+5. Untick the override checkbox for that tap (or delete the override) and run a
+   sync - the Brewfather batch now controls the tap with the same look.
+
+The Name, ABV, IBU, OG and FG always come from Brewfather's own batch fields,
+not from tokens - only the colour/glass/saturation overrides can be preset this
+way.
+
+### Which batches sync
+
+**Completed** ones by default. Planning, Brewing, Fermenting and Archived batches
+are ignored, so a beer you're still working on never appears until you mark it
+Completed. Tick **Include Conditioning batches** on the Settings tab to *also* pull
+batches still in **Conditioning** (lagering / maturing) - handy for a beer that's
+already on tap but too green to mark Completed. When two batches (say a
+Conditioning and a Completed one) claim the same tap, the most recent wins.
+
+### Smart and safe
 
 - **Change detection** skips rewriting files and re-downloading images for batches
   that haven't changed, so most syncs are nearly free.
