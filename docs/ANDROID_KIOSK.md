@@ -1,7 +1,7 @@
 # Android Kiosk Display Setup
 
-How to turn an Android device — phone, tablet, Android TV, or Chromecast with
-Google TV — into a dedicated tap-list display using
+How to turn an Android device — phone, tablet, Android TV, Chromecast with
+Google TV, or Amazon Fire Stick — into a dedicated tap-list display using
 **[Screenlite Web Kiosk](https://github.com/screenlite/android-web-kiosk)**.
 The app launches your board in full-screen on boot and keeps it on top, so the
 device behaves like a dedicated display with no interaction needed.
@@ -46,6 +46,7 @@ and reachable on your network.
 | **Android TV / smart TV** | Kiosk app runs natively on the TV's Android OS. No extra hardware needed. | TVs with built-in Android TV (Sony, Philips, TCL, etc.). |
 | **Chromecast with Google TV** | Small HDMI dongle. Install the kiosk APK directly on it. The TV becomes a dumb display. | Any TV with an HDMI port. Cheap, compact. |
 | **Android phone** | Same as a tablet, but smaller. Can be useful for a single-tap mini display. | Testing, or a compact single-screen setup. |
+| **Fire TV Stick** | Amazon's Fire Stick (Fire OS). Sideload the APK via ADB. Works the same as Android TV once installed. | Any TV with an HDMI port. Inexpensive, widely available. |
 | **Android TV box / stick** | Generic Android boxes (e.g. Xiaomi Mi Box, NVIDIA Shield). Install the APK, point at the container. | TVs without built-in Android. |
 
 ---
@@ -88,6 +89,44 @@ adb install screenlite-web-kiosk-v*-*-*.apk
 > On Chromecast with Google TV, enable Developer Options first: go to
 > **Settings → System → About → Android TV OS build** and tap it 7 times.
 > Then go to **Settings → System → Developer options → Enable USB debugging**.
+
+### On a Fire TV Stick
+
+Fire Sticks run Fire OS, an Android fork. Sideloading works but the setup path
+differs slightly from stock Android TV:
+
+1. **Enable ADB debugging** on the Fire Stick:
+   - Go to **Settings → My Fire TV → About → Fire TV Stick** and tap the
+     **device name** 7 times to unlock Developer Options.
+   - Go back to **Settings → My Fire TV → Developer Options → ADB debugging → ON**.
+   - Also enable **Apps from Unknown Sources** here (may be listed as **Install
+     unknown apps**).
+
+2. **Find the Fire Stick's IP address:**
+   - **Settings → My Fire TV → About → Network**. Note the IP.
+
+3. **Install the APK via ADB** from your laptop:
+
+   ```bash
+   adb connect <firestick-ip>:5555
+   adb install screenlite-web-kiosk-v*-*-*.apk
+   ```
+
+   If you see an `INSTALL_FAILED_UPDATE_INCOMPATIBLE` error, the APK is already
+   installed but a different version exists. Uninstall first:
+   ```bash
+   adb uninstall org.screenlite.webkiosk
+   adb install screenlite-web-kiosk-v*-*-*.apk
+   ```
+
+4. The app appears in the Fire Stick's **Apps** row. If it doesn't, go to
+   **Settings → Applications → Manage Installed Applications** and launch it
+   from there.
+
+> On newer Fire Sticks (Fire OS 7/8, based on Android 9/11), the Screenlite
+> app is fully compatible. Older Fire Sticks running Fire OS 5/6 (Android 5/7)
+> may work with the experimental support but could be less stable. Fire OS 7+
+> is recommended.
 
 ---
 
@@ -176,6 +215,21 @@ Tap **Save**. The app restarts and loads your tap list in full-screen kiosk mode
   **Settings → System → Ambient mode → Off**.
 - Disable the sleep timer:
   **Settings → System → Power & energy → When inactive → Never**.
+
+### Fire TV Stick
+
+- Use the **supplied power adapter**, not the TV's USB port — Fire Sticks are
+  sensitive to low power and will reboot if under-supplied.
+- Disable the screen saver:
+  **Settings → Display & Sounds → Screen saver → Start time → Never**.
+- Disable the sleep timer:
+  **Settings → Display & Sounds → Sleep → Never** (or the longest available).
+- Fire Sticks show **Amazon ads on the home screen**. These do not affect the
+  kiosk once it is running, but the app may take a few seconds to launch on
+  boot because Fire OS loads the launcher first. The Screenlite app's
+  foreground service re-takes over once started.
+- The **Fire TV remote** works the same as other Android TV remotes: press the
+  center / select button 5 times quickly to access the kiosk settings.
 
 ### Tablet
 
