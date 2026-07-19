@@ -1,9 +1,11 @@
 # Raspberry Pi Kiosk Setup
 
-How to turn a Raspberry Pi running Raspberry Pi OS Desktop (Bookworm, 64-bit)
-into a dedicated, headless kiosk display for TV Tap List. On boot, it launches
-Chromium in full-screen mode pointing at the locally hosted container on
-`http://localhost:8080`.
+How to turn a Raspberry Pi running Raspberry Pi OS Desktop into a dedicated
+full-screen display for TV Tap List. On boot, it launches Chromium pointing at
+the locally hosted container on `http://localhost:8080`.
+
+Supports **Bookworm** (labwc / wayfire on Wayland) and **Bullseye** (LXDE on
+X11). The script detects your desktop environment automatically.
 
 The setup has two parts: a few manual steps you do once (flash the OS, enable
 SSH and auto-login), then a script that does everything else automatically.
@@ -25,6 +27,7 @@ For installing the TV Tap List container itself, start with
 - [Step 2 — Enable SSH and auto-login](#step-2--enable-ssh-and-auto-login)
 - [Step 3 — Install Docker and the tap list container](#step-3--install-docker-and-the-tap-list-container)
 - [Step 4 — Run the kiosk script](#step-4--run-the-kiosk-script)
+- [Kiosk modes](#kiosk-modes)
 - [What the script does](#what-the-script-does)
 - [Troubleshooting](#troubleshooting)
 
@@ -32,11 +35,11 @@ For installing the TV Tap List container itself, start with
 
 ## What you need
 
-- **A Raspberry Pi** (Pi 3, 4, or 5 — any model that runs the 64-bit desktop OS
+- **A Raspberry Pi** (Pi 3, 4, or 5 — any model that runs the desktop OS
   comfortably). A Pi 4 with 2 GB or more is a sweet spot.
-- **Raspberry Pi OS Desktop** (64-bit, Bookworm or newer). The _Desktop_ image is
-  required — the Lite image has no GUI and cannot run a kiosk browser. Download
-  it from [raspberrypi.com/software](https://www.raspberrypi.com/software/).
+- **Raspberry Pi OS Desktop** (64-bit, Bookworm or Bullseye). The _Desktop_ image
+  is required — the Lite image has no GUI and cannot run a kiosk browser.
+  Download it from [raspberrypi.com/software](https://www.raspberrypi.com/software/).
 - **A microSD card** (16 GB or larger; the Desktop image needs about 5 GB plus
   room for Docker images).
 - **Power, HDMI cable, and a TV or monitor** the Pi will drive.
@@ -107,7 +110,7 @@ Still in `raspi-config` (run it if you closed it):
    desktop, not the CLI).
 3. Select **Finish** and **reboot** when prompted.
 
-After reboot the Pi logs in and starts the Wayland desktop automatically. The
+After reboot the Pi logs in and starts the desktop automatically. The
 display shows the default Raspberry Pi OS desktop — that's fine; the kiosk
 script takes over after we run it.
 
@@ -173,9 +176,26 @@ bash scripts/pi-kiosk.sh
 The script is **interactive** — it asks before overwriting existing
 configuration, so it's safe to re-run if you change anything later.
 
-It installs Chromium (if missing), detects your Wayland compositor (labwc or
-wayfire), writes a kiosk launch script, wires it into the compositor's autostart,
-and disables screen blanking and power saving.
+It installs Chromium (if missing), detects your desktop environment (labwc,
+wayfire, or LXDE), writes a launch script, wires it into the autostart, and
+disables screen blanking and power saving.
+
+### Choosing a kiosk mode
+
+By default the script sets up **escapable fullscreen** — Chromium fills the
+screen but you can press **F11** or **ESC** to exit and use the Pi normally.
+This is ideal for a home bar where the Pi doubles as a general-purpose machine.
+
+For a public venue (bar, taproom, brewery) where you want to lock the display
+down, pass the `KIOSK_MODE` environment variable:
+
+```bash
+KIOSK_MODE=true bash scripts/pi-kiosk.sh
+```
+
+This enables true locked kiosk mode: Chromium has no window decorations, no UI,
+and can only be exited with **Alt+F4** on an attached keyboard (or by killing
+the process over SSH).
 
 When the script finishes, it prints a summary and a reminder to **reboot**:
 
@@ -183,12 +203,32 @@ When the script finishes, it prints a summary and a reminder to **reboot**:
 sudo reboot
 ```
 
-After reboot the Pi auto-logs into the desktop, starts the Wayland compositor,
-waits for the tap list container to become reachable, and launches Chromium in
-kiosk mode. You should see the tap list board fill the screen.
+After reboot the Pi auto-logs into the desktop, waits for the tap list
+container to become reachable, and launches Chromium in full-screen. You should
+see the tap list board fill the screen.
 
-> **To exit kiosk mode** (for maintenance), plug in a keyboard and press
-> **Alt+F4**. Chromium closes and you are back at the desktop.
+---
+
+## Kiosk modes
+
+| Mode | Flag | Exit key | Use case |
+|------|------|----------|----------|
+| **Escapable fullscreen** (default) | `--start-fullscreen` | F11 or ESC | Home bar, shared Pi |
+| **Locked kiosk** | `--kiosk` | Alt+F4 | Public venue, taproom |
+
+Set the mode when running the script:
+
+```bash
+# Default (escapable, for home use)
+bash scripts/pi-kiosk.sh
+
+# Locked down (for public venues)
+KIOSK_MODE=true bash scripts/pi-kiosk.sh
+```
+
+To switch an existing setup from one mode to the other, just re-run the script
+with the desired setting — it will overwrite the launch script and you choose
+whether to keep or replace the autostart entry.
 
 ---
 
@@ -199,10 +239,11 @@ system.
 
 | Component | What it changes |
 |-----------|----------------|
-| **Chromium** | Installed via `apt` if not already present. |
-| **Kiosk launch script** | Written to `~/.config/tv-taplist-kiosk.sh`. It polls `http://localhost:8080/healthz` for up to 2 minutes, then launches Chromium with `--kiosk`, `--noerrdialogs`, `--disable-infobars`, and `--disable-session-crashed-bubble`. |
-| **Autostart (labwc)** | Adds the kiosk script to `~/.config/labwc/autostart` (a shell script sourced at login). |
-| **Autostart (wayfire)** | Adds the kiosk script to the `[autostart]` section of `~/.config/wayfire.ini`. |
+| **Chromium** | Installed via `apt` if not already present. Falls back to `chromium` if `chromium-browser` is not available (Bullseye). |
+| **Launch script** | Written to `~/.config/tv-taplist-kiosk.sh`. Polls `http://localhost:8080/healthz` for up to 2 minutes, then launches Chromium with `--start-fullscreen` (default) or `--kiosk` (if `KIOSK_MODE=true`). |
+| **Autostart (labwc)** | Adds the launch script to `~/.config/labwc/autostart` (a shell script sourced at login). |
+| **Autostart (wayfire)** | Adds the launch script to the `[autostart]` section of `~/.config/wayfire.ini`. |
+| **Autostart (LXDE)** | Seeds `~/.config/lxsession/<profile>/autostart` from the global one, then appends the launch script. Preserves existing entries (panel, desktop, screensaver). |
 | **Screen blanking** | Disabled via `raspi-config nonint do_blanking 1` and `consoleblank=0` on the kernel command line (`/boot/firmware/cmdline.txt`). |
 | **DPMS (wayfire)** | Sets `dpms_timeout = -1` in `~/.config/wayfire.ini` so the compositor never turns the display off. |
 | **Systemd sleep** | Masks `sleep.target`, `suspend.target`, `hibernate.target`, and `hybrid-sleep.target` so the Pi never suspends. |
@@ -229,15 +270,15 @@ self-refreshing, so no manual reload is needed.
   `cd tv-taplist && docker compose up -d`.
 - **Check that auto-login is set correctly:** `sudo raspi-config` →
   System Options → Boot / Auto Login → **Desktop Autologin**. If it's set to
-  CLI or "wait for login", the Wayland compositor never starts.
-- **Run the kiosk script manually** to see errors:
+  CLI or "wait for login", the desktop environment never starts.
+- **Run the launch script manually** to see errors:
   ```bash
   bash ~/.config/tv-taplist-kiosk.sh
   ```
   This starts Chromium on whatever display the Pi is currently using. If it
   works manually but not on boot, the compositor probably hasn't finished
-  starting before the script runs — check the labwc/wayfire autostart entry
-  (see below).
+  starting before the script runs — check the autostart entry for your
+  desktop environment (see below).
 
 ### The screen still blanks after a while
 
@@ -265,17 +306,31 @@ DISPLAY_URL=http://192.168.1.50:8080 bash scripts/pi-kiosk.sh
 
 ### I switched from wayfire to labwc (or vice versa)
 
-Re-run the script — it detects the current compositor and updates the right
-autostart file automatically. It asks before overwriting anything.
+Re-run the script — it detects the current desktop environment and updates the
+right autostart file automatically. It asks before overwriting anything.
+
+### I want to exit fullscreen but F11 / ESC does nothing
+
+You are probably in locked kiosk mode (`KIOSK_MODE=true`). In that mode only
+**Alt+F4** works. If you want to switch to escapable mode, re-run the script
+without `KIOSK_MODE`:
+
+```bash
+bash scripts/pi-kiosk.sh
+```
+
+It will overwrite the launch script with `--start-fullscreen` instead of
+`--kiosk`.
 
 ### I want to uninstall the kiosk setup
 
-Remove the three files the script created and reboot:
+Remove the files the script created and reboot:
 
 ```bash
 rm ~/.config/tv-taplist-kiosk.sh
-sed -i '/tv-taplist-kiosk/d' ~/.config/labwc/autostart        # if using labwc
-sed -i '/tv-taplist-kiosk/d' ~/.config/wayfire.ini             # if using wayfire
+sed -i '/tv-taplist-kiosk/d' ~/.config/labwc/autostart          # if using labwc
+sed -i '/tv-taplist-kiosk/d' ~/.config/wayfire.ini               # if using wayfire
+sed -i '/tv-taplist-kiosk/d' ~/.config/lxsession/*/autostart     # if using LXDE
 ```
 
 The screen blanking and power management changes are harmless to leave in

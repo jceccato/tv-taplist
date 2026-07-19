@@ -86,7 +86,7 @@ browser and keeps it there. Two supported paths:
 | Path | Best for | Guide |
 |------|----------|-------|
 | **Raspberry Pi** | Dedicated, always-on Pi plugged into the TV via HDMI | [RASPBERRY_PI_KIOSK.md](docs/RASPBERRY_PI_KIOSK.md) |
-| **Android device** | Phone, tablet, Android TV, Chromecast, Fire Stick — no Pi needed | [ANDROID_KIOSK.md](docs/ANDROID_KIOSK.md) |
+| **Android device** | Phone, tablet, Android TV, Chromecast, Fire Stick -- no Pi needed | [ANDROID_KIOSK.md](docs/ANDROID_KIOSK.md) |
 
 Both set up a kiosk that launches the board on boot and stays full-screen with
 no user interaction.

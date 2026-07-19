@@ -6,6 +6,7 @@ A tour of what the app does and why. For getting it running, see
 **Contents**
 
 - [The big picture](#the-big-picture)
+- [How do I display this on a TV?](#how-do-i-display-this-on-a-tv)
 - [How does a beer get on the board?](#how-does-a-beer-get-on-the-board)
 - [Brewfather sync](#brewfather-sync)
 - [What happens when the internet goes down?](#what-happens-when-the-internet-goes-down)
@@ -29,6 +30,38 @@ each tap to a beer, computes that beer's colour, and serves a single board page.
 The TV just loads that page in a full-screen browser and polls for updates. All the
 logic, data and assets live in the container and its mapped data directory, so the
 TV needs nothing but a browser and a network path to the host.
+
+---
+
+## How do I display this on a TV?
+
+The board is a web page at `http://<host>:8080`. Any browser in full-screen mode
+can act as the display. Two hardware-specific guides cover the most common setups:
+
+| Hardware | Guide | What you get |
+|----------|-------|--------------|
+| **Raspberry Pi** | [RASPBERRY_PI_KIOSK.md](RASPBERRY_PI_KIOSK.md) | Dedicated Pi plugged into the TV via HDMI. A script configures Chromium to launch on boot in full-screen. Supports Bookworm (labwc / wayfire) and Bullseye (LXDE). |
+| **Android device** | [ANDROID_KIOSK.md](ANDROID_KIOSK.md) | Phone, tablet, Android TV, Chromecast, or Fire Stick. Uses the Screenlite Web Kiosk app for a boot-to-display experience. No Pi needed. |
+
+### Raspberry Pi kiosk modes
+
+The Pi setup script offers two modes so you can pick the right level of
+lock-down for your venue:
+
+| Mode | How to enable | Exit key | Use case |
+|------|--------------|----------|----------|
+| **Escapable fullscreen** | Default — just run `bash scripts/pi-kiosk.sh` | **F11** or **ESC** | Home bar, shared Pi where you want to use the desktop normally |
+| **Locked kiosk** | `KIOSK_MODE=true bash scripts/pi-kiosk.sh` | **Alt+F4** (or kill the process over SSH) | Public venue, taproom where the display must stay locked |
+
+To switch modes later, re-run the script with the desired setting — it overwrites
+the launch script and asks before touching the autostart entry.
+
+Both modes boot straight into Chromium when the Pi starts and poll the health
+endpoint so they handle the Docker-on-boot startup race gracefully.
+
+If you already have a display set up (a laptop, a smart TV's built-in browser,
+anything), just point it at `http://<host>:8080` and go full-screen — no script
+needed.
 
 ---
 
