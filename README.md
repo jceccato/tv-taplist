@@ -67,7 +67,7 @@ key walkthrough: [INSTALLATION.md](docs/INSTALLATION.md).
 ## Getting beers onto the board
 
 1. In Brewfather, open the batch for a beer that's on tap.
-2. Add a line to the batch **notes**: `tap:1` (the tap number it's pouring on).
+2. Add a line to the batch's **Batch Notes** field: `tap:1` (the tap number it's pouring on).
 3. Set the batch **status to Completed**.
 
 On its next sync the board picks it up. You can fine-tune the swatch colour,
@@ -75,6 +75,21 @@ glassware and more with extra note tokens or from the admin panel - see
 [FAQ.md -> Brewfather](docs/FAQ.md#brewfather-sync). Beers that aren't Completed are
 ignored by default, so works-in-progress never show up by accident - though you can
 opt to include **Conditioning** batches (lagering / maturing) from the admin.
+
+---
+
+## Display on a screen
+
+Once the container is running, you need a device that loads `/` in a full-screen
+browser and keeps it there. Two supported paths:
+
+| Path | Best for | Guide |
+|------|----------|-------|
+| **Raspberry Pi** | Dedicated, always-on Pi plugged into the TV via HDMI | [RASPBERRY_PI_KIOSK.md](docs/RASPBERRY_PI_KIOSK.md) |
+| **Android device** | Phone, tablet, Android TV, Chromecast, Fire Stick -- no Pi needed | [ANDROID_KIOSK.md](docs/ANDROID_KIOSK.md) |
+
+Both set up a kiosk that launches the board on boot and stays full-screen with
+no user interaction.
 
 ---
 
@@ -96,6 +111,10 @@ guarantee, archiving, and security - is in **[FAQ.md](docs/FAQ.md)**.
   Unraid, manual Compose, env vars, reverse proxy, Brewfather API key.
 - **[FAQ.md](docs/FAQ.md)** - how everything works, in depth.
 - **[UNRAID.md](docs/UNRAID.md)** - the deep-dive Unraid walkthrough.
+- **[RASPBERRY_PI_KIOSK.md](docs/RASPBERRY_PI_KIOSK.md)** - turn a Raspberry Pi into a
+  dedicated kiosk display.
+- **[ANDROID_KIOSK.md](docs/ANDROID_KIOSK.md)** - use an Android tablet, TV,
+  Chromecast or Fire Stick as a kiosk display.
 - **[BUILDING.md](docs/BUILDING.md)** - build from source (development, customisation,
   or architectures without a prebuilt image).
 
