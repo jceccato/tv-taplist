@@ -78,6 +78,21 @@ opt to include **Conditioning** batches (lagering / maturing) from the admin.
 
 ---
 
+## Display on a screen
+
+Once the container is running, you need a device that loads `/` in a full-screen
+browser and keeps it there. Two supported paths:
+
+| Path | Best for | Guide |
+|------|----------|-------|
+| **Raspberry Pi** | Dedicated, always-on Pi plugged into the TV via HDMI | [RASPBERRY_PI_KIOSK.md](docs/RASPBERRY_PI_KIOSK.md) |
+| **Android device** | Tablet, Android TV, Chromecast with Google TV — no Pi needed | [ANDROID_KIOSK.md](docs/ANDROID_KIOSK.md) |
+
+Both set up a kiosk that launches the board on boot and stays full-screen with
+no user interaction.
+
+---
+
 ## How it works
 
 A short tour: the container syncs from Brewfather on a timer, resolves each tap to
@@ -96,6 +111,10 @@ guarantee, archiving, and security - is in **[FAQ.md](docs/FAQ.md)**.
   Unraid, manual Compose, env vars, reverse proxy, Brewfather API key.
 - **[FAQ.md](docs/FAQ.md)** - how everything works, in depth.
 - **[UNRAID.md](docs/UNRAID.md)** - the deep-dive Unraid walkthrough.
+- **[RASPBERRY_PI_KIOSK.md](docs/RASPBERRY_PI_KIOSK.md)** - turn a Raspberry Pi into a
+  dedicated kiosk display.
+- **[ANDROID_KIOSK.md](docs/ANDROID_KIOSK.md)** - use an Android tablet, TV or
+  Chromecast as a kiosk display.
 - **[BUILDING.md](docs/BUILDING.md)** - build from source (development, customisation,
   or architectures without a prebuilt image).
 

@@ -11,6 +11,9 @@ SSH and auto-login), then a script that does everything else automatically.
 For installing the TV Tap List container itself, start with
 [INSTALLATION.md](INSTALLATION.md). Come back here once the container is running.
 
+> If you're using an Android tablet, Android TV, or Chromecast instead of a Pi,
+> see the [Android Kiosk guide](ANDROID_KIOSK.md).
+
 > **Note:** The Pi kiosk setup is currently in **beta** and has not been fully
 > tested across all Pi models and OS versions. If you run into any issues, please
 > report them so we can improve the guide and script.
