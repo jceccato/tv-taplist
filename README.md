@@ -67,7 +67,7 @@ key walkthrough: [INSTALLATION.md](docs/INSTALLATION.md).
 ## Getting beers onto the board
 
 1. In Brewfather, open the batch for a beer that's on tap.
-2. Add a line to the batch **notes**: `tap:1` (the tap number it's pouring on).
+2. Add a line to the batch's **Batch Notes** field: `tap:1` (the tap number it's pouring on).
 3. Set the batch **status to Completed**.
 
 On its next sync the board picks it up. You can fine-tune the swatch colour,

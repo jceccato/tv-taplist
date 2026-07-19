@@ -53,8 +53,6 @@ to anyone** - the instant a password is set, normal login applies again.
 Remove it with `docker rm -f tv-taplist-demo`. The demo is for evaluation only --
 use a real install below for anything that stays up.
 
-> Replace `jceccato` with the image owner if you are pulling from a fork.
-
 ---
 
 ## Guided installer (recommended)
@@ -158,7 +156,7 @@ environment"* - the recommended way to keep the key off disk.
 The board shows Brewfather batches you mark as on tap:
 
 1. Open the **batch** for the beer in Brewfather.
-2. In the batch **notes**, add `tap:N` where `N` is the tap number it's pouring on.
+2. In the batch's **Batch Notes** field, add `tap:N` where `N` is the tap number it's pouring on.
 3. Set the batch **status to Completed**.
 
 On the next sync (every `SYNC_INTERVAL_MINUTES`, or click **Sync Brewfather now**)
@@ -168,8 +166,8 @@ show up by accident. To also show a beer that's on tap but still **Conditioning*
 (lagering / maturing), tick **Include Conditioning batches** on the admin Settings
 tab.
 
-You can drive the swatch and glass straight from the batch notes with extra
-tokens:
+You can drive the swatch and glass straight from the **Batch Notes** field with
+extra tokens:
 
 | Token | Effect |
 |-------|--------|
@@ -178,9 +176,13 @@ tokens:
 | `glass:nonicpint` | Glass silhouette: `default`, `nonicpint`, `schooner`, `tulip`, `teku`. |
 | `saturation:60` | Mute the colour to 60 % (a percentage, or a `0`–`1` fraction). |
 
-Tokens are stripped from any text shown on the card. The same controls - plus
-beers Brewfather doesn't know about - are available in `/admin` -> **Manual
-overrides**. More detail in [FAQ.md](FAQ.md#brewfather-sync).
+**Tasting notes** go in the **Taste Notes** field on the batch's Completed tab
+(in the Taste section below the rating). That text syncs 1:1 to the card
+description. Batch Notes text is never shown on the card - it is only scanned for
+the tokens above, which are stripped from anything that reaches the display.
+
+The same controls - plus beers Brewfather doesn't know about - are available in
+`/admin` -> **Manual overrides**. More detail in [FAQ.md](FAQ.md#brewfather-sync).
 
 ---
 
