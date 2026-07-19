@@ -17,7 +17,7 @@ Fixes #
 
 ## Checklist
 
-- [ ] **Tests pass:** `python -m pytest -q` — all 127+ tests passing
+- [ ] **Tests pass:** `python -m pytest -q` - all 127+ tests passing
 - [ ] **New tests added** for any new functionality or bug fix
 - [ ] **Code style** matches the surrounding code (defensive type coercion,
   comments explain *why*, docstrings present)

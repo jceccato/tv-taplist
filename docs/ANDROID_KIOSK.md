@@ -1,13 +1,13 @@
 # Android Kiosk Display Setup
 
-How to turn an Android device — phone, tablet, Android TV, Chromecast with
-Google TV, or Amazon Fire Stick — into a dedicated tap-list display using
+How to turn an Android device - phone, tablet, Android TV, Chromecast with
+Google TV, or Amazon Fire Stick - into a dedicated tap-list display using
 **[Screenlite Web Kiosk](https://github.com/screenlite/android-web-kiosk)**.
 The app launches your board in full-screen on boot and keeps it on top, so the
 device behaves like a dedicated display with no interaction needed.
 
 This is the Android equivalent of the [Raspberry Pi kiosk](RASPBERRY_PI_KIOSK.md)
-and is ideal when the TV is separate from the Docker host — point the device at
+and is ideal when the TV is separate from the Docker host - point the device at
 the container's IP and it stays on the board indefinitely.
 
 > If you have a Raspberry Pi plugged directly into the TV via HDMI, the
@@ -20,9 +20,9 @@ and reachable on your network.
 **Contents**
 
 - [What you need](#what-you-need)
-- [Step 1 — Install Screenlite Web Kiosk](#step-1--install-screenlite-web-kiosk)
-- [Step 2 — Grant permissions](#step-2--grant-permissions)
-- [Step 3 — Configure for TV Tap List](#step-3--configure-for-tv-tap-list)
+- [Step 1 - Install Screenlite Web Kiosk](#step-1---install-screenlite-web-kiosk)
+- [Step 2 - Grant permissions](#step-2---grant-permissions)
+- [Step 3 - Configure for TV Tap List](#step-3---configure-for-tv-tap-list)
 - [Device-specific tips](#device-specific-tips)
 - [Troubleshooting](#troubleshooting)
 
@@ -51,7 +51,7 @@ and reachable on your network.
 
 ---
 
-## Step 1 — Install Screenlite Web Kiosk
+## Step 1 - Install Screenlite Web Kiosk
 
 Download and install the **latest APK** from the
 [releases page](https://github.com/screenlite/android-web-kiosk/releases/latest)
@@ -61,7 +61,7 @@ Download and install the **latest APK** from the
 
 1. Download the APK using the device's browser.
 2. Open the downloaded file. Android will prompt you to **allow installing from
-   unknown sources** — enable it for the browser (or file manager) you used.
+   unknown sources** - enable it for the browser (or file manager) you used.
 3. Install the app.
 
 ### On an Android TV or Chromecast with Google TV
@@ -75,11 +75,11 @@ with download support:
 3. Download the APK on your phone/laptop, then transfer it to the TV device
    using Send files to TV.
 4. On the TV device, open the transferred APK with a file manager (install one
-   from the Play Store if needed — **X-plore File Manager** or **FX File
+   from the Play Store if needed - **X-plore File Manager** or **FX File
    Explorer** work well).
 5. When prompted, allow installing from unknown sources for the file manager.
 
-**Alternative — ADB (advanced):**
+**Alternative - ADB (advanced):**
 
 ```bash
 adb connect <tv-ip>:5555
@@ -130,7 +130,7 @@ differs slightly from stock Android TV:
 
 ---
 
-## Step 2 — Grant permissions
+## Step 2 - Grant permissions
 
 Screenlite Web Kiosk needs two permissions to function:
 
@@ -158,7 +158,7 @@ so this step is not needed there.
 
 ---
 
-## Step 3 — Configure for TV Tap List
+## Step 3 - Configure for TV Tap List
 
 ### Launch the app
 
@@ -175,7 +175,7 @@ default web page. Now open the settings:
 | Setting | Value | Notes |
 |---------|-------|-------|
 | **Kiosk URL** | `http://<container-ip>:8080/` | The address of your tap list container. Use the Docker host's LAN IP (e.g. `http://192.168.1.50:8080`), not `localhost`. |
-| **Check Interval** | `10` (seconds) | How often the app checks it is still in the foreground. Keep it at 10 unless you need more time for config tasks — longer intervals give you more time to access other apps or settings before the kiosk re-takes focus. |
+| **Check Interval** | `10` (seconds) | How often the app checks it is still in the foreground. Keep it at 10 unless you need more time for config tasks - longer intervals give you more time to access other apps or settings before the kiosk re-takes focus. |
 | **Screen Rotation** | `0°` (default) | Most TVs are landscape already. Set to `90°` or `270°` for a portrait-mounted tablet or a vertically oriented display. |
 
 Tap **Save**. The app restarts and loads your tap list in full-screen kiosk mode.
@@ -209,7 +209,7 @@ Tap **Save**. The app restarts and loads your tap list in full-screen kiosk mode
 ### Chromecast with Google TV
 
 - The Chromecast is powered via USB. Use the **supplied power adapter**, not the
-  TV's USB port — TV USB ports often provide insufficient power and can cause
+  TV's USB port - TV USB ports often provide insufficient power and can cause
   reboots under sustained use.
 - Disable the Chromecast's ambient mode:
   **Settings → System → Ambient mode → Off**.
@@ -218,7 +218,7 @@ Tap **Save**. The app restarts and loads your tap list in full-screen kiosk mode
 
 ### Fire TV Stick
 
-- Use the **supplied power adapter**, not the TV's USB port — Fire Sticks are
+- Use the **supplied power adapter**, not the TV's USB port - Fire Sticks are
   sensitive to low power and will reboot if under-supplied.
 - Disable the screen saver:
   **Settings → Display & Sounds → Screen saver → Start time → Never**.
@@ -250,7 +250,7 @@ Tap **Save**. The app restarts and loads your tap list in full-screen kiosk mode
 ### The app doesn't start on boot
 
 - Make sure the **Display over other apps** permission is granted (see
-  [Step 2](#step-2--grant-permissions)).
+  [Step 2](#step-2---grant-permissions)).
 - On some devices (especially Xiaomi, Huawei, OnePlus), the manufacturer's
   power-saving features can block apps from auto-starting. Check:
   - **Settings → Apps → Screenlite Web Kiosk → Autostart** → Enable.
@@ -259,7 +259,7 @@ Tap **Save**. The app restarts and loads your tap list in full-screen kiosk mode
 
 ### The screen goes blank or shows the Android home screen
 
-1. Verify the kiosk URL is correct — if the app cannot load the page it will show
+1. Verify the kiosk URL is correct - if the app cannot load the page it will show
    an error screen between retries. Test the URL in a normal browser on the same
    device first.
 2. Check the container is reachable from the device:
@@ -275,7 +275,7 @@ TV Tap List's display is designed for 16:9 screens. If the layout looks wrong:
 
 - On a tablet in portrait mode, set **Screen Rotation** to `90°` or `270°` in
   the kiosk settings.
-- On a 4:3 tablet or screen, the board will letterbox — this is normal.
+- On a 4:3 tablet or screen, the board will letterbox - this is normal.
 - Ensure **Screen Rotation** in the kiosk settings is `0°` for a standard
   landscape TV. The app's rotation setting overrides the device's physical
   orientation.
@@ -286,7 +286,7 @@ TV Tap List's display is designed for 16:9 screens. If the layout looks wrong:
   of the screen, right at the edge, 5 times within 2 seconds. Try restarting the
   app and tapping before the web page loads.
 - **On a TV with remote:** Press the **center / OK / select button** 5 times
-  quickly — do not navigate to a different element between presses. The D-pad
+  quickly - do not navigate to a different element between presses. The D-pad
   center button, not the back or home button.
 
 If the gesture still fails, clear the app's data to reset it to its setup state:
@@ -295,7 +295,7 @@ the app.
 
 ### The board flickers or reloads periodically
 
-The kiosk's foreground check does not reload the page — it just re-shows the
+The kiosk's foreground check does not reload the page - it just re-shows the
 same WebView. If you see the board reloading:
 
 - Make sure the board's rotation timer (`rotation_seconds` in the admin) is not

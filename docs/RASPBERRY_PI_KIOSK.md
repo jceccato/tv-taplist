@@ -23,10 +23,10 @@ For installing the TV Tap List container itself, start with
 **Contents**
 
 - [What you need](#what-you-need)
-- [Step 1 — Flash the OS and boot](#step-1--flash-the-os-and-boot)
-- [Step 2 — Enable SSH and auto-login](#step-2--enable-ssh-and-auto-login)
-- [Step 3 — Install Docker and the tap list container](#step-3--install-docker-and-the-tap-list-container)
-- [Step 4 — Run the kiosk script](#step-4--run-the-kiosk-script)
+- [Step 1 - Flash the OS and boot](#step-1---flash-the-os-and-boot)
+- [Step 2 - Enable SSH and auto-login](#step-2---enable-ssh-and-auto-login)
+- [Step 3 - Install Docker and the tap list container](#step-3---install-docker-and-the-tap-list-container)
+- [Step 4 - Run the kiosk script](#step-4---run-the-kiosk-script)
 - [Kiosk modes](#kiosk-modes)
 - [What the script does](#what-the-script-does)
 - [Troubleshooting](#troubleshooting)
@@ -35,15 +35,15 @@ For installing the TV Tap List container itself, start with
 
 ## What you need
 
-- **A Raspberry Pi** (Pi 3, 4, or 5 — any model that runs the desktop OS
+- **A Raspberry Pi** (Pi 3, 4, or 5 - any model that runs the desktop OS
   comfortably). A Pi 4 with 2 GB or more is a sweet spot.
 - **Raspberry Pi OS Desktop** (64-bit, Bookworm or Bullseye). The _Desktop_ image
-  is required — the Lite image has no GUI and cannot run a kiosk browser.
+  is required - the Lite image has no GUI and cannot run a kiosk browser.
   Download it from [raspberrypi.com/software](https://www.raspberrypi.com/software/).
 - **A microSD card** (16 GB or larger; the Desktop image needs about 5 GB plus
   room for Docker images).
 - **Power, HDMI cable, and a TV or monitor** the Pi will drive.
-- **A network connection** — Ethernet is recommended for reliability, but Wi-Fi
+- **A network connection** - Ethernet is recommended for reliability, but Wi-Fi
   works too. The Pi must be on the same network as you when you SSH in for
   setup.
 - **The TV Tap List container already running** on this Pi (or another Docker
@@ -52,7 +52,7 @@ For installing the TV Tap List container itself, start with
 
 ---
 
-## Step 1 — Flash the OS and boot
+## Step 1 - Flash the OS and boot
 
 1. **Download** the latest Raspberry Pi OS Desktop (64-bit) image from
    [raspberrypi.com/software](https://www.raspberrypi.com/software/).
@@ -65,9 +65,9 @@ For installing the TV Tap List container itself, start with
    |---------|-------|
    | Hostname | `taplist` (or any name you like) |
    | Username | `pi` (the default) |
-   | Password | Choose a strong one — you will need it for SSH |
+   | Password | Choose a strong one - you will need it for SSH |
    | Wi-Fi | Enter your SSID and password if using Wi-Fi |
-   | Enable SSH | **Yes** — choose password authentication |
+   | Enable SSH | **Yes** - choose password authentication |
    | Locale / timezone / keyboard | Set to your region |
 
    > If you skip the Imager's pre-configuration step, you can still enable SSH
@@ -79,7 +79,7 @@ For installing the TV Tap List container itself, start with
 
 ---
 
-## Step 2 — Enable SSH and auto-login
+## Step 2 - Enable SSH and auto-login
 
 These steps configure the Pi so it boots straight into the desktop without
 waiting for a password, and so you can reach it over SSH without a keyboard
@@ -111,7 +111,7 @@ Still in `raspi-config` (run it if you closed it):
 3. Select **Finish** and **reboot** when prompted.
 
 After reboot the Pi logs in and starts the desktop automatically. The
-display shows the default Raspberry Pi OS desktop — that's fine; the kiosk
+display shows the default Raspberry Pi OS desktop - that's fine; the kiosk
 script takes over after we run it.
 
 ### Verify SSH access
@@ -127,7 +127,7 @@ ssh pi@taplist.local
 
 ---
 
-## Step 3 — Install Docker and the tap list container
+## Step 3 - Install Docker and the tap list container
 
 > Skip ahead if you have already deployed the container and verified it at
 > `http://<pi-ip>:8080`.
@@ -158,7 +158,7 @@ Manual Docker Compose instructions and environment variable details are in
 
 ---
 
-## Step 4 — Run the kiosk script
+## Step 4 - Run the kiosk script
 
 SSH into the Pi and run:
 
@@ -173,7 +173,7 @@ cd tv-taplist
 bash scripts/pi-kiosk.sh
 ```
 
-The script is **interactive** — it asks before overwriting existing
+The script is **interactive** - it asks before overwriting existing
 configuration, so it's safe to re-run if you change anything later.
 
 It installs Chromium (if missing), detects your desktop environment (labwc,
@@ -182,7 +182,7 @@ disables screen blanking and power saving.
 
 ### Choosing a kiosk mode
 
-By default the script sets up **escapable fullscreen** — Chromium fills the
+By default the script sets up **escapable fullscreen** - Chromium fills the
 screen but you can press **F11** or **ESC** to exit and use the Pi normally.
 This is ideal for a home bar where the Pi doubles as a general-purpose machine.
 
@@ -227,7 +227,7 @@ KIOSK_MODE=true bash scripts/pi-kiosk.sh
 ```
 
 To switch an existing setup from one mode to the other, just re-run the script
-with the desired setting — it will overwrite the launch script and you choose
+with the desired setting - it will overwrite the launch script and you choose
 whether to keep or replace the autostart entry.
 
 ---
@@ -255,7 +255,7 @@ The kiosk launch script (`~/.config/tv-taplist-kiosk.sh`) polls the tap list
 health endpoint for up to 2 minutes before launching Chromium. This handles the
 common Docker-on-boot race: `dockerd` and the container take a few seconds to
 start after the desktop is ready. If the container is still not up after 2
-minutes, Chromium launches anyway (pointing at the URL) — it will show the
+minutes, Chromium launches anyway (pointing at the URL) - it will show the
 board as soon as the container comes online. The display page itself is
 self-refreshing, so no manual reload is needed.
 
@@ -277,7 +277,7 @@ self-refreshing, so no manual reload is needed.
   ```
   This starts Chromium on whatever display the Pi is currently using. If it
   works manually but not on boot, the compositor probably hasn't finished
-  starting before the script runs — check the autostart entry for your
+  starting before the script runs - check the autostart entry for your
   desktop environment (see below).
 
 ### The screen still blanks after a while
@@ -286,13 +286,13 @@ self-refreshing, so no manual reload is needed.
 - Verify `consoleblank=0` is present in `/boot/firmware/cmdline.txt`.
 - If using wayfire, check `~/.config/wayfire.ini` contains
   `dpms_timeout = -1` under `[core]`.
-- Some TVs have their own sleep timer — check the TV's on-screen settings menu.
+- Some TVs have their own sleep timer - check the TV's on-screen settings menu.
 
 ### Chromium complains about "managed by your organization" or shows a restore bubble
 
 The `--disable-infobars` and `--disable-session-crashed-bubble` flags suppress
 these. If Chromium's behaviour changes in a future version and these flags stop
-working, edit `~/.config/tv-taplist-kiosk.sh` — it is plain Bash and safe to
+working, edit `~/.config/tv-taplist-kiosk.sh` - it is plain Bash and safe to
 tweak.
 
 ### I want to use a different URL (e.g., the container is on another host)
@@ -306,7 +306,7 @@ DISPLAY_URL=http://192.168.1.50:8080 bash scripts/pi-kiosk.sh
 
 ### I switched from wayfire to labwc (or vice versa)
 
-Re-run the script — it detects the current desktop environment and updates the
+Re-run the script - it detects the current desktop environment and updates the
 right autostart file automatically. It asks before overwriting anything.
 
 ### I want to exit fullscreen but F11 / ESC does nothing

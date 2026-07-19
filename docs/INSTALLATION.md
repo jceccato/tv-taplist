@@ -283,8 +283,8 @@ If you are building from source instead of pulling the prebuilt image, see
    on the board](#putting-beers-on-the-board)).
 4. Point the TV's browser at `http://<host>:<port>/` in kiosk / full-screen.
    For a dedicated, auto-launching display see:
-   - [Raspberry Pi Kiosk](RASPBERRY_PI_KIOSK.md) — Pi plugged into the TV via HDMI.
-   - [Android Kiosk](ANDROID_KIOSK.md) — tablet, Android TV, Chromecast, or Fire Stick.
+   - [Raspberry Pi Kiosk](RASPBERRY_PI_KIOSK.md) - Pi plugged into the TV via HDMI.
+   - [Android Kiosk](ANDROID_KIOSK.md) - tablet, Android TV, Chromecast, or Fire Stick.
 
 If `/data` won't persist, it's almost always a `PUID`/`PGID` mismatch with the host
 owner of the data directory.

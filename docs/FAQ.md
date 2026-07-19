@@ -50,17 +50,17 @@ lock-down for your venue:
 
 | Mode | How to enable | Exit key | Use case |
 |------|--------------|----------|----------|
-| **Escapable fullscreen** | Default — just run `bash scripts/pi-kiosk.sh` | **F11** or **ESC** | Home bar, shared Pi where you want to use the desktop normally |
+| **Escapable fullscreen** | Default - just run `bash scripts/pi-kiosk.sh` | **F11** or **ESC** | Home bar, shared Pi where you want to use the desktop normally |
 | **Locked kiosk** | `KIOSK_MODE=true bash scripts/pi-kiosk.sh` | **Alt+F4** (or kill the process over SSH) | Public venue, taproom where the display must stay locked |
 
-To switch modes later, re-run the script with the desired setting — it overwrites
+To switch modes later, re-run the script with the desired setting - it overwrites
 the launch script and asks before touching the autostart entry.
 
 Both modes boot straight into Chromium when the Pi starts and poll the health
 endpoint so they handle the Docker-on-boot startup race gracefully.
 
 If you already have a display set up (a laptop, a smart TV's built-in browser,
-anything), just point it at `http://<host>:8080` and go full-screen — no script
+anything), just point it at `http://<host>:8080` and go full-screen - no script
 needed.
 
 ---

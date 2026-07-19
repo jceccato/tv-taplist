@@ -30,7 +30,7 @@ When a vulnerability is reported, we aim to:
 
 1. **Acknowledge** within 5 business days.
 2. **Validate and assess severity** within 10 business days.
-3. **Develop and test a fix** — timeline varies by complexity.
+3. **Develop and test a fix** - timeline varies by complexity.
 4. **Coordinate disclosure** with the reporter. We prefer to publish the fix
    and the advisory simultaneously.
 5. **Credit the reporter** in the advisory (with permission).
@@ -39,7 +39,7 @@ When a vulnerability is reported, we aim to:
 
 ### In scope
 
-- The web application (`app/` — FastAPI routes, auth, API endpoints)
+- The web application (`app/` - FastAPI routes, auth, API endpoints)
 - The Docker image build and entrypoint
 - The admin interface and its authentication
 - Data handling and file I/O in the mapped `/data` directory
@@ -62,7 +62,7 @@ local network behind a reverse proxy. Key security properties:
 - **Admin authentication** uses signed, `HttpOnly`, `SameSite=Strict` cookies
   (`Secure` when served over HTTPS). Login is rate-limited (5 failures per 5
   minutes per IP).
-- **The display endpoint (`/`) and `/api/board` are public** — no authentication
+- **The display endpoint (`/`) and `/api/board` are public** - no authentication
   required. The board API deliberately omits sync-status and error details.
 - **Upload validation happens before any filesystem change.** Rejected uploads
   never delete existing data. Image responses carry `Content-Security-Policy:
