@@ -387,6 +387,21 @@ def _tri_from_form(value: str) -> bool | None:
     return None
 
 
+def _shadow_beer_name(tap: int) -> str | None:
+    """The Brewfather Beer waiting under a Manual override on this Slot.
+
+    None when there is no Brewfather file for the Slot. A file that exists but
+    will not read still counts as waiting - the operator should be told the Slot
+    will not go Vacant - so it falls back to a generic label rather than
+    pretending nothing is there.
+    """
+    if not taps.exists(tap, taps.Source.BREWFATHER):
+        return None
+    shadow = taps.read(tap, taps.Source.BREWFATHER)
+    name = (shadow.front_matter.get("name") or "").strip() if shadow else ""
+    return name or "a Brewfather beer"
+
+
 def _build_admin_tap_rows(cfg: dict) -> list[dict]:
     """Per-tap admin state: override on/off and current values to prefill.
 
@@ -430,6 +445,15 @@ def _build_admin_tap_rows(cfg: dict) -> list[dict]:
             # file and is never read back as truth.
             "source": str(tap_file.source) if tap_file is not None else None,
             "image_url": f"/img/{img.name}" if img else None,
+            # The shadow hint: which Brewfather Beer is waiting under this
+            # override. Both Sources holding a file for one Slot is the normal
+            # case now (the Brewfather Tap is kept warm underneath), so the row
+            # says so in words rather than letting the operator discover a
+            # second file in the data directory and delete it. Deliberately a
+            # name and nothing else - no thumbnail, because a second photo is
+            # exactly the Admin-versus-TV divergence just closed, reintroduced
+            # as a picture.
+            "shadow_name": _shadow_beer_name(tap) if override else None,
         })
     return rows
 
@@ -683,8 +707,13 @@ async def save_override(
         front_matter["image"] = image_name
         taps.write(tap, taps.Source.MANUAL, front_matter, description)
 
-        # Archive any bf_tap_X for this slot so it is set aside cleanly.
-        archive_tap(tap, taps.Source.BREWFATHER)
+        # The Brewfather Tap for this Slot is deliberately left alone. It stays
+        # warm underneath: nothing displays it while this Manual Tap stands
+        # (resolve picks Manual first), sync keeps it current, and clearing the
+        # override above reveals it instantly instead of leaving the Slot Vacant
+        # until the next sync cycle. Overriding a Slot for one night is not a
+        # destructive act. Archiving the *Manual* Tap on clear remains the only
+        # way to drop Manual precedence.
         log.info("override saved for tap %d (name=%r image=%s)", tap, front_matter["name"], image_name)
         return {"ok": True, "override": True, "image_url": f"/img/{image_name}" if image_name else None}
 

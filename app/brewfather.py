@@ -32,11 +32,18 @@ Efficient fetch (rate limit is 500 calls/hour per key):
   Completed batches accumulate. Per sync we now make ceil(N/50) calls, and
   change-detection skips image downloads / file rewrites for unchanged batches.
 
-Tap assignment: parse the batch notes text for a `tap:X` token.
+Tap assignment: parse the batch notes text for a `tap:X` token. A token is
+accepted from 1 to MAX_NUM_TAPS - a system bound, not the operator's tap count -
+and an out-of-range one is logged with the batch named.
 
 Desired-tap-map / archive: after a successful sync, any Brewfather-managed tap
-whose batch no longer maps to it is archived. Manual overrides are never read,
-written, or archived. A failed sync makes NO destructive changes.
+whose batch no longer maps to it is archived. Brewfather's claim is the *only*
+thing that drives a write or an archive here - not the operator's tap count, and
+not whether a Manual override is sitting on the Slot. A Brewfather Tap under an
+override is kept warm: nothing displays it while the override stands, but
+clearing the override reveals a current Beer instead of a Vacant Slot. Manual
+Taps are never read, written, or archived (see SYNC_SOURCE). A failed sync makes
+NO destructive changes.
 
 Storage: this module never spells a Tap filename. Every read, write, image save
 and enumeration goes through the Tap file store addressed by Slot and Source
@@ -56,6 +63,7 @@ from .atomic import JOB_LOCK
 from .beer_glass import GLASS_KEYS
 from .colors import EBC_PER_SRM, parse_hex_color, parse_saturation
 from .config_store import (
+    MAX_NUM_TAPS,
     ConfigUnreadable,
     brewfather_credentials,
     load_config,
@@ -70,9 +78,9 @@ log = logging.getLogger("taplist.sync")
 # store call is what makes "sync never touches a Manual Tap" *structural* rather
 # than remembered: the store derives the filename from the Source, so there is
 # no spelling of a call in here - not a typo, not a copy-paste - that could name
-# a custom_tap_X file. Sync still *asks* whether a Slot is Manual (see
-# `run_sync` and `_archive_undesired`), but those are existence checks, and
-# every read, write, image save and enumeration below passes SYNC_SOURCE.
+# a custom_tap_X file. Every read, write, image save, enumeration and archive
+# below passes SYNC_SOURCE, and sync no longer asks about the Manual Source at
+# all - so the rule holds without a single guard to forget.
 SYNC_SOURCE = taps.Source.BREWFATHER
 
 
@@ -316,14 +324,33 @@ def _extract_updated_ms(batch: dict[str, Any]) -> int:
 
 
 def _find_tap_number(batch: dict[str, Any]) -> int | None:
+    """The Slot a batch claims via its `tap:X` note token, or None for no claim.
+
+    The accepted range is 1..MAX_NUM_TAPS, which is a *system* bound, not the
+    operator's configured tap count. Sync deliberately never consults the tap
+    count: that is a display setting, and letting it decide what gets written or
+    archived is what used to make lowering the tap count silently destroy Beer
+    data. The system bound still stops one fat-fingered token (`tap:9999`) from
+    minting files nothing can ever display.
+
+    An out-of-range token is logged with the batch named, because silence is how
+    a mistyped token stays mistyped - the operator otherwise has no way to find
+    out why a beer never appeared.
+    """
     m = TAP_TOKEN_RE.search(_extract_notes_text(batch))
     if not m:
         return None
     try:
         n = int(m.group(1))
-        return n if n >= 1 else None
     except ValueError:
         return None
+    if 1 <= n <= MAX_NUM_TAPS:
+        return n
+    log.warning(
+        "ignoring out-of-range token 'tap:%d' on batch %r (valid range is 1-%d)",
+        n, _extract_name(batch), MAX_NUM_TAPS,
+    )
+    return None
 
 
 def _extract_saturation(batch: dict[str, Any]) -> float | None:
@@ -566,7 +593,9 @@ def run_sync() -> dict[str, Any]:
     creds = brewfather_credentials()
     user_id, api_key = creds["user_id"], creds["api_key"]
     cfg = load_config()
-    num_taps = int(cfg.get("num_taps", 0) or 0)
+    # The configured tap count is deliberately NOT read here: it is a display
+    # setting, and sync depends only on what Brewfather claims. See
+    # `_find_tap_number` and `_archive_undesired`.
     # Statuses to pull: always Completed, plus Conditioning when the operator
     # opts in (a beer on tap but still lagering / too green to mark Completed).
     statuses = ["Completed"]
@@ -592,20 +621,21 @@ def run_sync() -> dict[str, Any]:
                 log.info("fetched %d batches (statuses=%s)", len(batches), statuses)
 
                 desired = _build_desired_map(batches)
-                # Only manage taps within the configured count.
-                desired = {t: v for t, v in desired.items() if 1 <= t <= num_taps}
                 log.info("desired Brewfather tap map: %s", sorted(desired.keys()))
 
                 written = 0
                 unchanged = 0
-                skipped_overrides = 0
                 for tap, entry in desired.items():
-                    if taps.exists(tap, taps.Source.MANUAL):
-                        # Never read/write/archive a manual override. This is a
-                        # read-only question about the *other* Source; the write
-                        # below can only ever address SYNC_SOURCE.
-                        skipped_overrides += 1
-                        continue
+                    # A Manual override on this Slot is deliberately NOT checked
+                    # here. The Brewfather Tap is kept warm underneath it: the
+                    # display never shows it while the override stands (resolve
+                    # picks Manual first), but the instant the operator clears
+                    # the override the Slot is current rather than Vacant for up
+                    # to a whole sync interval. The cost is one image download
+                    # and one file write per cycle for a beer nobody can see;
+                    # the batch list fetch is unchanged, so the API rate limit is
+                    # unaffected. The write can only ever address SYNC_SOURCE,
+                    # so the Manual file is still untouchable from here.
                     rev = entry["updated_ms"]
                     if _is_unchanged(tap, entry["batch"], rev):
                         unchanged += 1
@@ -613,9 +643,8 @@ def run_sync() -> dict[str, Any]:
                     _write_bf_tap(img_client, tap, entry["batch"], rev)
                     written += 1
 
-                # Archive any existing bf_tap that is no longer desired and is
-                # not a manual override.
-                archived = _archive_undesired(desired, num_taps)
+                # Archive any existing bf_tap no Batch claims any more.
+                archived = _archive_undesired(desired)
 
         except httpx.HTTPStatusError as exc:
             # Auth / API / rate-limit errors: make NO destructive changes.
@@ -637,33 +666,41 @@ def run_sync() -> dict[str, Any]:
         ts = iso_now()
         _record_status(last_sync_success=ts, last_sync_error=None, last_sync_attempt=ts)
         log.info(
-            "sync finished: %d written, %d unchanged, %d archived, %d override slots skipped",
-            written, unchanged, archived, skipped_overrides,
+            "sync finished: %d written, %d unchanged, %d archived",
+            written, unchanged, archived,
         )
         return {
             "ok": True,
             "written": written,
             "unchanged": unchanged,
             "archived": archived,
-            "skipped_overrides": skipped_overrides,
             "timestamp": ts,
         }
 
 
-def _archive_undesired(desired: dict[int, Any], num_taps: int) -> int:
-    """Archive Brewfather Taps whose batch no longer maps to their Slot.
+def _archive_undesired(desired: dict[int, Any]) -> int:
+    """Archive Brewfather Taps that no Batch claims any more.
 
-    The store's enumeration is deliberately unbounded by the configured tap
-    count, which is exactly what this scan needs: an operator who lowered the
-    tap count still has Brewfather files sitting at the old higher Slots, and
-    those orphans are the ones that have to be found here. Do not bound it.
+    One condition, and deliberately only one: no Batch carries this Slot's
+    `tap:` token. Two others used to sit here and both were wrong.
+
+    * The Manual-occupancy skip is gone. Archiving no longer consults override
+      state at all - a Brewfather Tap under an override is kept current, not set
+      aside, so clearing the override reveals a live Beer. (A Manual Tap is
+      still never archived from here: every call below passes SYNC_SOURCE.)
+    * The tap-count filter is gone. It made a presentation choice destroy Beer
+      data: lowering the tap count archived every Brewfather Tap above the new
+      number, and raising it back did not bring them back.
+
+    The store's enumeration stays deliberately unbounded by the configured tap
+    count, which is what this scan needs: a Brewfather file stranded at a Slot
+    above the tap count is exactly the orphan to find here once no Batch claims
+    it. Do not bound it.
     """
     archived = 0
     for tap in taps.occupied_slots(SYNC_SOURCE):
-        if taps.exists(tap, taps.Source.MANUAL):
-            continue  # never touch a manual override slot
         if tap in desired:
-            continue  # still wanted
+            continue  # still claimed by a Batch
         if archive_tap(tap, SYNC_SOURCE):
             archived += 1
     return archived

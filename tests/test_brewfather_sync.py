@@ -316,14 +316,91 @@ def test_sync_rewrites_when_revision_changes(mock_network):
     assert taps.read(2, taps.Source.BREWFATHER).front_matter["name"] == "Ale Renamed"
 
 
-def test_sync_never_touches_manual_override(mock_network, write_tap):
+def test_sync_writes_into_a_manual_occupied_slot_without_touching_the_manual_tap(
+        mock_network, write_tap):
+    # Sync no longer skips a Slot that carries a Manual override: it keeps the
+    # Brewfather Tap warm underneath, so clearing the override reveals a current
+    # Beer instead of a Vacant Slot. Nothing displays it meanwhile - resolve
+    # picks Manual first - and the Manual file itself is still untouched.
     _set_creds()
     write_tap("custom", 2, name="My Override", abv=4.2, ebc=8)
-    mock_network["batches"] = [_batch("b1", 2, "Should Not Win")]
+    mock_network["batches"] = [_batch("b1", 2, "Waiting Underneath")]
     result = brewfather.run_sync()
-    assert result["skipped_overrides"] == 1
-    assert not taps.exists(2, taps.Source.BREWFATHER)
+    assert result["written"] == 1
+    assert taps.read(2, taps.Source.BREWFATHER).front_matter["name"] == "Waiting Underneath"
+    # The Manual Tap is unchanged, and still the one that wins.
     assert taps.read(2, taps.Source.MANUAL).front_matter["name"] == "My Override"
+    assert taps.resolve(2).source is taps.Source.MANUAL
+
+
+def test_sync_does_not_archive_a_claimed_slot_under_an_override(mock_network, write_tap):
+    # The archive decision does not consult override state at all any more. A
+    # Slot a Batch still claims is kept, override or not.
+    _set_creds()
+    write_tap("custom", 2, name="My Override", abv=4.2, ebc=8)
+    write_tap("bf", 2, name="Was Here", abv=5, ebc=10)
+    mock_network["batches"] = [_batch("b1", 2, "Still Claimed")]
+    result = brewfather.run_sync()
+    assert result["archived"] == 0
+    assert taps.exists(2, taps.Source.BREWFATHER)
+    assert list(paths.OLD_BEERS_DIR.glob("*")) == []
+
+
+def test_sync_archives_an_unclaimed_slot_even_under_an_override(mock_network, write_tap):
+    # ...and the converse: an override does not preserve a Brewfather Tap whose
+    # Batch dropped its tap: token. Losing the claim is the one and only cause.
+    _set_creds()
+    write_tap("custom", 1, name="My Override", abv=4.2, ebc=8)
+    write_tap("bf", 1, name="Retiring Ale", abv=5, ebc=10)
+    mock_network["batches"] = [_batch("b1", 2, "New Tap Two")]
+    result = brewfather.run_sync()
+    assert result["archived"] == 1
+    assert not taps.exists(1, taps.Source.BREWFATHER)
+    assert taps.exists(1, taps.Source.MANUAL)  # the Manual Tap is never archived here
+    assert list(paths.OLD_BEERS_DIR.glob("custom_tap_1_*")) == []
+
+
+def test_tap_count_change_causes_no_write_no_archive_and_no_data_loss(mock_network):
+    # The tap count is a display setting. Lowering it used to archive every
+    # Brewfather Tap above the new number, and raising it back did not bring
+    # them back - a presentation choice destroying Beer data with no warning.
+    _set_creds()  # num_taps=4
+    mock_network["batches"] = [_batch("b1", 1, "One"), _batch("b4", 4, "Four")]
+    assert brewfather.run_sync()["written"] == 2
+
+    config_store.update_config(num_taps=1)  # tap 4 is now off the board
+    result = brewfather.run_sync()
+    assert (result["written"], result["archived"]) == (0, 0)
+    assert taps.exists(4, taps.Source.BREWFATHER)
+    assert list(paths.OLD_BEERS_DIR.glob("*")) == []
+
+    config_store.update_config(num_taps=4)  # and back again
+    result = brewfather.run_sync()
+    assert (result["written"], result["archived"]) == (0, 0)
+    assert taps.read(4, taps.Source.BREWFATHER).front_matter["name"] == "Four"
+
+
+def test_out_of_range_tap_token_is_rejected_and_logged(mock_network, caplog):
+    # A mistyped token must not mint a file nothing can display, and must not
+    # pass in silence either - silence is how a mistyped token stays mistyped.
+    _set_creds()
+    too_high = config_store.MAX_NUM_TAPS + 1
+    mock_network["batches"] = [_batch("b1", too_high, "Fat Fingered Ale")]
+    with caplog.at_level("WARNING", logger="taplist.sync"):
+        result = brewfather.run_sync()
+    assert result["written"] == 0
+    assert not taps.exists(too_high, taps.Source.BREWFATHER)
+    assert "Fat Fingered Ale" in caplog.text
+    assert str(too_high) in caplog.text
+
+
+def test_tap_token_above_the_tap_count_still_syncs(mock_network):
+    # The bound is MAX_NUM_TAPS, not the operator's tap count: a Slot above the
+    # tap count is simply not displayed, which is a display decision.
+    _set_creds()  # num_taps=4
+    mock_network["batches"] = [_batch("b1", 9, "Slot Nine Ale")]
+    assert brewfather.run_sync()["written"] == 1
+    assert taps.read(9, taps.Source.BREWFATHER).front_matter["name"] == "Slot Nine Ale"
 
 
 def test_sync_archives_undesired_bf_tap(mock_network, write_tap):

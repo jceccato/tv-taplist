@@ -256,7 +256,7 @@
     <div class="tab-panel" id="tab-overrides" role="tabpanel" hidden>
       <section class="card-panel">
         <h2>Manual overrides</h2>
-        <p class="hint">A checked tap is controlled manually and is never touched by the Brewfather sync. Unchecking releases the slot back to Brewfather on the next sync.</p>
+        <p class="hint">A checked tap is controlled manually and is never touched by the Brewfather sync. The Brewfather beer stays kept up to date underneath, so unchecking shows it again straight away - no sync needed.</p>
         {% if rows|length == 0 %}
           <p class="muted">Set a tap count on the Settings tab and save to manage individual taps.</p>
         {% endif %}
@@ -272,6 +272,13 @@
               <span class="source-tag">{{ 'custom' if row.override else (row.source or 'vacant') }}</span>
             </div>
             <div class="override-fields" {{ '' if row.override else 'hidden' }}>
+              {% if row.shadow_name %}
+              {# Read-only shadow hint: the Brewfather beer kept warm under this
+                 override. Text only, on purpose - no thumbnail (a second photo
+                 is how Admin and the TV used to disagree), no preview toggle,
+                 no clear-and-show shortcut. #}
+              <p class="hint" data-shadow-hint>Brewfather has <strong>{{ row.shadow_name }}</strong> waiting on this tap. It appears here and on the TV if you clear the override.</p>
+              {% endif %}
               <div class="field"><label>Beer name</label><input type="text" name="name" value="{{ row.name }}"></div>
               <div class="field-row">
                 <div class="field"><label>ABV %</label><input type="number" step="0.1" name="abv" value="{{ row.abv }}"></div>
