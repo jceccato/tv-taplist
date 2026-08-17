@@ -209,6 +209,14 @@ def mock_network(monkeypatch):
     The fake fetch mirrors the real `_list_batches`: it returns only batches whose
     status is among the requested statuses, deduped by _id - so run_sync tests
     genuinely exercise the include_conditioning status selection.
+
+    The fake download mirrors nothing. `_download_image` now returns bytes plus an
+    extension for the Tap file store to file, so the fake only has to answer
+    "did this URL download, and to what?" - it picks no filename, reproduces no
+    extension rules, and writes nothing. Whether the bytes reach the right file
+    on disk is then a real assertion about production code rather than about the
+    fixture. `state["downloads"]` maps a URL -> (bytes, ext); a URL that is
+    absent from it stands for a failed download.
     """
     state = {"batches": [], "downloads": {}}
 
@@ -227,11 +235,8 @@ def mock_network(monkeypatch):
 
     monkeypatch.setattr(brewfather, "_list_batches", fake_list)
 
-    def fake_download(client, url, stem):
-        name = state["downloads"].get(stem)
-        if name:
-            (paths.TAPS_DIR / name).write_bytes(b"img")
-        return name
+    def fake_download(client, url):
+        return state["downloads"].get(url)
 
     monkeypatch.setattr(brewfather, "_download_image", fake_download)
     return state
@@ -389,7 +394,39 @@ def test_sync_keeps_cached_image_when_download_fails(mock_network):
     assert (paths.TAPS_DIR / "bf_tap_3.webp").read_bytes() == b"old-good-image"
 
 
+def test_sync_saves_downloaded_image_through_the_store(mock_network):
+    # The bytes `_download_image` returns must end up in the file paired with the
+    # Slot's Tap file, under the extension the download reported. This is the
+    # coverage that used to live inside the download function itself, back when
+    # it picked the filename and wrote the file.
+    _set_creds()
+    mock_network["downloads"] = {"http://x/y.webp": (b"img-bytes", ".webp")}
+    mock_network["batches"] = [_batch(
+        "b4", 4, "Photo Ale", recipe={"img_url": "http://x/y.webp", "ibu": 20})]
+    brewfather.run_sync()
+    assert (paths.TAPS_DIR / "bf_tap_4.webp").read_bytes() == b"img-bytes"
+    assert md.read_tap_file(md.bf_md_path(4))["image"] == "bf_tap_4.webp"
+
+
+def test_sync_archives_bf_tap_above_the_tap_count(mock_network, write_tap):
+    # The orphan scan asks the store for occupied Slots, and that enumeration is
+    # deliberately unbounded by the configured tap count: a Brewfather file left
+    # at a Slot above it must still be found and retired. Bounding the scan would
+    # leave these files stranded forever.
+    _set_creds()  # num_taps=4
+    write_tap("bf", 9, name="Stranded Ale", abv=5, ebc=10)
+    mock_network["batches"] = [_batch("b1", 2, "New Tap Two")]
+    result = brewfather.run_sync()
+    assert result["archived"] == 1
+    assert not md.bf_md_path(9).exists()
+    assert list(paths.OLD_BEERS_DIR.glob("bf_tap_9_*.md"))
+
+
 def test_download_image_preserves_source_extension():
+    # `_download_image` is now a pure fetch: it returns the bytes and the
+    # extension it worked out, and the Tap file store does the filing. The
+    # end-to-end "the photo lands next to its Tap file" assertion lives in
+    # test_sync_saves_downloaded_image_through_the_store above.
     class FakeResp:
         content = b"webp-bytes"
         headers = {"content-type": "image/webp"}
@@ -400,9 +437,7 @@ def test_download_image_preserves_source_extension():
         def get(self, url, **kw):
             return FakeResp()
 
-    name = brewfather._download_image(FakeClient(), "http://x/pic.webp", "bf_tap_9")
-    assert name == "bf_tap_9.webp"
-    assert (paths.TAPS_DIR / "bf_tap_9.webp").exists()
+    assert brewfather._download_image(FakeClient(), "http://x/pic.webp") == (b"webp-bytes", ".webp")
 
 
 def test_image_client_carries_no_credentials():
