@@ -135,6 +135,6 @@ to run the test suite:
 python -m pytest -q
 ```
 
-127 tests cover colours, beer-glass rendering, themes, storage, config coercion,
-board resolution, Brewfather sync, cleanup, the admin HTTP surface, and a
-server↔client constant-drift guard.
+The suite covers colours, beer-glass rendering, themes, the Tap file store and
+Source precedence, config coercion, board resolution, Brewfather sync, cleanup,
+the admin HTTP surface, and a server-to-client constant-drift guard.

@@ -1,7 +1,7 @@
 """Daily archive cleanup of old_beers/.
 
 Each archived beer is a *pair*: a markdown file and its image, sharing a stem
-like 'bf_tap_3_20260624T1530'. Both are deleted together and both count toward
+like 'bf_tap_3_20260624T153000'. Both are deleted together and both count toward
 the folder total.
 
 Two conditions, applied in order:
