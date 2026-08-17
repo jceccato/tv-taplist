@@ -1,7 +1,13 @@
-"""Atomic writes, front-matter round-trips, config bootstrap/coercion."""
+"""Atomic writes, front-matter round-trips, config bootstrap/coercion.
+
+The front-matter format layer stayed public when path construction moved into
+the Tap file store, so these tests are pointed at `tap_store` rather than
+folded into `test_tap_store.py`: the rest of this file is about atomic writes
+and the config store, which the Tap file store has nothing to do with.
+"""
 import json
 
-from app import config_store, markdown_store as md, paths
+from app import config_store, paths, tap_store as taps
 from app.atomic import atomic_write_bytes, atomic_write_text, safe_unlink
 
 
@@ -31,8 +37,8 @@ def test_safe_unlink_is_race_safe():
 def test_front_matter_round_trip():
     fm = {"name": "West Coast IPA", "abv": 6.8, "ibu": 65, "ebc": 18, "source": "custom", "image": None}
     body = "Bright citrus and pine."
-    text = md.serialise_markdown(fm, body)
-    parsed_fm, parsed_body = md.parse_markdown(text)
+    text = taps.serialise_markdown(fm, body)
+    parsed_fm, parsed_body = taps.parse_markdown(text)
     assert parsed_fm["name"] == "West Coast IPA"
     assert parsed_fm["abv"] == 6.8
     assert parsed_fm["image"] is None
@@ -40,19 +46,21 @@ def test_front_matter_round_trip():
 
 
 def test_read_tap_file_missing_returns_none():
-    assert md.read_tap_file(paths.TAPS_DIR / "nope.md") is None
+    # A Slot no Source holds reads as None rather than raising - the store is
+    # addressed by Slot and Source now, so there is no path to hand it.
+    assert taps.read(99, taps.Source.BREWFATHER) is None
 
 
 def test_parse_markdown_tolerates_no_front_matter():
-    fm, body = md.parse_markdown("just a body, no front matter")
+    fm, body = taps.parse_markdown("just a body, no front matter")
     assert fm == {}
     assert body == "just a body, no front matter"
 
 
 def test_is_manual_override_detects_custom_file(write_tap):
-    assert md.is_manual_override(3) is False
+    assert taps.exists(3, taps.Source.MANUAL) is False
     write_tap("custom", 3, name="Mine")
-    assert md.is_manual_override(3) is True
+    assert taps.exists(3, taps.Source.MANUAL) is True
 
 
 def test_config_bootstrap_creates_default():

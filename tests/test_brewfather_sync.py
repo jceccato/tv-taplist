@@ -2,7 +2,7 @@
 import httpx
 import pytest
 
-from app import brewfather, config_store, markdown_store as md, paths
+from app import brewfather, config_store, paths, tap_store as taps
 
 
 # ---- field extraction --------------------------------------------------
@@ -252,7 +252,7 @@ def test_sync_writes_bf_tap(mock_network):
     result = brewfather.run_sync()
     assert result["ok"] is True
     assert result["written"] == 1
-    data = md.read_tap_file(md.bf_md_path(2))
+    data = taps.read(2, taps.Source.BREWFATHER).front_matter
     assert data["name"] == "Tap Two Ale"
     assert data["source"] == "brewfather"
 
@@ -263,7 +263,7 @@ def test_sync_includes_conditioning_when_enabled(mock_network):
     mock_network["batches"] = [_batch("c1", 3, "Lagering Pils", status="Conditioning")]
     result = brewfather.run_sync()
     assert result["written"] == 1
-    assert md.read_tap_file(md.bf_md_path(3))["name"] == "Lagering Pils"
+    assert taps.read(3, taps.Source.BREWFATHER).front_matter["name"] == "Lagering Pils"
 
 
 def test_sync_ignores_conditioning_when_disabled(mock_network):
@@ -271,14 +271,14 @@ def test_sync_ignores_conditioning_when_disabled(mock_network):
     mock_network["batches"] = [_batch("c1", 3, "Lagering Pils", status="Conditioning")]
     result = brewfather.run_sync()
     assert result["written"] == 0
-    assert not md.bf_md_path(3).exists()
+    assert not taps.exists(3, taps.Source.BREWFATHER)
 
 
 def test_sync_writes_saturation_token(mock_network):
     _set_creds()
     mock_network["batches"] = [_batch("b1", 2, "Muted Ale", batchNotes="tap:2 saturation:50")]
     brewfather.run_sync()
-    assert md.read_tap_file(md.bf_md_path(2))["saturation"] == 0.5
+    assert taps.read(2, taps.Source.BREWFATHER).front_matter["saturation"] == 0.5
 
 
 def test_sync_writes_colour_glass_and_gravity(mock_network):
@@ -288,7 +288,7 @@ def test_sync_writes_colour_glass_and_gravity(mock_network):
         batchNotes="tap:2 colour:#445566 glass:tulip",
         measuredOg=1.055, measuredFg=1.012)]
     brewfather.run_sync()
-    data = md.read_tap_file(md.bf_md_path(2))
+    data = taps.read(2, taps.Source.BREWFATHER).front_matter
     assert data["color_override"] == "#445566"
     assert data["glass"] == "tulip"
     assert data["og"] == 1.055
@@ -313,7 +313,7 @@ def test_sync_rewrites_when_revision_changes(mock_network):
     mock_network["batches"] = [_batch("b1", 2, "Ale Renamed", _timestamp_ms=2000)]
     result = brewfather.run_sync()
     assert result["written"] == 1
-    assert md.read_tap_file(md.bf_md_path(2))["name"] == "Ale Renamed"
+    assert taps.read(2, taps.Source.BREWFATHER).front_matter["name"] == "Ale Renamed"
 
 
 def test_sync_never_touches_manual_override(mock_network, write_tap):
@@ -322,8 +322,8 @@ def test_sync_never_touches_manual_override(mock_network, write_tap):
     mock_network["batches"] = [_batch("b1", 2, "Should Not Win")]
     result = brewfather.run_sync()
     assert result["skipped_overrides"] == 1
-    assert not md.bf_md_path(2).exists()
-    assert md.read_tap_file(md.custom_md_path(2))["name"] == "My Override"
+    assert not taps.exists(2, taps.Source.BREWFATHER)
+    assert taps.read(2, taps.Source.MANUAL).front_matter["name"] == "My Override"
 
 
 def test_sync_archives_undesired_bf_tap(mock_network, write_tap):
@@ -332,7 +332,7 @@ def test_sync_archives_undesired_bf_tap(mock_network, write_tap):
     mock_network["batches"] = [_batch("b1", 2, "New Tap Two")]
     result = brewfather.run_sync()
     assert result["archived"] == 1
-    assert not md.bf_md_path(1).exists()
+    assert not taps.exists(1, taps.Source.BREWFATHER)
     assert list(paths.OLD_BEERS_DIR.glob("bf_tap_1_*.md"))
     assert list(paths.OLD_BEERS_DIR.glob("bf_tap_1_*.jpg"))
 
@@ -347,7 +347,7 @@ def test_failed_sync_makes_no_destructive_changes(mock_network, write_tap, monke
     monkeypatch.setattr(brewfather, "_list_batches", boom)
     result = brewfather.run_sync()
     assert result["ok"] is False
-    assert md.bf_md_path(1).exists()
+    assert taps.exists(1, taps.Source.BREWFATHER)
     assert list(paths.OLD_BEERS_DIR.glob("*")) == []
     assert config_store.load_config()["last_sync_error"]
 
@@ -364,7 +364,7 @@ def test_rate_limit_429_is_reported_without_changes(mock_network, write_tap, mon
     result = brewfather.run_sync()
     assert result["ok"] is False
     assert "rate limit" in result["message"].lower()
-    assert md.bf_md_path(1).exists()  # nothing destroyed
+    assert taps.exists(1, taps.Source.BREWFATHER)  # nothing destroyed
 
 
 def test_sync_skipped_without_credentials(mock_network):
@@ -389,7 +389,7 @@ def test_sync_keeps_cached_image_when_download_fails(mock_network):
     mock_network["batches"] = [_batch("b3", 3, "Tap Three", recipe={"img_url": "http://x/y.webp", "ibu": 20})]
     mock_network["downloads"] = {}  # download returns None
     brewfather.run_sync()
-    data = md.read_tap_file(md.bf_md_path(3))
+    data = taps.read(3, taps.Source.BREWFATHER).front_matter
     assert data["image"] == "bf_tap_3.webp"
     assert (paths.TAPS_DIR / "bf_tap_3.webp").read_bytes() == b"old-good-image"
 
@@ -405,7 +405,7 @@ def test_sync_saves_downloaded_image_through_the_store(mock_network):
         "b4", 4, "Photo Ale", recipe={"img_url": "http://x/y.webp", "ibu": 20})]
     brewfather.run_sync()
     assert (paths.TAPS_DIR / "bf_tap_4.webp").read_bytes() == b"img-bytes"
-    assert md.read_tap_file(md.bf_md_path(4))["image"] == "bf_tap_4.webp"
+    assert taps.read(4, taps.Source.BREWFATHER).front_matter["image"] == "bf_tap_4.webp"
 
 
 def test_sync_archives_bf_tap_above_the_tap_count(mock_network, write_tap):
@@ -418,7 +418,7 @@ def test_sync_archives_bf_tap_above_the_tap_count(mock_network, write_tap):
     mock_network["batches"] = [_batch("b1", 2, "New Tap Two")]
     result = brewfather.run_sync()
     assert result["archived"] == 1
-    assert not md.bf_md_path(9).exists()
+    assert not taps.exists(9, taps.Source.BREWFATHER)
     assert list(paths.OLD_BEERS_DIR.glob("bf_tap_9_*.md"))
 
 

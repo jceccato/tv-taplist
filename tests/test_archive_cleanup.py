@@ -3,7 +3,7 @@ import os
 import re
 import time
 
-from app import cleanup, config_store, markdown_store as md, paths, tap_store as taps
+from app import cleanup, config_store, paths, tap_store as taps
 from app.archive import archive_tap
 
 
@@ -11,7 +11,7 @@ def test_archive_moves_md_and_image_pair(write_tap):
     write_tap("bf", 3, name="Retiring", abv=5, ebc=10, image_ext=".jpg")
     assert archive_tap(3, taps.Source.BREWFATHER) is True
     # Originals gone.
-    assert not md.bf_md_path(3).exists()
+    assert not taps.exists(3, taps.Source.BREWFATHER)
     assert not (paths.TAPS_DIR / "bf_tap_3.jpg").exists()
     # Archived with datetime suffix, both md + image.
     assert list(paths.OLD_BEERS_DIR.glob("bf_tap_3_*.md"))
@@ -26,7 +26,7 @@ def test_archive_without_image_still_succeeds(write_tap):
     """A Tap with no photo archives its md alone rather than failing."""
     write_tap("bf", 4, name="No Photo", abv=5, ebc=10)
     assert archive_tap(4, taps.Source.BREWFATHER) is True
-    assert not md.bf_md_path(4).exists()
+    assert not taps.exists(4, taps.Source.BREWFATHER)
     archived = list(paths.OLD_BEERS_DIR.glob("bf_tap_4_*.md"))
     assert len(archived) == 1
     # The suffix is second-precision; cleanup and a human both read it back by
@@ -41,10 +41,10 @@ def test_archive_manual_source_targets_the_custom_files(write_tap):
 
     assert archive_tap(6, taps.Source.MANUAL) is True
 
-    assert not md.custom_md_path(6).exists()
+    assert not taps.exists(6, taps.Source.MANUAL)
     assert list(paths.OLD_BEERS_DIR.glob("custom_tap_6_*.md"))
     assert list(paths.OLD_BEERS_DIR.glob("custom_tap_6_*.png"))
-    assert md.bf_md_path(6).exists()
+    assert taps.exists(6, taps.Source.BREWFATHER)
 
 
 def _make_archived(stem: str, *, age_days: float = 0.0, md_size: int = 10, img_size: int = 10):

@@ -18,8 +18,8 @@ from typing import Any
 
 from .atomic import JOB_LOCK, safe_unlink
 from .config_store import load_config
-from .markdown_store import IMAGE_EXTS
 from .paths import OLD_BEERS_DIR, ensure_dirs
+from .tap_store import IMAGE_EXTS
 from .timezone import now_local
 
 log = logging.getLogger("taplist.cleanup")

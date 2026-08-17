@@ -2,7 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app import config_store, main, markdown_store as md, paths
+from app import config_store, main, paths, tap_store as taps
 from app.main import _safe_tap_image, app
 
 # Plain TestClient (no context manager) so the lifespan scheduler/initial-sync
@@ -162,9 +162,9 @@ def test_override_save_then_clear_with_image():
                      "ibu": "18", "color": "9", "description": "Cask ale."},
                files={"image": ("beer.png", b"\x89PNG\r\n\x1a\n", "image/png")})
     assert r.status_code == 200 and r.json()["override"] is True
-    assert md.custom_md_path(2).exists()
+    assert taps.exists(2, taps.Source.MANUAL)
     assert (paths.TAPS_DIR / "custom_tap_2.png").exists()
-    data = md.read_tap_file(md.custom_md_path(2))
+    data = taps.read(2, taps.Source.MANUAL).front_matter
     assert data["name"] == "Hand Pour"
     assert data["abv"] == 4.5
     assert data["ebc"] == 9  # EBC unit by default
@@ -172,7 +172,7 @@ def test_override_save_then_clear_with_image():
     # Clearing the override archives the custom files.
     r2 = c.post("/admin/override/2", data={"enabled": "false"})
     assert r2.status_code == 200 and r2.json()["override"] is False
-    assert not md.custom_md_path(2).exists()
+    assert not taps.exists(2, taps.Source.MANUAL)
     assert list(paths.OLD_BEERS_DIR.glob("custom_tap_2_*.md"))
 
 
@@ -181,8 +181,8 @@ def test_override_save_archives_existing_brewfather(write_tap):
     write_tap("bf", 3, name="BF Three", abv=5, ebc=10, image_ext=".jpg")
     r = c.post("/admin/override/3", data={"enabled": "true", "name": "Now Custom", "abv": "5", "color": "10"})
     assert r.status_code == 200
-    assert md.custom_md_path(3).exists()
-    assert not md.bf_md_path(3).exists()
+    assert taps.exists(3, taps.Source.MANUAL)
+    assert not taps.exists(3, taps.Source.BREWFATHER)
     assert list(paths.OLD_BEERS_DIR.glob("bf_tap_3_*.md"))
 
 
@@ -230,7 +230,7 @@ def test_override_image_upload_sweeps_the_previous_extension():
     assert r.status_code == 200
     assert (paths.TAPS_DIR / "custom_tap_1.webp").exists()
     assert not (paths.TAPS_DIR / "custom_tap_1.png").exists()
-    assert md.read_tap_file(md.custom_md_path(1))["image"] == "custom_tap_1.webp"
+    assert taps.read(1, taps.Source.MANUAL).front_matter["image"] == "custom_tap_1.webp"
 
 
 def test_admin_row_source_comes_from_the_filename(write_tap):
@@ -249,7 +249,7 @@ def test_override_saves_saturation_as_fraction():
     r = c.post("/admin/override/1",
                data={"enabled": "true", "name": "Muted", "color": "20", "saturation": "60"})
     assert r.status_code == 200
-    assert md.read_tap_file(md.custom_md_path(1))["saturation"] == 0.6
+    assert taps.read(1, taps.Source.MANUAL).front_matter["saturation"] == 0.6
 
 
 def test_override_saves_colour_glass_gravity_and_visibility():
@@ -260,7 +260,7 @@ def test_override_saves_colour_glass_gravity_and_visibility():
         "og": "1.052", "fg": "1.011", "show_og": "true", "show_fg": "false",
     })
     assert r.status_code == 200
-    data = md.read_tap_file(md.custom_md_path(1))
+    data = taps.read(1, taps.Source.MANUAL).front_matter
     assert data["color_override"] == "#780606"   # normalised with leading #
     assert data["glass"] == "teku"
     assert data["og"] == 1.052 and data["fg"] == 1.011
@@ -272,7 +272,7 @@ def test_override_ignores_unknown_glass():
     r = c.post("/admin/override/1",
                data={"enabled": "true", "name": "X", "glass": "notaglass"})
     assert r.status_code == 200
-    assert md.read_tap_file(md.custom_md_path(1))["glass"] is None
+    assert taps.read(1, taps.Source.MANUAL).front_matter["glass"] is None
 
 
 def test_save_settings_theme_pagination_and_gravity():
@@ -315,7 +315,7 @@ def test_override_color_input_converts_from_srm():
     # 10 SRM should be stored as ~19.7 EBC.
     r = c.post("/admin/override/1", data={"enabled": "true", "name": "Dark", "color": "10"})
     assert r.status_code == 200
-    assert md.read_tap_file(md.custom_md_path(1))["ebc"] == pytest.approx(19.7, abs=0.05)
+    assert taps.read(1, taps.Source.MANUAL).front_matter["ebc"] == pytest.approx(19.7, abs=0.05)
 
 
 def test_save_settings_display_options():
@@ -489,5 +489,5 @@ def test_bad_number_does_not_orphan_uploaded_image():
                data={"enabled": "true", "name": "Bad", "abv": "not-a-number"},
                files={"image": ("beer.png", b"\x89PNG\r\n\x1a\n", "image/png")})
     assert r.status_code == 422
-    assert md.find_image_for("custom_tap_1") is None
-    assert not md.custom_md_path(1).exists()
+    assert taps.image_for(1, taps.Source.MANUAL) is None
+    assert not taps.exists(1, taps.Source.MANUAL)
