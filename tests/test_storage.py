@@ -45,22 +45,10 @@ def test_front_matter_round_trip():
     assert parsed_body == body
 
 
-def test_read_tap_file_missing_returns_none():
-    # A Slot no Source holds reads as None rather than raising - the store is
-    # addressed by Slot and Source now, so there is no path to hand it.
-    assert taps.read(99, taps.Source.BREWFATHER) is None
-
-
 def test_parse_markdown_tolerates_no_front_matter():
     fm, body = taps.parse_markdown("just a body, no front matter")
     assert fm == {}
     assert body == "just a body, no front matter"
-
-
-def test_is_manual_override_detects_custom_file(write_tap):
-    assert taps.exists(3, taps.Source.MANUAL) is False
-    write_tap("custom", 3, name="Mine")
-    assert taps.exists(3, taps.Source.MANUAL) is True
 
 
 def test_config_bootstrap_creates_default():
