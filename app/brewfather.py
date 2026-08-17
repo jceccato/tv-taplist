@@ -46,7 +46,7 @@ from typing import Any
 
 import httpx
 
-from . import markdown_store as md
+from . import markdown_store as md, tap_store as taps
 from .archive import archive_tap
 from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
 from .beer_glass import GLASS_KEYS
@@ -646,6 +646,6 @@ def _archive_undesired(desired: dict[int, Any], num_taps: int) -> int:
             continue  # never touch a manual override slot
         if tap in desired:
             continue  # still wanted
-        if archive_tap(f"bf_tap_{tap}"):
+        if archive_tap(tap, taps.Source.BREWFATHER):
             archived += 1
     return archived

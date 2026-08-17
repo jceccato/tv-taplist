@@ -36,7 +36,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import auth, markdown_store as md
+from . import auth, markdown_store as md, tap_store as taps
 from .archive import archive_tap
 from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
 from .beer_glass import GLASS_KEYS, GLASS_TYPES, beer_glass_svg
@@ -635,7 +635,7 @@ async def save_override(
     with JOB_LOCK:
         if not enabled:
             # Release the slot back to Brewfather control: archive custom files.
-            archived = archive_tap(f"custom_tap_{tap}")
+            archived = archive_tap(tap, taps.Source.MANUAL)
             log.info("override cleared for tap %d (archived=%s)", tap, archived)
             return {"ok": True, "override": False}
 
@@ -669,7 +669,7 @@ async def save_override(
         md.write_tap_file(md.custom_md_path(tap), front_matter, description)
 
         # Archive any bf_tap_X for this slot so it is set aside cleanly.
-        archive_tap(f"bf_tap_{tap}")
+        archive_tap(tap, taps.Source.BREWFATHER)
         log.info("override saved for tap %d (name=%r image=%s)", tap, front_matter["name"], image_name)
         return {"ok": True, "override": True, "image_url": f"/img/{image_name}" if image_name else None}
 
