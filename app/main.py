@@ -36,7 +36,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import auth, markdown_store as md, tap_store as taps
+from . import auth, tap_store as taps
 from .archive import archive_tap
 from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
 from .beer_glass import GLASS_KEYS, GLASS_TYPES, beer_glass_svg
@@ -388,15 +388,25 @@ def _tri_from_form(value: str) -> bool | None:
 
 
 def _build_admin_tap_rows(cfg: dict) -> list[dict]:
-    """Per-tap admin state: override on/off and current values to prefill."""
+    """Per-tap admin state: override on/off and current values to prefill.
+
+    Resolution goes through the Tap file store, so a row shows exactly what the
+    display shows for that Slot - same Source, same photo. It used to resolve
+    the photo across *both* Sources (the Manual image, else the Brewfather one)
+    while the display resolved within one, so a Manual Tap with no photo showed
+    the Brewfather photo here and a glass placeholder on the TV. A Tap comes
+    entirely from one Source; a part-wise fallback is not representable in a
+    TapFile, and Admin is only useful as a preview if it agrees with the TV.
+    """
     rows: list[dict] = []
     num_taps = int(cfg.get("num_taps", 0) or 0)
     unit = cfg.get("color_unit", "ebc")
     for tap in range(1, num_taps + 1):
-        override = md.is_manual_override(tap)
-        data = md.read_tap_file(md.custom_md_path(tap)) if override else md.read_tap_file(md.bf_md_path(tap))
-        data = data or {}
-        img = md.find_image_for(f"custom_tap_{tap}") or md.find_image_for(f"bf_tap_{tap}")
+        tap_file = taps.resolve(tap)
+        # "Is this Slot Manual?" has one answer now: the winning Source.
+        override = tap_file is not None and tap_file.source is taps.Source.MANUAL
+        data = tap_file.front_matter if tap_file is not None else {}
+        img = tap_file.image if tap_file is not None else None
         rows.append({
             "tap": tap,
             "override": override,
@@ -412,8 +422,13 @@ def _build_admin_tap_rows(cfg: dict) -> list[dict]:
             "glass": data.get("glass") or "",
             "show_og": _tri_to_form(data.get("show_og")),
             "show_fg": _tri_to_form(data.get("show_fg")),
-            "description": data.get("description") or "",
-            "source": data.get("source") or ("custom" if override else None),
+            # The description is the markdown body, a named field on the
+            # TapFile rather than a synthesised front-matter key.
+            "description": (tap_file.body if tap_file is not None else "") or "",
+            # The filename decides the Source, exactly as it does on the board;
+            # the front-matter `source:` key is written for a human reading the
+            # file and is never read back as truth.
+            "source": str(tap_file.source) if tap_file is not None else None,
             "image_url": f"/img/{img.name}" if img else None,
         })
     return rows
@@ -567,26 +582,26 @@ async def venue_logo(
 # ---- admin: manual overrides ---------------------------------------------
 
 def _save_uploaded_image(upload: UploadFile, tap: int) -> str | None:
-    """Save an uploaded custom image as custom_tap_X.<ext>, return filename."""
+    """Save an uploaded image as the Manual Tap's photo, return its filename.
+
+    The HTTP concerns stay here: the extension allow-list and the size cap are
+    both checked *before* anything on disk changes, so a rejected upload never
+    deletes the beer's existing image. The store is then handed bytes we vouch
+    for; it owns the filename and the sweep that removes a previously stored
+    image with a different extension (the md-plus-image pair is one unit there,
+    so that sweep cannot be present on one write path and absent from another).
+    """
     if upload is None or not upload.filename:
         return None
     ext = Path(upload.filename).suffix.lower()
     if ext == ".jpeg":
         ext = ".jpg"
-    if ext not in md.IMAGE_EXTS:
+    if ext not in taps.IMAGE_EXTS:
         raise HTTPException(status_code=422, detail=f"Unsupported image type: {ext}")
     # Read + size-check before touching the filesystem, so a rejected upload never
     # deletes the beer's existing image.
     data = _read_upload_capped(upload)
-    stem = f"custom_tap_{tap}"
-    # Remove any prior custom image with a different extension.
-    for old in md.IMAGE_EXTS:
-        old_path = TAPS_DIR / f"{stem}{old}"
-        if old_path.exists() and old != ext:
-            safe_unlink(old_path)
-    dest = TAPS_DIR / f"{stem}{ext}"
-    atomic_write_bytes(dest, data)
-    return dest.name
+    return taps.save_image(tap, taps.Source.MANUAL, data, ext)
 
 
 @app.post("/admin/override/{tap}")
@@ -660,13 +675,13 @@ async def save_override(
         }
 
         # Now the side effects: save the image (also validated before it writes),
-        # keep any prior image if none was uploaded, then write custom_tap_X.md.
+        # keep any prior image if none was uploaded, then write the Manual Tap.
         image_name = _save_uploaded_image(image, tap) if image is not None else None
         if image_name is None:
-            existing = md.find_image_for(f"custom_tap_{tap}")
+            existing = taps.image_for(tap, taps.Source.MANUAL)
             image_name = existing.name if existing else None
         front_matter["image"] = image_name
-        md.write_tap_file(md.custom_md_path(tap), front_matter, description)
+        taps.write(tap, taps.Source.MANUAL, front_matter, description)
 
         # Archive any bf_tap_X for this slot so it is set aside cleanly.
         archive_tap(tap, taps.Source.BREWFATHER)

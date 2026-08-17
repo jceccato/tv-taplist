@@ -2,7 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app import config_store, markdown_store as md, paths
+from app import config_store, main, markdown_store as md, paths
 from app.main import _safe_tap_image, app
 
 # Plain TestClient (no context manager) so the lifespan scheduler/initial-sync
@@ -184,6 +184,63 @@ def test_override_save_archives_existing_brewfather(write_tap):
     assert md.custom_md_path(3).exists()
     assert not md.bf_md_path(3).exists()
     assert list(paths.OLD_BEERS_DIR.glob("bf_tap_3_*.md"))
+
+
+def test_admin_row_photo_is_the_photo_the_display_shows(write_tap):
+    # Admin is only useful as a preview if it agrees with the TV, so the row
+    # resolves the Slot exactly as the board does - same Source, same photo.
+    config_store.update_config(num_taps=2)
+    write_tap("bf", 1, name="BF One", ebc=12, image_ext=".jpg")
+    write_tap("custom", 2, name="Hand Pour", ebc=12, image_ext=".png")
+    rows = main._build_admin_tap_rows(config_store.load_config())
+    board = client.get("/api/board").json()["taps"]
+    assert [r["image_url"] for r in rows] == [t["image_url"] for t in board]
+    assert [r["source"] for r in rows] == [t["source"] for t in board]
+
+
+def test_manual_tap_without_photo_shows_placeholder_not_the_brewfather_one(write_tap):
+    # The live bug this ticket closes: the row used to fall back to the other
+    # Source's image, so this Slot showed the Brewfather photo in Admin and a
+    # glass placeholder on the TV. A Tap comes entirely from one Source.
+    config_store.update_config(num_taps=1)
+    write_tap("bf", 1, name="BF One", ebc=12, image_ext=".jpg")
+    write_tap("custom", 1, name="Hand Pour", ebc=12)  # no photo of its own
+
+    row = main._build_admin_tap_rows(config_store.load_config())[0]
+    assert row["override"] is True
+    assert row["image_url"] is None
+    assert client.get("/api/board").json()["taps"][0]["image_url"] == "/img/beer-glass?ebc=12"
+
+    # And what the operator actually sees: the row renders no thumbnail at all,
+    # certainly not the Brewfather beer's.
+    html = _login(TestClient(app)).get("/admin").text
+    assert "bf_tap_1.jpg" not in html
+    assert "override-thumb" not in html
+
+
+def test_override_image_upload_sweeps_the_previous_extension():
+    c = _login(TestClient(app))
+    c.post("/admin/override/1", data={"enabled": "true", "name": "Pour"},
+           files={"image": ("beer.png", b"\x89PNG\r\n\x1a\n", "image/png")})
+    assert (paths.TAPS_DIR / "custom_tap_1.png").exists()
+    # A second upload with a different extension leaves exactly one image, so
+    # the Slot can never hold two photos with no way to say which is current.
+    r = c.post("/admin/override/1", data={"enabled": "true", "name": "Pour"},
+               files={"image": ("beer.webp", b"RIFF----WEBP", "image/webp")})
+    assert r.status_code == 200
+    assert (paths.TAPS_DIR / "custom_tap_1.webp").exists()
+    assert not (paths.TAPS_DIR / "custom_tap_1.png").exists()
+    assert md.read_tap_file(md.custom_md_path(1))["image"] == "custom_tap_1.webp"
+
+
+def test_admin_row_source_comes_from_the_filename(write_tap):
+    # The front-matter `source:` key is written for a human reading the file and
+    # is never read back as truth - the filename decides, here as on the board.
+    config_store.update_config(num_taps=1)
+    write_tap("bf", 1, name="Mislabelled", ebc=12, source="custom")
+    row = main._build_admin_tap_rows(config_store.load_config())[0]
+    assert row["override"] is False
+    assert row["source"] == "brewfather"
 
 
 def test_override_saves_saturation_as_fraction():
