@@ -10,9 +10,9 @@ from __future__ import annotations
 import logging
 import os
 
-from . import markdown_store as md
+from . import tap_store as taps
 from .config_store import load_config, save_config
-from .paths import TAPS_DIR, ensure_dirs
+from .paths import ensure_dirs
 from .timezone import iso_now
 
 log = logging.getLogger("taplist.demo")
@@ -33,7 +33,15 @@ def _demo_enabled() -> bool:
 
 
 def _has_existing_taps() -> bool:
-    return any(TAPS_DIR.glob("*_tap_*.md"))
+    """Whether any Source already holds a Tap file, for any Slot.
+
+    Asked through the store rather than by globbing the taps directory: the
+    filename convention is the store's alone, and this check used to be a
+    fourth, subtly different spelling of it. Deliberately unbounded by the
+    configured tap count - a box with Taps parked above it is still configured,
+    and seeding demo data over them would clobber real data.
+    """
+    return any(taps.occupied_slots(source) for source in taps.SOURCE_PRECEDENCE)
 
 
 def maybe_seed_demo() -> None:
@@ -57,8 +65,12 @@ def maybe_seed_demo() -> None:
             "image": None,
             "updated": iso_now(),
         }
-        path = md.custom_md_path(tap) if source == "custom" else md.bf_md_path(tap)
-        md.write_tap_file(path, front_matter, desc)
+        # The SAMPLE_TAPS `source` strings are the Source enum's on-disk values
+        # ("custom" / "brewfather"), so they convert straight across. Seeding
+        # writes both Sources on purpose, so the demo board shows a mix of
+        # Manual and Brewfather Slots (and the source badge has something to
+        # say).
+        taps.write(tap, taps.Source(source), front_matter, desc)
 
     # Set a tap count and an announcement so the display looks intentional.
     cfg = load_config()

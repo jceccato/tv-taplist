@@ -32,11 +32,22 @@ Efficient fetch (rate limit is 500 calls/hour per key):
   Completed batches accumulate. Per sync we now make ceil(N/50) calls, and
   change-detection skips image downloads / file rewrites for unchanged batches.
 
-Tap assignment: parse the batch notes text for a `tap:X` token.
+Tap assignment: parse the batch notes text for a `tap:X` token. A token is
+accepted from 1 to MAX_NUM_TAPS - a system bound, not the operator's tap count -
+and an out-of-range one is logged with the batch named.
 
 Desired-tap-map / archive: after a successful sync, any Brewfather-managed tap
-whose batch no longer maps to it is archived. Manual overrides are never read,
-written, or archived. A failed sync makes NO destructive changes.
+whose batch no longer maps to it is archived. Brewfather's claim is the *only*
+thing that drives a write or an archive here - not the operator's tap count, and
+not whether a Manual override is sitting on the Slot. A Brewfather Tap under an
+override is kept warm: nothing displays it while the override stands, but
+clearing the override reveals a current Beer instead of a Vacant Slot. Manual
+Taps are never read, written, or archived (see SYNC_SOURCE). A failed sync makes
+NO destructive changes.
+
+Storage: this module never spells a Tap filename. Every read, write, image save
+and enumeration goes through the Tap file store addressed by Slot and Source
+(see SYNC_SOURCE below, and app/tap_store.py).
 """
 from __future__ import annotations
 
@@ -46,21 +57,31 @@ from typing import Any
 
 import httpx
 
-from . import markdown_store as md
+from . import tap_store as taps
 from .archive import archive_tap
-from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
+from .atomic import JOB_LOCK
 from .beer_glass import GLASS_KEYS
 from .colors import EBC_PER_SRM, parse_hex_color, parse_saturation
 from .config_store import (
+    MAX_NUM_TAPS,
     ConfigUnreadable,
     brewfather_credentials,
     load_config,
     update_config,
 )
-from .paths import TAPS_DIR, ensure_dirs
+from .paths import ensure_dirs
 from .timezone import iso_now
 
 log = logging.getLogger("taplist.sync")
+
+# The one Source this module is ever allowed to address. Passing it to every
+# store call is what makes "sync never touches a Manual Tap" *structural* rather
+# than remembered: the store derives the filename from the Source, so there is
+# no spelling of a call in here - not a typo, not a copy-paste - that could name
+# a custom_tap_X file. Every read, write, image save, enumeration and archive
+# below passes SYNC_SOURCE, and sync no longer asks about the Manual Source at
+# all - so the rule holds without a single guard to forget.
+SYNC_SOURCE = taps.Source.BREWFATHER
 
 
 def _record_status(**changes: Any) -> None:
@@ -303,14 +324,33 @@ def _extract_updated_ms(batch: dict[str, Any]) -> int:
 
 
 def _find_tap_number(batch: dict[str, Any]) -> int | None:
+    """The Slot a batch claims via its `tap:X` note token, or None for no claim.
+
+    The accepted range is 1..MAX_NUM_TAPS, which is a *system* bound, not the
+    operator's configured tap count. Sync deliberately never consults the tap
+    count: that is a display setting, and letting it decide what gets written or
+    archived is what used to make lowering the tap count silently destroy Beer
+    data. The system bound still stops one fat-fingered token (`tap:9999`) from
+    minting files nothing can ever display.
+
+    An out-of-range token is logged with the batch named, because silence is how
+    a mistyped token stays mistyped - the operator otherwise has no way to find
+    out why a beer never appeared.
+    """
     m = TAP_TOKEN_RE.search(_extract_notes_text(batch))
     if not m:
         return None
     try:
         n = int(m.group(1))
-        return n if n >= 1 else None
     except ValueError:
         return None
+    if 1 <= n <= MAX_NUM_TAPS:
+        return n
+    log.warning(
+        "ignoring out-of-range token 'tap:%d' on batch %r (valid range is 1-%d)",
+        n, _extract_name(batch), MAX_NUM_TAPS,
+    )
+    return None
 
 
 def _extract_saturation(batch: dict[str, Any]) -> float | None:
@@ -418,41 +458,40 @@ def _list_batches(client: httpx.Client, statuses: list[str]) -> list[dict[str, A
     return out
 
 
-def _download_image(img_client: httpx.Client, url: str, stem: str) -> str | None:
-    """Download a tap image, preserving the source extension. Returns filename.
+def _download_image(img_client: httpx.Client, url: str) -> tuple[bytes, str] | None:
+    """Fetch a tap image. Returns (bytes, extension), or None if it failed.
+
+    This is a pure HTTP concern: it downloads and works out what the bytes are,
+    and hands both to the caller for `tap_store.save_image` to file. It does not
+    know which Slot the image belongs to, does not build a filename, and does
+    not touch the disk - so the sweep of a stale image with a different
+    extension happens once, inside the store, on every write path rather than
+    just this one.
 
     ``img_client`` MUST be the unauthenticated image client (see `_image_client`)
     so the Brewfather credentials are never sent to the third-party image host.
     A failed download returns None and must NOT delete an already-good cached
-    image (caller keeps the existing one).
+    image (the caller keeps the existing one).
     """
     try:
         resp = img_client.get(url)
         resp.raise_for_status()
     except (httpx.HTTPError, OSError) as exc:
-        log.warning("image download failed for %s (%s): %s", stem, url, exc)
+        log.warning("image download failed for %s: %s", url, exc)
         return None
 
     # Prefer the URL's own extension; fall back to content-type.
     ext = None
     url_path = url.split("?", 1)[0].lower()
-    for known in md.IMAGE_EXTS:
+    for known in taps.IMAGE_EXTS:
         if url_path.endswith(known):
-            ext = ".jpg" if known == ".jpeg" else known
+            ext = known
             break
     if ext is None:
         ext = CONTENT_TYPE_EXT.get(resp.headers.get("content-type", "").split(";")[0].strip(), ".jpg")
 
-    # Remove any previously cached image of a *different* extension for this stem
-    # so we don't end up with bf_tap_5.jpg AND bf_tap_5.webp.
-    for old in md.IMAGE_EXTS:
-        old_path = TAPS_DIR / f"{stem}{old}"
-        if old_path.exists() and old_path.suffix != ext:
-            safe_unlink(old_path)
-
-    dest = TAPS_DIR / f"{stem}{ext}"
-    atomic_write_bytes(dest, resp.content)
-    return dest.name
+    # The store normalises .jpeg -> .jpg and rejects anything it cannot store.
+    return resp.content, ext
 
 
 # ---- sync orchestration --------------------------------------------------
@@ -492,16 +531,18 @@ def _write_bf_tap(img_client: httpx.Client, tap: int, batch: dict[str, Any], rev
     ``img_client`` is the unauthenticated image client used for the (off-host)
     image download; the beer fields are already present in the batch object.
     """
-    stem = f"bf_tap_{tap}"
     ebc = _extract_ebc(batch)
     image_url = _extract_image_url(batch)
 
     image_name: str | None = None
     if image_url:
-        image_name = _download_image(img_client, image_url, stem)
+        downloaded = _download_image(img_client, image_url)
+        if downloaded is not None:
+            data, ext = downloaded
+            image_name = taps.save_image(tap, SYNC_SOURCE, data, ext)
     if image_name is None:
         # Keep any previously cached image; otherwise leave null (placeholder).
-        existing = md.find_image_for(stem)
+        existing = taps.image_for(tap, SYNC_SOURCE)
         image_name = existing.name if existing else None
 
     front_matter = {
@@ -521,8 +562,9 @@ def _write_bf_tap(img_client: httpx.Client, tap: int, batch: dict[str, Any], rev
         "image": image_name,
         "updated": iso_now(),
     }
-    md.write_tap_file(md.bf_md_path(tap), front_matter, _extract_description(batch))
-    log.info("wrote %s (name=%r tap=%d image=%s)", stem, front_matter["name"], tap, image_name)
+    taps.write(tap, SYNC_SOURCE, front_matter, _extract_description(batch))
+    log.info("wrote tap %d (%s) (name=%r image=%s)",
+             tap, SYNC_SOURCE, front_matter["name"], image_name)
 
 
 def _is_unchanged(tap: int, batch: dict[str, Any], rev: int) -> bool:
@@ -531,16 +573,17 @@ def _is_unchanged(tap: int, batch: dict[str, Any], rev: int) -> bool:
     Lets the sync skip a re-write (and image re-download) when nothing changed,
     keeping API/bandwidth use minimal and avoiding needless display churn.
     """
-    existing = md.read_tap_file(md.bf_md_path(tap))
-    if not existing:
+    cached = taps.read(tap, SYNC_SOURCE)
+    if cached is None:
         return False
+    existing = cached.front_matter
     bid = batch.get("_id") or batch.get("id")
     same_batch = str(existing.get("batch_id")) == str(bid)
     same_rev = str(existing.get("source_rev")) == str(rev)
     # A mapping-logic change (new MAPPING_VERSION) forces a one-time rewrite even
     # when the batch itself is unchanged, so cached files pick up the new fields.
     same_map = str(existing.get("map_rev")) == str(MAPPING_VERSION)
-    has_image_if_needed = (not _extract_image_url(batch)) or (md.find_image_for(f"bf_tap_{tap}") is not None)
+    has_image_if_needed = (not _extract_image_url(batch)) or (cached.image is not None)
     return same_batch and same_rev and same_map and has_image_if_needed
 
 
@@ -550,7 +593,9 @@ def run_sync() -> dict[str, Any]:
     creds = brewfather_credentials()
     user_id, api_key = creds["user_id"], creds["api_key"]
     cfg = load_config()
-    num_taps = int(cfg.get("num_taps", 0) or 0)
+    # The configured tap count is deliberately NOT read here: it is a display
+    # setting, and sync depends only on what Brewfather claims. See
+    # `_find_tap_number` and `_archive_undesired`.
     # Statuses to pull: always Completed, plus Conditioning when the operator
     # opts in (a beer on tap but still lagering / too green to mark Completed).
     statuses = ["Completed"]
@@ -576,18 +621,21 @@ def run_sync() -> dict[str, Any]:
                 log.info("fetched %d batches (statuses=%s)", len(batches), statuses)
 
                 desired = _build_desired_map(batches)
-                # Only manage taps within the configured count.
-                desired = {t: v for t, v in desired.items() if 1 <= t <= num_taps}
                 log.info("desired Brewfather tap map: %s", sorted(desired.keys()))
 
                 written = 0
                 unchanged = 0
-                skipped_overrides = 0
                 for tap, entry in desired.items():
-                    if md.is_manual_override(tap):
-                        # Never read/write/archive a manual override.
-                        skipped_overrides += 1
-                        continue
+                    # A Manual override on this Slot is deliberately NOT checked
+                    # here. The Brewfather Tap is kept warm underneath it: the
+                    # display never shows it while the override stands (resolve
+                    # picks Manual first), but the instant the operator clears
+                    # the override the Slot is current rather than Vacant for up
+                    # to a whole sync interval. The cost is one image download
+                    # and one file write per cycle for a beer nobody can see;
+                    # the batch list fetch is unchanged, so the API rate limit is
+                    # unaffected. The write can only ever address SYNC_SOURCE,
+                    # so the Manual file is still untouchable from here.
                     rev = entry["updated_ms"]
                     if _is_unchanged(tap, entry["batch"], rev):
                         unchanged += 1
@@ -595,9 +643,8 @@ def run_sync() -> dict[str, Any]:
                     _write_bf_tap(img_client, tap, entry["batch"], rev)
                     written += 1
 
-                # Archive any existing bf_tap that is no longer desired and is
-                # not a manual override.
-                archived = _archive_undesired(desired, num_taps)
+                # Archive any existing bf_tap no Batch claims any more.
+                archived = _archive_undesired(desired)
 
         except httpx.HTTPStatusError as exc:
             # Auth / API / rate-limit errors: make NO destructive changes.
@@ -619,33 +666,41 @@ def run_sync() -> dict[str, Any]:
         ts = iso_now()
         _record_status(last_sync_success=ts, last_sync_error=None, last_sync_attempt=ts)
         log.info(
-            "sync finished: %d written, %d unchanged, %d archived, %d override slots skipped",
-            written, unchanged, archived, skipped_overrides,
+            "sync finished: %d written, %d unchanged, %d archived",
+            written, unchanged, archived,
         )
         return {
             "ok": True,
             "written": written,
             "unchanged": unchanged,
             "archived": archived,
-            "skipped_overrides": skipped_overrides,
             "timestamp": ts,
         }
 
 
-def _archive_undesired(desired: dict[int, Any], num_taps: int) -> int:
-    """Archive bf_tap_X files whose batch no longer maps to tap X."""
+def _archive_undesired(desired: dict[int, Any]) -> int:
+    """Archive Brewfather Taps that no Batch claims any more.
+
+    One condition, and deliberately only one: no Batch carries this Slot's
+    `tap:` token. Two others used to sit here and both were wrong.
+
+    * The Manual-occupancy skip is gone. Archiving no longer consults override
+      state at all - a Brewfather Tap under an override is kept current, not set
+      aside, so clearing the override reveals a live Beer. (A Manual Tap is
+      still never archived from here: every call below passes SYNC_SOURCE.)
+    * The tap-count filter is gone. It made a presentation choice destroy Beer
+      data: lowering the tap count archived every Brewfather Tap above the new
+      number, and raising it back did not bring them back.
+
+    The store's enumeration stays deliberately unbounded by the configured tap
+    count, which is what this scan needs: a Brewfather file stranded at a Slot
+    above the tap count is exactly the orphan to find here once no Batch claims
+    it. Do not bound it.
+    """
     archived = 0
-    # Look at every existing bf_tap_*.md, not just 1..num_taps, so shrinking the
-    # tap count also retires orphaned files.
-    for path in TAPS_DIR.glob("bf_tap_*.md"):
-        m = re.match(r"bf_tap_(\d+)\.md$", path.name)
-        if not m:
-            continue
-        tap = int(m.group(1))
-        if md.is_manual_override(tap):
-            continue  # never touch a manual override slot
+    for tap in taps.occupied_slots(SYNC_SOURCE):
         if tap in desired:
-            continue  # still wanted
-        if archive_tap(f"bf_tap_{tap}"):
+            continue  # still claimed by a Batch
+        if archive_tap(tap, SYNC_SOURCE):
             archived += 1
     return archived

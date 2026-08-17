@@ -1,7 +1,7 @@
 """Daily archive cleanup of old_beers/.
 
 Each archived beer is a *pair*: a markdown file and its image, sharing a stem
-like 'bf_tap_3_20260624T1530'. Both are deleted together and both count toward
+like 'bf_tap_3_20260624T153000'. Both are deleted together and both count toward
 the folder total.
 
 Two conditions, applied in order:
@@ -18,8 +18,8 @@ from typing import Any
 
 from .atomic import JOB_LOCK, safe_unlink
 from .config_store import load_config
-from .markdown_store import IMAGE_EXTS
 from .paths import OLD_BEERS_DIR, ensure_dirs
+from .tap_store import IMAGE_EXTS
 from .timezone import now_local
 
 log = logging.getLogger("taplist.cleanup")

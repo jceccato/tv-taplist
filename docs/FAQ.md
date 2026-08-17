@@ -176,8 +176,9 @@ Brewfather's text field can be fiddly. A faster workflow:
    `saturation:...`) you need, built from what you configured above.
 4. Click **Copy tokens** and paste them into the matching batch's **Batch Notes**
    in Brewfather.
-5. Untick the override checkbox for that tap (or delete the override) and run a
-   sync - the Brewfather batch now controls the tap with the same look.
+5. Untick the override checkbox for that tap (or delete the override) - the
+   Brewfather batch takes the tap straight away, with the same look. No sync run
+   needed.
 
 The Name, ABV, IBU, OG and FG always come from Brewfather's own batch fields,
 not from tokens - only the colour/glass/saturation overrides can be preset this
@@ -201,6 +202,10 @@ Conditioning and a Completed one) claim the same tap, the most recent wins.
 - **A failed sync changes nothing** - the last good board stays exactly as it was.
 - A rate-limit response (HTTP 429) is honoured (respecting `Retry-After`) and makes
   no changes.
+- **Only your `tap:` tokens decide what's on the board.** A beer leaves a tap when
+  you remove its token, and for no other reason. Your **tap count** is purely a
+  display setting: lowering it hides the slots above the new number without
+  discarding their beers, and raising it back shows them again.
 
 > **Field-mapping note:** Brewfather's exact field names/units can vary by account.
 > The sync maps defensively - it tries several field names, prefers *measured* over
@@ -315,10 +320,24 @@ In `/admin` -> **Manual overrides**, each tap has a row. Tick it to control that
 by hand: set the name, ABV, IBU, colour (with saturation and an exact override),
 OG/FG (with per-tap show/hide), glassware, tasting notes and a custom image. A
 manual tap is **never touched by the Brewfather sync**. Unticking it releases the
-slot back to Brewfather on the next sync.
+slot back to Brewfather **immediately** - no sync run needed.
 
 This is how you put a guest tap, a one-off, or anything not in Brewfather onto the
 board.
+
+### Two files for one tap is normal
+
+While an override is up, the Brewfather beer for that tap is still there,
+underneath it: the sync keeps it current even though nothing shows it. So an
+overridden tap 3 legitimately has **both** a `custom_tap_3.md` and a
+`bf_tap_3.md` in `taps/`. The manual one is what's on the board; the Brewfather
+one is waiting. That's what makes unticking the override instant - the beer is
+already on disk and up to date.
+
+If a batch is waiting under an override, the tap's row in `/admin` names it, so
+you can see what unticking will reveal before you click. Don't delete the
+"extra" file by hand: you lose the instant switch-back, and the tap goes vacant
+until the next sync rebuilds it.
 
 ---
 

@@ -67,11 +67,15 @@ _Avoid_: extraction, parsing, conversion
 **Tap file**:
 The markdown-plus-image pair on disk holding one Tap, named by Source and Slot
 (`custom_tap_3.md`, `bf_tap_3.md`). Deliberately hand-editable - see ADR-0001.
+Both Sources may hold a file for one Slot: the Manual one wins and the
+Brewfather one stays current underneath, which is what makes clearing an
+override instant.
 _Avoid_: record, row, tap data
 
 **Source precedence**:
 The rule deciding which Source wins for a Slot: Manual, then Brewfather, then
-vacant. Currently emergent from filename order rather than implemented anywhere.
+Vacant. Owned by the Tap file store, which resolves a Slot to the winning Tap
+and keeps filenames private - see ADR-0003.
 
 ### Colour
 
@@ -157,9 +161,9 @@ A Slot with a Tap that the board is currently rendering.
 _Avoid_: active, live, on
 
 **Archived**:
-A Tap moved to `old_beers/` as a datetime-suffixed markdown-plus-image pair,
-either by sync retiring a Brewfather Tap or by Admin saving a Manual Tap over
-one. Only Brewfather Taps are ever archived automatically.
+A Tap moved to `old_beers/` as a datetime-suffixed markdown-plus-image pair.
+Sync retiring an unclaimed Brewfather Tap is the only automatic cause; Admin
+archives the Manual Tap when an override is cleared.
 _Avoid_: retired, removed
 
 **Purged**:
@@ -172,12 +176,6 @@ _Avoid_: cleaned, pruned, expired
 **`stem` means two unrelated things.** In storage it is a filename stem
 (`bf_tap_3`); in the glassware SVG it is the stem of a glass. Different areas,
 no bug - but a grep for `stem` hits both.
-
-**Source precedence is implemented nowhere.** It emerges from two `if` branches
-in `resolve_tap` plus a filename prefix, and "is this Manual?" is answered by a
-path existence check from several modules. Adding a third Source means editing
-resolution, the naming helpers, archive, cleanup, and Admin. This is a deliberate
-trade-off, recorded in ADR-0001.
 
 **Settings and Status share `config.json` today.** They should not - Status is
 written every sync cycle while Settings holds the Brewfather key, which is the

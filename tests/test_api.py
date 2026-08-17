@@ -2,7 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app import config_store, markdown_store as md, paths
+from app import config_store, main, paths, tap_store as taps
 from app.main import _safe_tap_image, app
 
 # Plain TestClient (no context manager) so the lifespan scheduler/initial-sync
@@ -162,9 +162,9 @@ def test_override_save_then_clear_with_image():
                      "ibu": "18", "color": "9", "description": "Cask ale."},
                files={"image": ("beer.png", b"\x89PNG\r\n\x1a\n", "image/png")})
     assert r.status_code == 200 and r.json()["override"] is True
-    assert md.custom_md_path(2).exists()
+    assert taps.exists(2, taps.Source.MANUAL)
     assert (paths.TAPS_DIR / "custom_tap_2.png").exists()
-    data = md.read_tap_file(md.custom_md_path(2))
+    data = taps.read(2, taps.Source.MANUAL).front_matter
     assert data["name"] == "Hand Pour"
     assert data["abv"] == 4.5
     assert data["ebc"] == 9  # EBC unit by default
@@ -172,18 +172,119 @@ def test_override_save_then_clear_with_image():
     # Clearing the override archives the custom files.
     r2 = c.post("/admin/override/2", data={"enabled": "false"})
     assert r2.status_code == 200 and r2.json()["override"] is False
-    assert not md.custom_md_path(2).exists()
+    assert not taps.exists(2, taps.Source.MANUAL)
     assert list(paths.OLD_BEERS_DIR.glob("custom_tap_2_*.md"))
 
 
-def test_override_save_archives_existing_brewfather(write_tap):
+def test_override_save_leaves_the_existing_brewfather_tap_in_place(write_tap):
+    # Inverted deliberately: saving an override used to archive the Brewfather
+    # Tap underneath it, which is what made clearing the override leave the Slot
+    # Vacant until the next sync. It now stays warm - both files exist for the
+    # Slot, and the Manual one wins.
     c = _login(TestClient(app))
     write_tap("bf", 3, name="BF Three", abv=5, ebc=10, image_ext=".jpg")
     r = c.post("/admin/override/3", data={"enabled": "true", "name": "Now Custom", "abv": "5", "color": "10"})
     assert r.status_code == 200
-    assert md.custom_md_path(3).exists()
-    assert not md.bf_md_path(3).exists()
-    assert list(paths.OLD_BEERS_DIR.glob("bf_tap_3_*.md"))
+    assert taps.exists(3, taps.Source.MANUAL)
+    assert taps.exists(3, taps.Source.BREWFATHER)
+    assert (paths.TAPS_DIR / "bf_tap_3.jpg").exists()
+    assert list(paths.OLD_BEERS_DIR.glob("bf_tap_3_*")) == []
+    assert taps.resolve(3).front_matter["name"] == "Now Custom"
+
+
+def test_clearing_an_override_reveals_the_brewfather_beer_with_no_sync(write_tap):
+    # The story that motivated the change: no sync run happens anywhere in this
+    # test, and the board shows the Brewfather Beer the instant the override is
+    # cleared - not up to fifteen minutes later.
+    config_store.update_config(num_taps=1)
+    c = _login(TestClient(app))
+    write_tap("bf", 1, name="BF One", abv=5, ebc=10)
+
+    c.post("/admin/override/1", data={"enabled": "true", "name": "Hand Pour", "abv": "5", "color": "10"})
+    assert client.get("/api/board").json()["taps"][0]["name"] == "Hand Pour"
+
+    r = c.post("/admin/override/1", data={"enabled": "false"})
+    assert r.status_code == 200 and r.json()["override"] is False
+    tap = client.get("/api/board").json()["taps"][0]
+    assert tap["name"] == "BF One"
+    assert tap["source"] == "brewfather"
+
+
+def test_shadow_hint_names_the_waiting_beer_only_under_an_override(write_tap):
+    # The row tells the operator what clearing the override will reveal. Both
+    # files existing for one Slot is the normal case now, so it is labelled
+    # rather than left to be discovered in the data directory.
+    config_store.update_config(num_taps=3)
+    write_tap("custom", 1, name="Hand Pour", ebc=12)
+    write_tap("bf", 1, name="Shadowed Stout", ebc=40)
+    write_tap("custom", 2, name="Lonely Pour", ebc=12)  # override, no shadow
+    write_tap("bf", 3, name="Plain BF", ebc=20)         # shadow, no override
+
+    rows = main._build_admin_tap_rows(config_store.load_config())
+    assert [r["shadow_name"] for r in rows] == ["Shadowed Stout", None, None]
+
+    html = _login(TestClient(app)).get("/admin").text
+    assert html.count("data-shadow-hint") == 1
+    assert "Shadowed Stout" in html
+    # Text only: no thumbnail, no toggle, no clear-and-show shortcut.
+    assert "override-thumb" not in html
+
+
+def test_admin_row_photo_is_the_photo_the_display_shows(write_tap):
+    # Admin is only useful as a preview if it agrees with the TV, so the row
+    # resolves the Slot exactly as the board does - same Source, same photo.
+    config_store.update_config(num_taps=2)
+    write_tap("bf", 1, name="BF One", ebc=12, image_ext=".jpg")
+    write_tap("custom", 2, name="Hand Pour", ebc=12, image_ext=".png")
+    rows = main._build_admin_tap_rows(config_store.load_config())
+    board = client.get("/api/board").json()["taps"]
+    assert [r["image_url"] for r in rows] == [t["image_url"] for t in board]
+    assert [r["source"] for r in rows] == [t["source"] for t in board]
+
+
+def test_manual_tap_without_photo_shows_placeholder_not_the_brewfather_one(write_tap):
+    # The live bug this ticket closes: the row used to fall back to the other
+    # Source's image, so this Slot showed the Brewfather photo in Admin and a
+    # glass placeholder on the TV. A Tap comes entirely from one Source.
+    config_store.update_config(num_taps=1)
+    write_tap("bf", 1, name="BF One", ebc=12, image_ext=".jpg")
+    write_tap("custom", 1, name="Hand Pour", ebc=12)  # no photo of its own
+
+    row = main._build_admin_tap_rows(config_store.load_config())[0]
+    assert row["override"] is True
+    assert row["image_url"] is None
+    assert client.get("/api/board").json()["taps"][0]["image_url"] == "/img/beer-glass?ebc=12"
+
+    # And what the operator actually sees: the row renders no thumbnail at all,
+    # certainly not the Brewfather beer's.
+    html = _login(TestClient(app)).get("/admin").text
+    assert "bf_tap_1.jpg" not in html
+    assert "override-thumb" not in html
+
+
+def test_override_image_upload_sweeps_the_previous_extension():
+    c = _login(TestClient(app))
+    c.post("/admin/override/1", data={"enabled": "true", "name": "Pour"},
+           files={"image": ("beer.png", b"\x89PNG\r\n\x1a\n", "image/png")})
+    assert (paths.TAPS_DIR / "custom_tap_1.png").exists()
+    # A second upload with a different extension leaves exactly one image, so
+    # the Slot can never hold two photos with no way to say which is current.
+    r = c.post("/admin/override/1", data={"enabled": "true", "name": "Pour"},
+               files={"image": ("beer.webp", b"RIFF----WEBP", "image/webp")})
+    assert r.status_code == 200
+    assert (paths.TAPS_DIR / "custom_tap_1.webp").exists()
+    assert not (paths.TAPS_DIR / "custom_tap_1.png").exists()
+    assert taps.read(1, taps.Source.MANUAL).front_matter["image"] == "custom_tap_1.webp"
+
+
+def test_admin_row_source_comes_from_the_filename(write_tap):
+    # The front-matter `source:` key is written for a human reading the file and
+    # is never read back as truth - the filename decides, here as on the board.
+    config_store.update_config(num_taps=1)
+    write_tap("bf", 1, name="Mislabelled", ebc=12, source="custom")
+    row = main._build_admin_tap_rows(config_store.load_config())[0]
+    assert row["override"] is False
+    assert row["source"] == "brewfather"
 
 
 def test_override_saves_saturation_as_fraction():
@@ -192,7 +293,7 @@ def test_override_saves_saturation_as_fraction():
     r = c.post("/admin/override/1",
                data={"enabled": "true", "name": "Muted", "color": "20", "saturation": "60"})
     assert r.status_code == 200
-    assert md.read_tap_file(md.custom_md_path(1))["saturation"] == 0.6
+    assert taps.read(1, taps.Source.MANUAL).front_matter["saturation"] == 0.6
 
 
 def test_override_saves_colour_glass_gravity_and_visibility():
@@ -203,7 +304,7 @@ def test_override_saves_colour_glass_gravity_and_visibility():
         "og": "1.052", "fg": "1.011", "show_og": "true", "show_fg": "false",
     })
     assert r.status_code == 200
-    data = md.read_tap_file(md.custom_md_path(1))
+    data = taps.read(1, taps.Source.MANUAL).front_matter
     assert data["color_override"] == "#780606"   # normalised with leading #
     assert data["glass"] == "teku"
     assert data["og"] == 1.052 and data["fg"] == 1.011
@@ -215,7 +316,7 @@ def test_override_ignores_unknown_glass():
     r = c.post("/admin/override/1",
                data={"enabled": "true", "name": "X", "glass": "notaglass"})
     assert r.status_code == 200
-    assert md.read_tap_file(md.custom_md_path(1))["glass"] is None
+    assert taps.read(1, taps.Source.MANUAL).front_matter["glass"] is None
 
 
 def test_save_settings_theme_pagination_and_gravity():
@@ -258,7 +359,7 @@ def test_override_color_input_converts_from_srm():
     # 10 SRM should be stored as ~19.7 EBC.
     r = c.post("/admin/override/1", data={"enabled": "true", "name": "Dark", "color": "10"})
     assert r.status_code == 200
-    assert md.read_tap_file(md.custom_md_path(1))["ebc"] == pytest.approx(19.7, abs=0.05)
+    assert taps.read(1, taps.Source.MANUAL).front_matter["ebc"] == pytest.approx(19.7, abs=0.05)
 
 
 def test_save_settings_display_options():
@@ -432,5 +533,5 @@ def test_bad_number_does_not_orphan_uploaded_image():
                data={"enabled": "true", "name": "Bad", "abv": "not-a-number"},
                files={"image": ("beer.png", b"\x89PNG\r\n\x1a\n", "image/png")})
     assert r.status_code == 422
-    assert md.find_image_for("custom_tap_1") is None
-    assert not md.custom_md_path(1).exists()
+    assert taps.image_for(1, taps.Source.MANUAL) is None
+    assert not taps.exists(1, taps.Source.MANUAL)

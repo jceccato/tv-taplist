@@ -1,4 +1,6 @@
 """Board resolution: custom > brewfather > vacant, hide-vacant flags, colours."""
+from pathlib import Path
+
 from app import config_store
 from app.board import build_board, resolve_tap
 
@@ -19,6 +21,55 @@ def test_brewfather_when_no_custom(write_tap):
     assert r["ibu"] == 30
     assert r["color_hex"].startswith("#")
     assert r["vacant"] is False
+
+
+def test_filename_decides_source_not_front_matter(write_tap):
+    # A hand-edited bf_tap_X.md claiming the Manual Source is still Brewfather:
+    # the filename is authoritative and the front-matter key is never read back
+    # as truth. Otherwise the display would badge a Tap as Manual while sync
+    # kept rewriting it as Brewfather.
+    write_tap("brewfather", 4, name="Mislabelled", source="custom")
+    assert resolve_tap(4)["source"] == "brewfather"
+    # And the mirror case, so this is about the filename rather than a
+    # hard-coded default.
+    write_tap("custom", 6, name="Also mislabelled", source="brewfather")
+    assert resolve_tap(6)["source"] == "custom"
+
+
+def test_photo_comes_only_from_the_winning_source(write_tap):
+    # A Tap comes entirely from one Source. A Manual Tap with no photo shows the
+    # placeholder glass rather than borrowing the shadowed Brewfather photo, so
+    # a card's name and picture can never come from different Beers.
+    write_tap("brewfather", 1, name="BF Beer", ebc=20, image_ext=".jpg")
+    write_tap("custom", 1, name="Manual Beer", ebc=20)
+    assert resolve_tap(1)["image_url"] == "/img/beer-glass?ebc=20"
+    # The Brewfather photo is still what a Slot with no Manual Tap shows.
+    write_tap("brewfather", 2, name="BF Beer", ebc=20, image_ext=".jpg")
+    assert resolve_tap(2)["image_url"] == "/img/bf_tap_2.jpg"
+
+
+def test_unreadable_manual_tap_does_not_promote_brewfather(write_tap, monkeypatch):
+    # An existing-but-unreadable Manual Tap file renders the Slot as an empty
+    # card under the Manual Source. It must NOT fall through to Brewfather: a
+    # transient read error on a bind mount would otherwise put another
+    # brewery's beer on the TV, which is worse than a blank card.
+    write_tap("brewfather", 3, name="BF Beer", abv=5.0, ebc=10)
+    write_tap("custom", 3, name="Manual Beer", abv=4.0, ebc=8)
+
+    real_read_text = Path.read_text
+
+    def _read_text(self, *args, **kwargs):
+        if self.name == "custom_tap_3.md":
+            raise PermissionError("simulated bind-mount hiccup")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _read_text)
+
+    r = resolve_tap(3)
+    assert r["source"] == "custom"
+    assert r["name"] != "BF Beer"
+    assert r["abv"] is None and r["ebc"] is None
+    assert r["description"] == ""
 
 
 def test_vacant_when_nothing():

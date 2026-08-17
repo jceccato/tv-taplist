@@ -154,7 +154,7 @@ Inside `app/`, each module has a clear responsibility:
 | `colors.py` | EBC to hex colour model, hex/saturation parsing, text contrast |
 | `beer_glass.py` | Tinted beer-glass SVG placeholders |
 | `theme.py` | Colour theme presets + resolution to CSS variables |
-| `markdown_store.py` | Flat-file tap storage (front-matter markdown + images) |
+| `tap_store.py` | Tap files addressed by Slot and Source; Source precedence |
 | `archive.py` | Move retired beers to `old_beers/` |
 | `cleanup.py` | Daily age/size archive pruning |
 | `demo.py` | `DEMO_MODE` seeding |

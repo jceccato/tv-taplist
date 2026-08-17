@@ -1,22 +1,28 @@
-"""Move a tap's md + image pair into old_beers/ with a datetime suffix.
+"""Move a Tap's md + image pair into old_beers/ with a datetime suffix.
 
-Used by the sync job (when a Brewfather tap is no longer desired) and by admin
-(when saving a manual override over an existing bf_tap). The datetime suffix
-(e.g. bf_tap_3_20260624T1530.md) means a tap that turns over twice in one day
-does not overwrite its own archive entry.
+Used by the sync job (when a Brewfather Tap is no longer claimed) and by admin
+(when clearing or replacing an override). Callers name a Slot and a Source, the
+same way they address anything else in taps/; the Tap file store answers with
+the files to move and the stem to file them under. The datetime suffix (e.g.
+bf_tap_3_20260624T153000.md) means a Slot that turns over twice in one day does
+not overwrite its own archive entry.
 
-Moving is done as copy-to-temp + atomic replace + unlink so a concurrent reader
-never sees a half-moved file, and an interrupted move leaves the source intact.
+Archiving keeps its own module because it is a transition between two
+directories rather than storage of current Taps, and because the mechanics below
+are genuinely its own: moving is copy-to-temp + atomic replace + unlink, so a
+concurrent reader never sees a half-moved file and an interrupted move leaves
+the source intact. Missing files are tolerated - archiving a Slot that has no
+image, or no files at all, is a no-op rather than an error. Cleanup reads the
+archive back generically by stem and needs to know nothing about any of this.
 """
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from pathlib import Path
 
-from . import markdown_store as md
+from . import tap_store as taps
 from .atomic import atomic_write_bytes, safe_unlink
-from .paths import OLD_BEERS_DIR, TAPS_DIR
+from .paths import OLD_BEERS_DIR
 from .timezone import now_local
 
 log = logging.getLogger("taplist.archive")
@@ -29,31 +35,28 @@ def _move_file(src: Path, dest: Path) -> None:
     safe_unlink(src)
 
 
-def archive_tap(stem: str) -> bool:
-    """Archive the md (and paired image) for a tap stem like 'bf_tap_3'.
+def archive_tap(slot: int, source: taps.Source) -> bool:
+    """Archive the md (and paired image) for one Slot from one Source.
 
     Returns True if anything was archived. Missing files are tolerated.
+
+    The timestamp is taken once here and handed to `archived_stem` for every
+    file, so a Tap's md and its image always land under the same suffix and can
+    be recognised as a pair afterwards.
     """
     OLD_BEERS_DIR.mkdir(parents=True, exist_ok=True)
-    suffix = now_local().strftime("%Y%m%dT%H%M%S")
+    stem = taps.archived_stem(slot, source, now_local())
     archived_any = False
 
-    md_src = TAPS_DIR / f"{stem}.md"
-    if md_src.exists():
+    for src in taps.existing_paths(slot, source):
+        # The archived name keeps the source file's extension, so the md lands
+        # as <stem>.md and its photo as <stem>.jpg / .png / ...
         try:
-            _move_file(md_src, OLD_BEERS_DIR / f"{stem}_{suffix}.md")
+            _move_file(src, OLD_BEERS_DIR / f"{stem}{src.suffix}")
             archived_any = True
         except OSError as exc:
-            log.error("failed archiving %s: %s", md_src, exc)
-
-    img_src = md.find_image_for(stem)
-    if img_src is not None:
-        try:
-            _move_file(img_src, OLD_BEERS_DIR / f"{stem}_{suffix}{img_src.suffix}")
-            archived_any = True
-        except OSError as exc:
-            log.error("failed archiving image %s: %s", img_src, exc)
+            log.error("failed archiving %s: %s", src, exc)
 
     if archived_any:
-        log.info("archived %s -> old_beers/%s_%s.*", stem, stem, suffix)
+        log.info("archived tap %s (%s) -> old_beers/%s.*", slot, source, stem)
     return archived_any

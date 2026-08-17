@@ -2,7 +2,7 @@
 import httpx
 import pytest
 
-from app import brewfather, config_store, markdown_store as md, paths
+from app import brewfather, config_store, paths, tap_store as taps
 
 
 # ---- field extraction --------------------------------------------------
@@ -209,6 +209,14 @@ def mock_network(monkeypatch):
     The fake fetch mirrors the real `_list_batches`: it returns only batches whose
     status is among the requested statuses, deduped by _id - so run_sync tests
     genuinely exercise the include_conditioning status selection.
+
+    The fake download mirrors nothing. `_download_image` now returns bytes plus an
+    extension for the Tap file store to file, so the fake only has to answer
+    "did this URL download, and to what?" - it picks no filename, reproduces no
+    extension rules, and writes nothing. Whether the bytes reach the right file
+    on disk is then a real assertion about production code rather than about the
+    fixture. `state["downloads"]` maps a URL -> (bytes, ext); a URL that is
+    absent from it stands for a failed download.
     """
     state = {"batches": [], "downloads": {}}
 
@@ -227,11 +235,8 @@ def mock_network(monkeypatch):
 
     monkeypatch.setattr(brewfather, "_list_batches", fake_list)
 
-    def fake_download(client, url, stem):
-        name = state["downloads"].get(stem)
-        if name:
-            (paths.TAPS_DIR / name).write_bytes(b"img")
-        return name
+    def fake_download(client, url):
+        return state["downloads"].get(url)
 
     monkeypatch.setattr(brewfather, "_download_image", fake_download)
     return state
@@ -247,7 +252,7 @@ def test_sync_writes_bf_tap(mock_network):
     result = brewfather.run_sync()
     assert result["ok"] is True
     assert result["written"] == 1
-    data = md.read_tap_file(md.bf_md_path(2))
+    data = taps.read(2, taps.Source.BREWFATHER).front_matter
     assert data["name"] == "Tap Two Ale"
     assert data["source"] == "brewfather"
 
@@ -258,7 +263,7 @@ def test_sync_includes_conditioning_when_enabled(mock_network):
     mock_network["batches"] = [_batch("c1", 3, "Lagering Pils", status="Conditioning")]
     result = brewfather.run_sync()
     assert result["written"] == 1
-    assert md.read_tap_file(md.bf_md_path(3))["name"] == "Lagering Pils"
+    assert taps.read(3, taps.Source.BREWFATHER).front_matter["name"] == "Lagering Pils"
 
 
 def test_sync_ignores_conditioning_when_disabled(mock_network):
@@ -266,14 +271,14 @@ def test_sync_ignores_conditioning_when_disabled(mock_network):
     mock_network["batches"] = [_batch("c1", 3, "Lagering Pils", status="Conditioning")]
     result = brewfather.run_sync()
     assert result["written"] == 0
-    assert not md.bf_md_path(3).exists()
+    assert not taps.exists(3, taps.Source.BREWFATHER)
 
 
 def test_sync_writes_saturation_token(mock_network):
     _set_creds()
     mock_network["batches"] = [_batch("b1", 2, "Muted Ale", batchNotes="tap:2 saturation:50")]
     brewfather.run_sync()
-    assert md.read_tap_file(md.bf_md_path(2))["saturation"] == 0.5
+    assert taps.read(2, taps.Source.BREWFATHER).front_matter["saturation"] == 0.5
 
 
 def test_sync_writes_colour_glass_and_gravity(mock_network):
@@ -283,7 +288,7 @@ def test_sync_writes_colour_glass_and_gravity(mock_network):
         batchNotes="tap:2 colour:#445566 glass:tulip",
         measuredOg=1.055, measuredFg=1.012)]
     brewfather.run_sync()
-    data = md.read_tap_file(md.bf_md_path(2))
+    data = taps.read(2, taps.Source.BREWFATHER).front_matter
     assert data["color_override"] == "#445566"
     assert data["glass"] == "tulip"
     assert data["og"] == 1.055
@@ -308,17 +313,94 @@ def test_sync_rewrites_when_revision_changes(mock_network):
     mock_network["batches"] = [_batch("b1", 2, "Ale Renamed", _timestamp_ms=2000)]
     result = brewfather.run_sync()
     assert result["written"] == 1
-    assert md.read_tap_file(md.bf_md_path(2))["name"] == "Ale Renamed"
+    assert taps.read(2, taps.Source.BREWFATHER).front_matter["name"] == "Ale Renamed"
 
 
-def test_sync_never_touches_manual_override(mock_network, write_tap):
+def test_sync_writes_into_a_manual_occupied_slot_without_touching_the_manual_tap(
+        mock_network, write_tap):
+    # Sync no longer skips a Slot that carries a Manual override: it keeps the
+    # Brewfather Tap warm underneath, so clearing the override reveals a current
+    # Beer instead of a Vacant Slot. Nothing displays it meanwhile - resolve
+    # picks Manual first - and the Manual file itself is still untouched.
     _set_creds()
     write_tap("custom", 2, name="My Override", abv=4.2, ebc=8)
-    mock_network["batches"] = [_batch("b1", 2, "Should Not Win")]
+    mock_network["batches"] = [_batch("b1", 2, "Waiting Underneath")]
     result = brewfather.run_sync()
-    assert result["skipped_overrides"] == 1
-    assert not md.bf_md_path(2).exists()
-    assert md.read_tap_file(md.custom_md_path(2))["name"] == "My Override"
+    assert result["written"] == 1
+    assert taps.read(2, taps.Source.BREWFATHER).front_matter["name"] == "Waiting Underneath"
+    # The Manual Tap is unchanged, and still the one that wins.
+    assert taps.read(2, taps.Source.MANUAL).front_matter["name"] == "My Override"
+    assert taps.resolve(2).source is taps.Source.MANUAL
+
+
+def test_sync_does_not_archive_a_claimed_slot_under_an_override(mock_network, write_tap):
+    # The archive decision does not consult override state at all any more. A
+    # Slot a Batch still claims is kept, override or not.
+    _set_creds()
+    write_tap("custom", 2, name="My Override", abv=4.2, ebc=8)
+    write_tap("bf", 2, name="Was Here", abv=5, ebc=10)
+    mock_network["batches"] = [_batch("b1", 2, "Still Claimed")]
+    result = brewfather.run_sync()
+    assert result["archived"] == 0
+    assert taps.exists(2, taps.Source.BREWFATHER)
+    assert list(paths.OLD_BEERS_DIR.glob("*")) == []
+
+
+def test_sync_archives_an_unclaimed_slot_even_under_an_override(mock_network, write_tap):
+    # ...and the converse: an override does not preserve a Brewfather Tap whose
+    # Batch dropped its tap: token. Losing the claim is the one and only cause.
+    _set_creds()
+    write_tap("custom", 1, name="My Override", abv=4.2, ebc=8)
+    write_tap("bf", 1, name="Retiring Ale", abv=5, ebc=10)
+    mock_network["batches"] = [_batch("b1", 2, "New Tap Two")]
+    result = brewfather.run_sync()
+    assert result["archived"] == 1
+    assert not taps.exists(1, taps.Source.BREWFATHER)
+    assert taps.exists(1, taps.Source.MANUAL)  # the Manual Tap is never archived here
+    assert list(paths.OLD_BEERS_DIR.glob("custom_tap_1_*")) == []
+
+
+def test_tap_count_change_causes_no_write_no_archive_and_no_data_loss(mock_network):
+    # The tap count is a display setting. Lowering it used to archive every
+    # Brewfather Tap above the new number, and raising it back did not bring
+    # them back - a presentation choice destroying Beer data with no warning.
+    _set_creds()  # num_taps=4
+    mock_network["batches"] = [_batch("b1", 1, "One"), _batch("b4", 4, "Four")]
+    assert brewfather.run_sync()["written"] == 2
+
+    config_store.update_config(num_taps=1)  # tap 4 is now off the board
+    result = brewfather.run_sync()
+    assert (result["written"], result["archived"]) == (0, 0)
+    assert taps.exists(4, taps.Source.BREWFATHER)
+    assert list(paths.OLD_BEERS_DIR.glob("*")) == []
+
+    config_store.update_config(num_taps=4)  # and back again
+    result = brewfather.run_sync()
+    assert (result["written"], result["archived"]) == (0, 0)
+    assert taps.read(4, taps.Source.BREWFATHER).front_matter["name"] == "Four"
+
+
+def test_out_of_range_tap_token_is_rejected_and_logged(mock_network, caplog):
+    # A mistyped token must not mint a file nothing can display, and must not
+    # pass in silence either - silence is how a mistyped token stays mistyped.
+    _set_creds()
+    too_high = config_store.MAX_NUM_TAPS + 1
+    mock_network["batches"] = [_batch("b1", too_high, "Fat Fingered Ale")]
+    with caplog.at_level("WARNING", logger="taplist.sync"):
+        result = brewfather.run_sync()
+    assert result["written"] == 0
+    assert not taps.exists(too_high, taps.Source.BREWFATHER)
+    assert "Fat Fingered Ale" in caplog.text
+    assert str(too_high) in caplog.text
+
+
+def test_tap_token_above_the_tap_count_still_syncs(mock_network):
+    # The bound is MAX_NUM_TAPS, not the operator's tap count: a Slot above the
+    # tap count is simply not displayed, which is a display decision.
+    _set_creds()  # num_taps=4
+    mock_network["batches"] = [_batch("b1", 9, "Slot Nine Ale")]
+    assert brewfather.run_sync()["written"] == 1
+    assert taps.read(9, taps.Source.BREWFATHER).front_matter["name"] == "Slot Nine Ale"
 
 
 def test_sync_archives_undesired_bf_tap(mock_network, write_tap):
@@ -327,7 +409,7 @@ def test_sync_archives_undesired_bf_tap(mock_network, write_tap):
     mock_network["batches"] = [_batch("b1", 2, "New Tap Two")]
     result = brewfather.run_sync()
     assert result["archived"] == 1
-    assert not md.bf_md_path(1).exists()
+    assert not taps.exists(1, taps.Source.BREWFATHER)
     assert list(paths.OLD_BEERS_DIR.glob("bf_tap_1_*.md"))
     assert list(paths.OLD_BEERS_DIR.glob("bf_tap_1_*.jpg"))
 
@@ -342,7 +424,7 @@ def test_failed_sync_makes_no_destructive_changes(mock_network, write_tap, monke
     monkeypatch.setattr(brewfather, "_list_batches", boom)
     result = brewfather.run_sync()
     assert result["ok"] is False
-    assert md.bf_md_path(1).exists()
+    assert taps.exists(1, taps.Source.BREWFATHER)
     assert list(paths.OLD_BEERS_DIR.glob("*")) == []
     assert config_store.load_config()["last_sync_error"]
 
@@ -359,7 +441,7 @@ def test_rate_limit_429_is_reported_without_changes(mock_network, write_tap, mon
     result = brewfather.run_sync()
     assert result["ok"] is False
     assert "rate limit" in result["message"].lower()
-    assert md.bf_md_path(1).exists()  # nothing destroyed
+    assert taps.exists(1, taps.Source.BREWFATHER)  # nothing destroyed
 
 
 def test_sync_skipped_without_credentials(mock_network):
@@ -384,12 +466,44 @@ def test_sync_keeps_cached_image_when_download_fails(mock_network):
     mock_network["batches"] = [_batch("b3", 3, "Tap Three", recipe={"img_url": "http://x/y.webp", "ibu": 20})]
     mock_network["downloads"] = {}  # download returns None
     brewfather.run_sync()
-    data = md.read_tap_file(md.bf_md_path(3))
+    data = taps.read(3, taps.Source.BREWFATHER).front_matter
     assert data["image"] == "bf_tap_3.webp"
     assert (paths.TAPS_DIR / "bf_tap_3.webp").read_bytes() == b"old-good-image"
 
 
+def test_sync_saves_downloaded_image_through_the_store(mock_network):
+    # The bytes `_download_image` returns must end up in the file paired with the
+    # Slot's Tap file, under the extension the download reported. This is the
+    # coverage that used to live inside the download function itself, back when
+    # it picked the filename and wrote the file.
+    _set_creds()
+    mock_network["downloads"] = {"http://x/y.webp": (b"img-bytes", ".webp")}
+    mock_network["batches"] = [_batch(
+        "b4", 4, "Photo Ale", recipe={"img_url": "http://x/y.webp", "ibu": 20})]
+    brewfather.run_sync()
+    assert (paths.TAPS_DIR / "bf_tap_4.webp").read_bytes() == b"img-bytes"
+    assert taps.read(4, taps.Source.BREWFATHER).front_matter["image"] == "bf_tap_4.webp"
+
+
+def test_sync_archives_bf_tap_above_the_tap_count(mock_network, write_tap):
+    # The orphan scan asks the store for occupied Slots, and that enumeration is
+    # deliberately unbounded by the configured tap count: a Brewfather file left
+    # at a Slot above it must still be found and retired. Bounding the scan would
+    # leave these files stranded forever.
+    _set_creds()  # num_taps=4
+    write_tap("bf", 9, name="Stranded Ale", abv=5, ebc=10)
+    mock_network["batches"] = [_batch("b1", 2, "New Tap Two")]
+    result = brewfather.run_sync()
+    assert result["archived"] == 1
+    assert not taps.exists(9, taps.Source.BREWFATHER)
+    assert list(paths.OLD_BEERS_DIR.glob("bf_tap_9_*.md"))
+
+
 def test_download_image_preserves_source_extension():
+    # `_download_image` is now a pure fetch: it returns the bytes and the
+    # extension it worked out, and the Tap file store does the filing. The
+    # end-to-end "the photo lands next to its Tap file" assertion lives in
+    # test_sync_saves_downloaded_image_through_the_store above.
     class FakeResp:
         content = b"webp-bytes"
         headers = {"content-type": "image/webp"}
@@ -400,9 +514,7 @@ def test_download_image_preserves_source_extension():
         def get(self, url, **kw):
             return FakeResp()
 
-    name = brewfather._download_image(FakeClient(), "http://x/pic.webp", "bf_tap_9")
-    assert name == "bf_tap_9.webp"
-    assert (paths.TAPS_DIR / "bf_tap_9.webp").exists()
+    assert brewfather._download_image(FakeClient(), "http://x/pic.webp") == (b"webp-bytes", ".webp")
 
 
 def test_image_client_carries_no_credentials():
