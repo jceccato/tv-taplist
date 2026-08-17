@@ -1,9 +1,20 @@
 """Resolve the fully-computed display board for /api/board.
 
-Priority per tap X (1..num_taps):
-  1. custom_tap_X.md  -> source "custom" (manual override, always wins)
-  2. bf_tap_X.md      -> source "brewfather"
-  3. otherwise        -> vacant
+Source precedence per Slot lives in the Tap file store, not here: this module
+asks `tap_store.resolve(slot)` for the winning Tap and is told which Source it
+came from. Everything left in here is presentation - number coercion, Colour,
+the image URL, and the tri-state Visibility flags.
+
+Two consequences of resolving through the store are worth spelling out, because
+they look like bugs to a reader who remembers the old walk:
+
+* The **filename decides the Source**, so a hand-edited `bf_tap_3.md` whose
+  front matter claims `source: custom` is still reported as Brewfather. The
+  front-matter key is written by every writer and never read back as truth.
+* An **existing-but-unreadable Manual Tap file does not fall through** to the
+  Brewfather Tap; the Slot renders as an empty card under the Manual Source
+  rather than showing another brewery's beer. A file that has *vanished* still
+  falls through, because it genuinely is not there. See tap_store's docstring.
 
 The frontend never parses markdown: this module returns name, ABV, IBU, EBC,
 computed colour hex + legible text colour, description, a local image URL, and
@@ -11,13 +22,14 @@ vacant/hidden flags. Reads tolerate files disappearing mid-cycle.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from . import markdown_store as md
 from .beer_glass import DEFAULT_GLASS, normalize_glass
 from .colors import ebc_to_hex, parse_hex_color, parse_saturation, text_color_for
 from .config_store import load_config
 from .paths import venue_logo_path
+from .tap_store import resolve as resolve_tap_file
 from .theme import resolve_theme
 
 
@@ -32,20 +44,24 @@ def _num(value: Any) -> float | int | None:
     return int(f) if f.is_integer() else f
 
 
-def _image_url_for(stem: str, ebc: float | int | None = None,
+def _image_url_for(image: Path | None, ebc: float | int | None = None,
                    saturation: float | None = None, glass: str | None = None,
                    color_override: str | None = None) -> str:
-    """Local image URL for a tap stem.
+    """Local image URL for a tap's photo, if it has one.
 
-    Prefers an uploaded photo; otherwise a beer glass tinted to the beer's colour
-    (so the placeholder pour matches the SRM/EBC or the exact colour override),
-    falling back to a neutral amber glass when the colour is unknown. The per-tap
-    saturation and glassware are forwarded so the placeholder matches the swatch.
+    The store hands out a Path and knows nothing about web routes, so building
+    the URL stays here. `image` is the photo paired with the *winning* Tap file
+    only - never borrowed from the other Source, so a Manual Tap with no photo
+    shows the placeholder rather than the Brewfather beer's picture.
+
+    With no photo: a beer glass tinted to the beer's colour (so the placeholder
+    pour matches the SRM/EBC or the exact colour override), falling back to a
+    neutral amber glass when the colour is unknown. The per-tap saturation and
+    glassware are forwarded so the placeholder matches the swatch.
     """
-    img = md.find_image_for(stem)
-    if img is not None:
+    if image is not None:
         # Served by the /img/<filename> route which reads from /data/taps.
-        return f"/img/{img.name}"
+        return f"/img/{image.name}"
     params: list[str] = []
     if color_override:
         params.append("hex=" + color_override.lstrip("#"))
@@ -68,16 +84,11 @@ def _tri(value: Any) -> bool | None:
 
 def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS) -> dict[str, Any]:
     """Resolve a single tap to a display dict."""
-    # Manual override first.
-    data = md.read_tap_file(md.custom_md_path(tap))
-    source = "custom"
-    stem = f"custom_tap_{tap}"
-    if data is None:
-        data = md.read_tap_file(md.bf_md_path(tap))
-        source = "brewfather"
-        stem = f"bf_tap_{tap}"
+    # Source precedence (Manual beats Brewfather beats Vacant) belongs to the
+    # store; the board only asks for a Slot and is told which Source won.
+    tap_file = resolve_tap_file(tap)
 
-    if data is None:
+    if tap_file is None:
         return {
             "tap": tap,
             "vacant": True,
@@ -97,6 +108,7 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS) -> dict[str, Any]:
             "show_fg": None,
         }
 
+    data = tap_file.front_matter
     ebc = _num(data.get("ebc"))
     saturation = parse_saturation(data.get("saturation"))
     color_override = parse_hex_color(data.get("color_override"))
@@ -106,7 +118,10 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS) -> dict[str, Any]:
     return {
         "tap": tap,
         "vacant": False,
-        "source": data.get("source", source),
+        # The filename decides the Source. A front-matter `source:` key is
+        # written for a human reading the file and is never read back as truth,
+        # so a mislabelled file cannot make sync and the display disagree.
+        "source": str(tap_file.source),
         "name": (data.get("name") or "").strip() or f"Tap {tap}",
         "abv": _num(data.get("abv")),
         "ibu": _num(data.get("ibu")),
@@ -118,8 +133,10 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS) -> dict[str, Any]:
         # The swatch shows whenever the colour is known - from an EBC value OR an
         # explicit override - even if the EBC *stat* itself is hidden/empty.
         "color_known": ebc is not None or color_override is not None,
-        "description": (data.get("description") or "").strip(),
-        "image_url": _image_url_for(stem, ebc, saturation, glass, color_override),
+        # The description is the markdown body, a named field on the TapFile
+        # rather than a synthesised front-matter key.
+        "description": (tap_file.body or "").strip(),
+        "image_url": _image_url_for(tap_file.image, ebc, saturation, glass, color_override),
         # Per-tap stat-visibility overrides (None -> follow the global toggle).
         "show_og": _tri(data.get("show_og")),
         "show_fg": _tri(data.get("show_fg")),
