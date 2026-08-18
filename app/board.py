@@ -189,9 +189,11 @@ def build_board() -> dict[str, Any]:
         "show_source_badge": bool(cfg.get("show_source_badge", False)),
         # Theme colours (display.js writes these onto the document root).
         "theme": resolve_theme(cfg),
-        # Card sizing, already resolved to plain numbers. The preset key stays
+        # Card sizing, already resolved to plain numbers. The preset keys stay
         # behind in Settings: the display only needs to know how big to draw,
-        # not which button produced the number.
+        # not which button produced the number. The photo scale is applied by
+        # display.js against each photo's measured height, not by CSS - see the
+        # `.card .thumb` rule for why.
         "tap_image_scale": float(cfg.get("tap_image_scale", 1.0) or 1.0),
         "tap_text_scale": float(cfg.get("tap_text_scale", 1.0) or 1.0),
         # Pagination / carousel.

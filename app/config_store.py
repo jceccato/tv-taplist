@@ -61,7 +61,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "theme": "default",             # preset key, or "custom"
     "theme_custom": dict(DEFAULT_THEME),  # per-colour overrides when theme == "custom"
     "glass_type": "default",        # default glassware for the no-photo placeholder
-    # Card sizing. The preset is remembered only so the admin can re-open the
+    # Card sizing. A preset is remembered only so the admin can re-open the
     # picker where the operator left it; the two scales are what actually reach
     # the board, so a preset never needs re-resolving at render time.
     # The two axes are chosen independently: a photo preset never moves the text
