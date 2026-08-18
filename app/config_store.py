@@ -249,13 +249,14 @@ class ConfigUnreadable(RuntimeError):
 _READ_RETRIES = 5
 
 
-def _read_existing_config() -> dict[str, Any] | None:
-    """Return the coerced config, None if it is genuinely absent (first run).
+def read_raw_config() -> dict[str, Any] | None:
+    """Return config.json exactly as it sits on disk, uncoerced.
 
-    Retries to ride out a transient FS error (or a cold bind mount that briefly
-    reports the file missing). Only concludes "absent" when the file is *still*
-    not found after every attempt; any other persistent error raises
-    ConfigUnreadable rather than masquerading as a first run.
+    `_coerce` drops every key that is not in DEFAULT_CONFIG, so a caller that
+    needs to see a key the schema no longer knows about - the one-time Status
+    migration in `status_store` is the only one - has to read past it. Absence
+    and unreadability are reported on exactly the same terms as the coerced
+    read: None for a genuine first run, ConfigUnreadable otherwise.
     """
     ensure_dirs()
     last_exc: Exception | None = None
@@ -265,7 +266,7 @@ def _read_existing_config() -> dict[str, Any] | None:
             cfg = json.loads(raw)
             if not isinstance(cfg, dict):
                 raise ValueError("config.json is not a JSON object")
-            return _coerce(cfg)
+            return cfg
         except FileNotFoundError as exc:
             last_exc = exc
             if attempt == _READ_RETRIES - 1:
@@ -276,6 +277,38 @@ def _read_existing_config() -> dict[str, Any] | None:
                 raise ConfigUnreadable(f"{CONFIG_PATH}: {exc}") from exc
         time.sleep(0.05 * (attempt + 1))
     raise ConfigUnreadable(f"{CONFIG_PATH}: {last_exc}")
+
+
+def _read_existing_config() -> dict[str, Any] | None:
+    """Return the coerced config, None if it is genuinely absent (first run).
+
+    Retries to ride out a transient FS error (or a cold bind mount that briefly
+    reports the file missing). Only concludes "absent" when the file is *still*
+    not found after every attempt; any other persistent error raises
+    ConfigUnreadable rather than masquerading as a first run.
+    """
+    raw = read_raw_config()
+    return None if raw is None else _coerce(raw)
+
+
+def prune_unknown_keys() -> bool:
+    """Rewrite config.json without keys the schema no longer knows. Returns True if it changed.
+
+    Every write already drops unknown keys, because `save_config` coerces. This
+    exists so the Status migration can *finish* deliberately rather than waiting
+    for the operator's next Save to tidy up as a side effect. It rewrites from
+    the raw file it just read, so no default can reach disk in place of a real
+    value.
+    """
+    raw = read_raw_config()            # raises ConfigUnreadable on a bad read
+    if raw is None:
+        return False
+    unknown = [k for k in raw if k not in DEFAULT_CONFIG]
+    if not unknown:
+        return False
+    save_config(raw)                   # _coerce drops them on the way out
+    log.info("dropped %d key(s) no longer in the config schema: %s", len(unknown), unknown)
+    return True
 
 
 def load_config() -> dict[str, Any]:

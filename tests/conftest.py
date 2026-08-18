@@ -37,6 +37,10 @@ def clean_state():
                 pass
     if paths.CONFIG_PATH.exists():
         paths.CONFIG_PATH.unlink()
+    # Status is a separate file and is deliberately NOT seeded: a fresh box has
+    # no status.json at all until a job writes one, so tests start there too.
+    if paths.STATUS_PATH.exists():
+        paths.STATUS_PATH.unlink()
     config_store.save_config(dict(config_store.DEFAULT_CONFIG))
     auth._failed.clear()
     yield
