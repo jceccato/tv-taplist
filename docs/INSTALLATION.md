@@ -214,7 +214,8 @@ host path so an admin can read and edit it directly:
 
 ```
 taplist_data/
-  config.json        # settings + sync status
+  config.json        # your settings (tap count, theme, Brewfather key)
+  status.json        # sync + update-check timestamps, written by the app
   placeholder.svg    # fallback image (replaceable)
   taps/              # current beers: custom_tap_N.md / bf_tap_N.md (+ images)
   old_beers/         # archived beers (markdown + image pairs)
@@ -222,7 +223,9 @@ taplist_data/
 
 Each tap is a small Markdown file with front-matter (name, ABV, IBU, colour, …)
 and a body of tasting notes - open one in any text editor to see exactly what the
-board will show. Set `PUID`/`PGID` to the host user that should own these files so
+board will show. `status.json` is written by the app rather than by you, and is
+safe to delete: every value in it is regenerated on the next sync and the next
+daily update check. Set `PUID`/`PGID` to the host user that should own these files so
 the non-root container can write them.
 
 ---

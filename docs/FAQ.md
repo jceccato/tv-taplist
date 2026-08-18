@@ -368,8 +368,10 @@ deleted outright. A daily cleanup (03:30 local time) keeps the archive tidy:
 ## Where is my data?
 
 In the **host directory you mapped to `/data`** (see [The data
-directory](INSTALLATION.md#the-data-directory)). Settings live in `config.json`;
-each beer is a small Markdown file in `taps/` with its image alongside. It's all
+directory](INSTALLATION.md#the-data-directory)). Your settings live in
+`config.json` and the app's own bookkeeping - when it last synced, what the last
+update check found - lives in `status.json`; each beer is a small Markdown file
+in `taps/` with its image alongside. It's all
 plain text and standard image files - open any of it in a text editor or file
 browser to see exactly what the board is showing. Nothing is hidden in a database.
 

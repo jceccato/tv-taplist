@@ -149,6 +149,7 @@ Inside `app/`, each module has a clear responsibility:
 |--------|---------------|
 | `main.py` | Routes: display, admin, API, image serving, auth |
 | `config_store.py` | `config.json` load/save/coerce; `DEFAULT_CONFIG` is the schema |
+| `status_store.py` | `status.json` - disposable runtime Status, kept out of Settings |
 | `board.py` | Builds the `/api/board` payload (tap resolution + display opts) |
 | `brewfather.py` | Brewfather API fetch + sync job + note-token parsing |
 | `colors.py` | EBC to hex colour model, hex/saturation parsing, text contrast |
