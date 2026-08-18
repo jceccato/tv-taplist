@@ -51,9 +51,14 @@ from .colors import (
     text_color_for,
 )
 from .config_store import (
+    MAX_TAP_IMAGE_SCALE,
+    MAX_TAP_TEXT_SCALE,
     MAX_VENUE_LOGO_VH,
+    MIN_TAP_IMAGE_SCALE,
+    MIN_TAP_TEXT_SCALE,
     brewfather_credentials,
     load_config,
+    resolve_tap_size_preset,
     update_config,
 )
 from .theme import DEFAULT_THEME, THEME_FIELD_LABELS, THEME_KEYS, THEMES
@@ -341,6 +346,12 @@ async def admin_page(request: Request):
             "color_label": "SRM" if cfg.get("color_unit") == "srm" else "EBC",
             "venue_logo_url": "/img/venue-logo" if venue_logo_path() else None,
             "max_logo_vh": MAX_VENUE_LOGO_VH,
+            # Card-sizing slider bounds, taken from the server clamps so the two
+            # can never drift into an input that posts a value config rejects.
+            "min_image_scale": MIN_TAP_IMAGE_SCALE,
+            "max_image_scale": MAX_TAP_IMAGE_SCALE,
+            "min_text_scale": MIN_TAP_TEXT_SCALE,
+            "max_text_scale": MAX_TAP_TEXT_SCALE,
             # Theme + glassware pickers.
             "themes": THEMES,
             "theme_fields": THEME_FIELD_LABELS,
@@ -486,6 +497,9 @@ async def save_settings(
     show_source_badge: bool = Form(False),
     theme: str = Form("default"),
     glass_type: str = Form("default"),
+    tap_size_preset: str = Form("normal"),
+    tap_image_scale: float = Form(1.0),
+    tap_text_scale: float = Form(1.0),
     paginate: bool = Form(False),
     page_size: int = Form(6),
     rotation_seconds: int = Form(30),
@@ -503,6 +517,14 @@ async def save_settings(
         key: parse_hex_color(form.get(f"theme_{key}")) or DEFAULT_THEME[key]
         for key in THEME_KEYS
     }
+
+    # A named card-sizing preset owns its scales, so resolve here and let the
+    # posted slider values go: the browser may have been showing stale numbers
+    # (or none at all, for a scripted post), and the stored config must never
+    # say "small" beside Large's scales. Only "custom" keeps what was posted.
+    # Range clamping stays in config_store, as it does for every other setting.
+    size_preset, image_scale, text_scale = resolve_tap_size_preset(
+        tap_size_preset, tap_image_scale, tap_text_scale)
 
     updates = {
         "include_conditioning": include_conditioning,
@@ -526,6 +548,9 @@ async def save_settings(
         "theme": theme,
         "theme_custom": theme_custom,
         "glass_type": glass_type,
+        "tap_size_preset": size_preset,
+        "tap_image_scale": image_scale,
+        "tap_text_scale": text_scale,
         "paginate": paginate,
         "page_size": page_size,
         "rotation_seconds": rotation_seconds,

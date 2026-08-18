@@ -95,3 +95,58 @@ def test_include_conditioning_defaults_false_and_coerces_bool():
     assert config_store.DEFAULT_CONFIG["include_conditioning"] is False
     cfg = config_store.update_config(include_conditioning="yes")  # truthy -> bool True
     assert cfg["include_conditioning"] is True
+
+
+# ---- card sizing ---------------------------------------------------------
+
+def test_card_sizing_defaults_to_normal_at_scale_one():
+    assert config_store.DEFAULT_CONFIG["tap_size_preset"] == "normal"
+    assert config_store.DEFAULT_CONFIG["tap_image_scale"] == 1.0
+    assert config_store.DEFAULT_CONFIG["tap_text_scale"] == 1.0
+
+
+def test_card_sizing_absent_from_an_existing_config_reads_as_normal():
+    # A config written before this feature existed has none of the three keys;
+    # it must keep rendering exactly as it did, at Normal.
+    config_store.save_config({"num_taps": 4})
+    cfg = config_store.load_config()
+    assert cfg["tap_size_preset"] == "normal"
+    assert cfg["tap_image_scale"] == 1.0
+    assert cfg["tap_text_scale"] == 1.0
+
+
+def test_coerce_clamps_card_scales_to_their_bounds():
+    cfg = config_store.update_config(tap_image_scale=99, tap_text_scale=0.01)
+    assert cfg["tap_image_scale"] == config_store.MAX_TAP_IMAGE_SCALE
+    assert cfg["tap_text_scale"] == config_store.MIN_TAP_TEXT_SCALE
+
+
+def test_coerce_rejects_junk_and_nan_card_scales():
+    # NaN survives float() and loses every comparison, so a plain clamp would
+    # pass it straight through into a CSS custom property.
+    cfg = config_store.update_config(tap_image_scale=float("nan"), tap_text_scale="wide")
+    assert cfg["tap_image_scale"] == 1.0
+    assert cfg["tap_text_scale"] == 1.0
+
+
+def test_coerce_normalises_the_size_preset_but_leaves_the_scales_alone():
+    cfg = config_store.update_config(
+        tap_size_preset="ENORMOUS", tap_image_scale=0.6, tap_text_scale=0.75)
+    assert cfg["tap_size_preset"] == "normal"    # unknown preset -> the default
+    # The scales are what the board sends, so an unknown preset name must not
+    # rewrite them out from under a hand-edited config.
+    assert cfg["tap_image_scale"] == 0.6
+    assert cfg["tap_text_scale"] == 0.75
+
+
+def test_resolve_preset_overrides_submitted_scales():
+    for preset, (image, text) in config_store.TAP_SIZE_PRESETS.items():
+        # Whatever the sliders posted is discarded: the preset owns its numbers.
+        assert config_store.resolve_tap_size_preset(preset, 2.5, 1.9) == (preset, image, text)
+
+
+def test_resolve_custom_keeps_the_submitted_scales():
+    assert config_store.resolve_tap_size_preset("custom", 0.4, 1.8) == ("custom", 0.4, 1.8)
+    # An unrecognised key is treated as Custom rather than silently rewriting
+    # the operator's numbers to some preset's.
+    assert config_store.resolve_tap_size_preset("bogus", 0.4, 1.8) == ("custom", 0.4, 1.8)

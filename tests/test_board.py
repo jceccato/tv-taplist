@@ -156,3 +156,19 @@ def test_og_fg_and_per_tap_show_flags(write_tap):
     write_tap("custom", 2, name="Plain", abv=5)
     r2 = resolve_tap(2)
     assert r2["show_og"] is None and r2["og"] is None
+
+
+def test_board_carries_the_resolved_card_scales():
+    # The board sends numbers, not the preset key: the display never needs to
+    # know which button produced them.
+    config_store.update_config(tap_size_preset="small", tap_image_scale=0.6, tap_text_scale=0.75)
+    b = build_board()
+    assert b["tap_image_scale"] == 0.6
+    assert b["tap_text_scale"] == 0.75
+    assert "tap_size_preset" not in b
+
+
+def test_board_card_scales_default_to_one():
+    b = build_board()
+    assert b["tap_image_scale"] == 1.0
+    assert b["tap_text_scale"] == 1.0

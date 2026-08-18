@@ -48,6 +48,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "theme": "default",             # preset key, or "custom"
     "theme_custom": dict(DEFAULT_THEME),  # per-colour overrides when theme == "custom"
     "glass_type": "default",        # default glassware for the no-photo placeholder
+    # Card sizing. The preset is remembered only so the admin can re-open the
+    # picker where the operator left it; the two scales are what actually reach
+    # the board, so a preset never needs re-resolving at render time.
+    "tap_size_preset": "normal",    # "small" | "normal" | "large" | "custom"
+    "tap_image_scale": 1.0,         # multiplies the beer photo's max height
+    "tap_text_scale": 1.0,          # multiplies the preferred card font sizes
     # Pagination / carousel.
     "paginate": False,              # when on, show `page_size` taps per page
     "page_size": 6,                 # taps per page (1..8) when paginating
@@ -77,12 +83,65 @@ MAX_PAGE_SIZE = 8
 MIN_ROTATION_SECONDS = 3
 MAX_ROTATION_SECONDS = 600
 
+# Card sizing bounds. Deliberately wide: the point of the feature is that we
+# cannot guess the operator's screen (a Fire Stick on a small TV needs different
+# numbers from a 4K panel), so the clamp only rules out values that would render
+# the board unusable. The CSS keeps its own px floor/ceiling on every font size,
+# so even the extremes of these ranges stay legible - see display.css.
+MIN_TAP_IMAGE_SCALE = 0.25
+MAX_TAP_IMAGE_SCALE = 3.0
+MIN_TAP_TEXT_SCALE = 0.5
+MAX_TAP_TEXT_SCALE = 2.0
+
+# The fixed scales behind each named preset. "custom" is absent on purpose: it
+# means "leave the operator's own numbers alone", so it has nothing to resolve.
+# This map is the single definition - the admin form posts a preset key and the
+# server resolves it, so the browser can never disagree with the stored config.
+TAP_SIZE_PRESETS: dict[str, tuple[float, float]] = {
+    # preset -> (tap_image_scale, tap_text_scale)
+    "small": (0.6, 0.75),
+    "normal": (1.0, 1.0),
+    "large": (1.5, 1.4),
+}
+TAP_SIZE_PRESET_KEYS = (*TAP_SIZE_PRESETS.keys(), "custom")
+
 
 def _coerce_int(value: Any, lo: int, hi: int, default: int) -> int:
     try:
         return max(lo, min(hi, int(value)))
     except (TypeError, ValueError):
         return default
+
+
+def _coerce_float(value: Any, lo: float, hi: float, default: float) -> float:
+    """Clamp a float setting, falling back to `default` for junk or NaN.
+
+    NaN is checked explicitly because it survives float() and then loses every
+    min/max comparison, so it would sail through a plain clamp and end up in a
+    CSS custom property as the literal "nan".
+    """
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    if f != f:  # NaN
+        return default
+    return max(lo, min(hi, f))
+
+
+def resolve_tap_size_preset(preset: str, image_scale: Any, text_scale: Any) -> tuple[str, float, float]:
+    """Resolve a card-sizing preset to the scales that get stored.
+
+    A named preset owns its numbers: whatever the sliders posted is discarded,
+    so the config can never hold "small" next to Large's scales. "custom" (and
+    any unrecognised key, which normalises to Custom rather than silently
+    rewriting the operator's numbers) keeps the submitted values.
+    """
+    key = str(preset or "").strip().lower()
+    fixed = TAP_SIZE_PRESETS.get(key)
+    if fixed is not None:
+        return key, fixed[0], fixed[1]
+    return "custom", image_scale, text_scale
 
 
 def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -121,6 +180,19 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     merged["theme"] = normalize_theme_name(merged["theme"])
     merged["theme_custom"] = coerce_custom_theme(merged["theme_custom"])
     merged["glass_type"] = normalize_glass(merged["glass_type"])
+
+    # Card sizing. The two scales are coerced independently of the preset: they
+    # are what the board actually sends, and a config hand-edited to an unknown
+    # preset name should still render at whatever scales it asks for.
+    preset = str(merged["tap_size_preset"] or "").strip().lower()
+    merged["tap_size_preset"] = (
+        preset if preset in TAP_SIZE_PRESET_KEYS else DEFAULT_CONFIG["tap_size_preset"])
+    merged["tap_image_scale"] = _coerce_float(
+        merged["tap_image_scale"], MIN_TAP_IMAGE_SCALE, MAX_TAP_IMAGE_SCALE,
+        DEFAULT_CONFIG["tap_image_scale"])
+    merged["tap_text_scale"] = _coerce_float(
+        merged["tap_text_scale"], MIN_TAP_TEXT_SCALE, MAX_TAP_TEXT_SCALE,
+        DEFAULT_CONFIG["tap_text_scale"])
 
     # Pagination / carousel.
     merged["paginate"] = bool(merged["paginate"])
