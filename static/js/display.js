@@ -116,6 +116,10 @@
       s.hide_abv_when_empty, s.hide_ibu_when_empty, s.hide_color_when_empty,
       s.hide_og_when_empty, s.hide_fg_when_empty, s.show_source_badge,
       s.paginate, s.page_size,
+      // A scale change resizes every font, which invalidates the marquee
+      // overflow measurements, so it has to force a full re-render rather than
+      // a diff update. (Theme and rotation genuinely do not, hence their absence.)
+      s.tap_image_scale, s.tap_text_scale,
     ].join("|");
   }
 
@@ -147,6 +151,26 @@
     const root = document.documentElement;
     for (const k in THEME_VARS) {
       if (theme[k]) root.style.setProperty(THEME_VARS[k], theme[k]);
+    }
+  }
+
+  // ---- card sizing ----
+  // The board sends two already-resolved numbers (the preset that produced them
+  // stays in Settings), and they reach the CSS the same way the theme does: as
+  // custom properties on the document root. display.css multiplies its preferred
+  // vmin sizes by them and leaves the px floor/ceiling of each clamp() alone, so
+  // even an extreme scale cannot push the board past legibility.
+  const SCALE_VARS = {
+    tap_image_scale: "--tap-image-scale",
+    tap_text_scale: "--tap-text-scale",
+  };
+  function applyCardScales(board) {
+    const root = document.documentElement;
+    for (const k in SCALE_VARS) {
+      // A missing or junk value falls back to 1 rather than writing "NaN" into
+      // the property, which would make every scaled size invalid at once.
+      const n = Number(board[k]);
+      root.style.setProperty(SCALE_VARS[k], String(n > 0 ? n : 1));
     }
   }
 
@@ -470,6 +494,7 @@
 
   function applyBoard(board) {
     applyTheme(board.theme);
+    applyCardScales(board);
 
     state.settings = {
       color_unit: board.color_unit || "ebc",
@@ -484,6 +509,8 @@
       hide_og_when_empty: board.hide_og_when_empty !== false,
       hide_fg_when_empty: board.hide_fg_when_empty !== false,
       show_source_badge: board.show_source_badge === true,
+      tap_image_scale: Number(board.tap_image_scale) || 1,
+      tap_text_scale: Number(board.tap_text_scale) || 1,
       paginate: board.paginate === true,
       page_size: Number(board.page_size) || MAX_CARDS_PER_PAGE,
       rotation_seconds: Number(board.rotation_seconds) || 30,
