@@ -54,6 +54,7 @@
     themeKey: null,         // signature of the applied theme colours
     venueLogoSrc: null,
     hasRendered: false,
+    photoScale: 1,          // last resolved photo scale, re-applied on every remeasure
   };
 
   // ---- helpers ----
@@ -155,13 +156,12 @@
   }
 
   // ---- card sizing ----
-  // The board sends two already-resolved numbers (the preset that produced them
-  // stays in Settings), and they reach the CSS the same way the theme does: as
-  // custom properties on the document root. display.css multiplies its preferred
-  // vmin sizes by them and leaves the px floor/ceiling of each clamp() alone, so
-  // even an extreme scale cannot push the board past legibility.
+  // The board sends two already-resolved numbers (the presets that produced them
+  // stay in Settings). The TEXT scale reaches the CSS the same way the theme
+  // does: as a custom property on the document root, which display.css applies to
+  // its preferred vmin size and its px ceiling, leaving the px floor alone so no
+  // scale can push the board below legibility.
   const SCALE_VARS = {
-    tap_image_scale: "--tap-image-scale",
     tap_text_scale: "--tap-text-scale",
   };
   function applyCardScales(board) {
@@ -172,6 +172,49 @@
       const n = Number(board[k]);
       root.style.setProperty(SCALE_VARS[k], String(n > 0 ? n : 1));
     }
+    applyPhotoScale(board.tap_image_scale);
+  }
+
+  // The PHOTO scale cannot be a CSS lever: a percentage cap resolves against the
+  // card foot, but `object-fit: contain` usually makes the photo's width the
+  // binding constraint, so most of the range sat above the size the photo already
+  // rendered at and did nothing. So measure the height each photo actually
+  // renders at with no cap, then cap that. At scale 1 the cap equals the measured
+  // height, which is why the default look is byte-for-byte the old one.
+  //
+  // The price is that the cap is an ABSOLUTE px value and therefore goes stale
+  // whenever the rendered size changes: it has to be re-applied on a re-render, a
+  // viewport change, a stage layout change, and on each photo's own load. Every
+  // caller below funnels through scheduleRemeasure().
+  function applyPhotoScale(scale) {
+    // A junk or out-of-range value renders at 1 rather than collapsing every
+    // photo to 0px, which is what a stray NaN or a negative would do here.
+    const n = Number(scale);
+    state.photoScale = n > 0 ? Math.min(n, 1) : 1;
+    const imgs = Array.prototype.slice.call(document.querySelectorAll(".card .thumb"));
+    if (!imgs.length) return;
+    // Clear every cap first, take ONE reflow, then measure them all: measuring
+    // per image would force a synchronous reflow per card.
+    imgs.forEach((img) => { img.style.maxHeight = "none"; });
+    void document.body.offsetHeight;
+    const natural = imgs.map((img) => img.getBoundingClientRect().height);
+    imgs.forEach((img, i) => {
+      // A card on a page that is mid-transition can measure 0; leaving the cap
+      // off is the safe answer, because the next remeasure will set it and a
+      // 0px cap would hide the photo entirely until then.
+      img.style.maxHeight = natural[i] > 0 ? (natural[i] * state.photoScale) + "px" : "";
+    });
+  }
+
+  // Coalesced through rAF: resize fires continuously while a window is dragged,
+  // and each pass above forces a synchronous reflow.
+  let photoRAF = null;
+  function scheduleRemeasure() {
+    if (photoRAF) return;
+    photoRAF = requestAnimationFrame(() => {
+      photoRAF = null;
+      applyPhotoScale(state.photoScale);
+    });
   }
 
   // ---- card building ----
@@ -297,6 +340,11 @@
   function bindImage(card, t) {
     const img = card.querySelector(".thumb");
     if (!img) return;
+    // A photo arriving over HTTP lands after the card is in the DOM, so any cap
+    // measured before it decoded was taken against an empty box. Re-measure once
+    // it is there. (The placeholder swap below fires this again, which is what we
+    // want: the placeholder has its own proportions.)
+    img.addEventListener("load", scheduleRemeasure);
     img.addEventListener("error", () => {
       if (img.dataset.fellBack === "1") return;
       img.dataset.fellBack = "1";
@@ -381,10 +429,13 @@
     showPage(state.currentPage);
     renderDots();
     measureAllMarquees();
+    // Every card node was just replaced, so every inline photo cap went with it.
+    scheduleRemeasure();
     state.hasRendered = true;
   }
 
   function diffUpdate(taps) {
+    let changed = false;
     taps.forEach((t) => {
       const card = state.cardEls.get(t.tap);
       if (!card) return;
@@ -392,7 +443,11 @@
       if (prev && tapSignature(prev) === tapSignature(t)) return; // unchanged
       fillCard(card, t, false);
       state.dataByTap.set(t.tap, t);
+      changed = true;
     });
+    // A vacant<->filled flip rebuilds a card's inner HTML, and a longer beer name
+    // or description re-divides the card, so any change can invalidate the caps.
+    if (changed) scheduleRemeasure();
   }
 
   function showPage(idx) {
@@ -400,6 +455,10 @@
     pages.forEach((p, i) => p.classList.toggle("active", i === idx));
     state.currentPage = idx;
     renderDots();
+    // Pages are stacked and laid out together (only opacity differs), so a flip
+    // does not resize anything today. Re-measuring anyway is one rAF per 30s and
+    // keeps the caps correct if that ever changes to a display-toggling page.
+    scheduleRemeasure();
   }
 
   // Jump to a page on manual navigation (dot click / keypress) and restart the
@@ -552,7 +611,19 @@
   window.addEventListener("resize", () => {
     if (resizeRAF) cancelAnimationFrame(resizeRAF);
     resizeRAF = requestAnimationFrame(measureAllMarquees);
+    // The photo caps are absolute px, so they are wrong the moment the viewport
+    // changes: without this, shrinking the window leaves the photos at the height
+    // they were given for the old layout until a preset is saved again.
+    scheduleRemeasure();
   });
+
+  // A resize is not the only way the cards change size: the venue logo appearing
+  // (or its height changing) resizes the stage without touching the window. The
+  // observer catches both, and on a tablet it also covers the orientation change
+  // that settles after `orientationchange` has already fired.
+  if (typeof ResizeObserver === "function" && stage) {
+    new ResizeObserver(scheduleRemeasure).observe(stage);
+  }
 
   // ---- boot ----
   let pollTimer = null;

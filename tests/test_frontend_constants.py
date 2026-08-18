@@ -56,10 +56,26 @@ def test_admin_js_text_presets_match_server():
     assert _admin_js_presets("TAP_TEXT_PRESETS") == TAP_TEXT_PRESETS
 
 
-def test_card_scale_css_variables_are_set_and_consumed():
-    # display.js writes these two properties; display.css is the only reader. A
-    # rename on one side alone would silently stop scaling anything.
+def test_card_text_scale_css_variable_is_set_and_consumed():
+    # display.js writes this property; display.css is the only reader. A rename on
+    # one side alone would silently stop scaling anything.
+    css = _DISPLAY_CSS.read_text(encoding="utf-8")
     js_vars = set(re.findall(r'"(--tap-(?:image|text)-scale)"', _display_js()))
-    css_vars = set(re.findall(r"(--tap-(?:image|text)-scale)", _DISPLAY_CSS.read_text(encoding="utf-8")))
-    assert js_vars == {"--tap-image-scale", "--tap-text-scale"}
+    css_vars = set(re.findall(r"(--tap-(?:image|text)-scale)", css))
+    assert js_vars == {"--tap-text-scale"}
     assert js_vars == css_vars
+
+
+def test_text_scale_scales_the_clamp_ceiling_but_not_the_floor():
+    # The floor is a legibility guarantee and must stay absolute; the ceiling has
+    # to follow the scale or every step above Default collapses onto it at 4K,
+    # where the preferred vmin size already exceeds it. Every scaled font-size
+    # site must have exactly this shape.
+    css = _DISPLAY_CSS.read_text(encoding="utf-8")
+    sites = re.findall(r"font-size: clamp\([^;]*--tap-text-scale[^;]*\);", css)
+    assert len(sites) == 8, sites
+    for site in sites:
+        m = re.fullmatch(
+            r"font-size: clamp\(\d+px, calc\([0-9.]+vmin \* var\(--tap-text-scale, 1\)\), "
+            r"calc\(\d+px \* var\(--tap-text-scale, 1\)\)\);", site)
+        assert m, site
