@@ -84,8 +84,8 @@ cocktail - even if Brewfather knows nothing about it, and the sync never touches
 **On a timer** (every `SYNC_INTERVAL_MINUTES`, default 15) and whenever you click
 **Sync Brewfather now**, the app:
 
-1. Lists your **Completed** batches (plus **Conditioning** ones if you enabled
-   that - see below) in one paginated request per page (`complete=True`, 50 per
+1. Lists your **Completed** batches (plus **Conditioning** and **Fermenting** ones
+   if you enabled those - see below) in one paginated request per page (`complete=True`, 50 per
    page), so a single call carries all the data it needs - ABV, IBU, colour, notes
    and the image. Cost is `ceil(batches / 50)` calls per status, comfortably under
    Brewfather's limit of **500 calls/hour per key**.
@@ -188,10 +188,22 @@ way.
 
 **Completed** ones by default. Planning, Brewing, Fermenting and Archived batches
 are ignored, so a beer you're still working on never appears until you mark it
-Completed. Tick **Include Conditioning batches** on the Settings tab to *also* pull
-batches still in **Conditioning** (lagering / maturing) - handy for a beer that's
-already on tap but too green to mark Completed. When two batches (say a
-Conditioning and a Completed one) claim the same tap, the most recent wins.
+Completed.
+
+Two independent checkboxes on the Settings tab widen that:
+
+- **Include Conditioning batches** also pulls batches still in **Conditioning**
+  (lagering / maturing) - handy for a beer that's already on tap but too green to
+  mark Completed.
+- **Include Fermenting batches** also pulls batches still in **Fermenting**
+  (primary fermentation) - handy for showing what's coming next.
+
+Either way a batch still needs its `tap:N` note token to reach a tap, and a beer
+pulled in this way looks exactly like any other on the board. Each status you add
+is another paginated sweep of the API, so the call cost rises with the number of
+statuses (still comfortably under the 500/hour limit at normal sync intervals).
+When two batches (say a Conditioning and a Completed one) claim the same tap, the
+most recent wins.
 
 ### Smart and safe
 

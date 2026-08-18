@@ -74,7 +74,8 @@ On its next sync the board picks it up. You can fine-tune the swatch colour,
 glassware and more with extra note tokens or from the admin panel - see
 [FAQ.md -> Brewfather](docs/FAQ.md#brewfather-sync). Beers that aren't Completed are
 ignored by default, so works-in-progress never show up by accident - though you can
-opt to include **Conditioning** batches (lagering / maturing) from the admin.
+opt to include **Conditioning** (lagering / maturing) or **Fermenting** (primary)
+batches from the admin.
 
 ---
 
