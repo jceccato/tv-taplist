@@ -37,7 +37,7 @@ def test_update_config_refuses_to_clobber_on_unreadable_file(monkeypatch):
     _patch_unreadable(monkeypatch)
 
     with pytest.raises(config_store.ConfigUnreadable):
-        config_store.update_config(last_sync_attempt="2026-01-01T00:00:00")
+        config_store.update_config(rotation_seconds=45)
 
     # The saved settings must survive untouched.
     on_disk = _read_raw()
@@ -68,11 +68,11 @@ def test_update_config_preserves_unrelated_fields():
     config_store.save_config(
         {**config_store.DEFAULT_CONFIG, "num_taps": 6, "venue_logo": "venue_logo.png"}
     )
-    config_store.update_config(last_sync_success="2026-01-01T00:00:00")
+    config_store.update_config(rotation_seconds=45)
     on_disk = _read_raw()
     assert on_disk["num_taps"] == 6
     assert on_disk["venue_logo"] == "venue_logo.png"
-    assert on_disk["last_sync_success"] == "2026-01-01T00:00:00"
+    assert on_disk["rotation_seconds"] == 45
 
 
 def test_coerce_clamps_pagination_and_normalises_theme_glass():

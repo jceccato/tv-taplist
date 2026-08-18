@@ -75,6 +75,7 @@ from .paths import (
     venue_logo_path,
 )
 from .scheduler import shutdown_scheduler, start_scheduler
+from .status_store import load_status, migrate_legacy_status
 from .timezone import iso_now
 
 logging.basicConfig(
@@ -89,6 +90,10 @@ async def lifespan(app: FastAPI):
     """Startup/shutdown: bootstrap data, seed demo, run an initial sync, schedule jobs."""
     ensure_dirs()
     load_config()  # first-run bootstrap of config.json
+    # One-time carry of the Status fields out of a pre-split config.json. Runs
+    # before the scheduler so no job can write status.json ahead of it, which is
+    # what lets the migration treat an existing status.json as authoritative.
+    migrate_legacy_status()
     _ensure_local_placeholder()
     maybe_seed_demo()
     if auth.demo_admin_open():
@@ -340,6 +345,9 @@ async def admin_page(request: Request):
         {
             "request": request,
             "cfg": cfg,
+            # Status is a separate file and a separate template variable, so a
+            # template can never reach a sync timestamp through `cfg`.
+            "status": load_status(),
             "rows": rows,
             "asset_v": _asset_version("css/admin.css", "js/admin.js"),
             "bf": brewfather_credentials(),
@@ -758,19 +766,26 @@ async def trigger_sync(_: None = Depends(auth.require_admin)):
 
 @app.get("/api/update-status")
 async def api_update_status():
-    """Return the current update-check state from config.json.
-    
-    Public (no auth) so the admin page can poll it. Contains no secrets — just
-    version strings and a URL.
+    """Return the current update-check state.
+
+    What the last check found is Status (status.json); whether checking is
+    enabled at all is a Setting (config.json). Public (no auth) so the admin
+    page can poll it, which is safe because it carries no secrets - just version
+    strings and a URL. Note this is the ONLY endpoint that exposes any Status,
+    and it deliberately exposes none of the sync fields: /api/board omits Status
+    entirely, `last_sync_error` included, because that can carry upstream API
+    error text.
     """
     cfg = load_config()
+    status = load_status()
     cur = current_version()
+    latest = status.get("update_latest_version")
     return {
         "current_version": cur,
-        "latest_version": cfg.get("update_latest_version"),
-        "latest_url": cfg.get("update_latest_url"),
-        "update_available": is_update_available(cfg.get("update_latest_version"), cur),
-        "last_check": cfg.get("update_last_check"),
+        "latest_version": latest,
+        "latest_url": status.get("update_latest_url"),
+        "update_available": is_update_available(latest, cur),
+        "last_check": status.get("update_last_check"),
         "enabled": cfg.get("update_check_enabled", True),
     }
 

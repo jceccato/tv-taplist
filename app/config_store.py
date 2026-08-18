@@ -1,9 +1,16 @@
 """config.json load/save with first-run bootstrap and atomic writes.
 
-config.json holds all operator settings plus sync status. It is the single
-source of truth for credentials, tap count, display toggles, and cleanup limits.
-Secrets (the Brewfather key) live here in plaintext; this is a documented,
-conscious choice for the appliance scope (see README).
+config.json holds **Settings**: operator configuration, deliberate and rarely
+changed. It is the single source of truth for credentials, tap count, display
+toggles, and cleanup limits. Secrets (the Brewfather key) live here in
+plaintext; this is a documented, conscious choice for the appliance scope
+(see README).
+
+Machine-written **Status** - the sync timestamps, the last sync error, and what
+the daily update check found - used to live here too, and no longer does. It
+sits in status.json and is owned by `app/status_store.py`, so the scheduled jobs
+no longer rewrite the file holding the credential on every cycle. See
+`docs/adr/0002-config-status-separation.md`.
 """
 from __future__ import annotations
 
@@ -67,15 +74,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Optional venue/company logo at the top of the display.
     "venue_logo": None,             # filename under /data (e.g. venue_logo.png) or null
     "venue_logo_height_vh": 0,      # 0..33 (% of viewport height; 0 hides the header)
-    # Update checker — polls GitHub once per day for new releases.
+    # Update checker - polls GitHub once per day for new releases. Only the
+    # operator's intent lives here; what the check FOUND is Status and lives in
+    # status.json, along with the sync timestamps that used to sit below it.
     "update_check_enabled": True,     # operator can disable for air-gapped deploys
-    "update_last_check": None,        # ISO8601 of last check
-    "update_latest_version": None,    # e.g. "v1.2.3" or "unreleased"
-    "update_latest_url": None,        # release HTML URL
-    # Status fields, updated by the sync job so an unattended box is debuggable.
-    "last_sync_success": None,   # ISO8601 string of last *successful* sync
-    "last_sync_error": None,     # human-readable last error, or null
-    "last_sync_attempt": None,   # ISO8601 of last attempt (success or fail)
 }
 
 # Upper bound on the tap count. Well above any real venue; guards /api/board and
@@ -175,6 +177,7 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     merged["brewfather_api_key"] = str(merged["brewfather_api_key"] or "")
     merged["include_conditioning"] = bool(merged["include_conditioning"])
     merged["include_fermenting"] = bool(merged["include_fermenting"])
+    merged["update_check_enabled"] = bool(merged["update_check_enabled"])
 
     # Display options.
     merged["color_unit"] = "srm" if str(merged["color_unit"]).lower() == "srm" else "ebc"

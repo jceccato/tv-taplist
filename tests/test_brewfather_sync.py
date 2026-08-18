@@ -2,7 +2,7 @@
 import httpx
 import pytest
 
-from app import brewfather, config_store, paths, tap_store as taps
+from app import brewfather, config_store, paths, status_store, tap_store as taps
 
 
 # ---- field extraction --------------------------------------------------
@@ -502,7 +502,7 @@ def test_failed_sync_makes_no_destructive_changes(mock_network, write_tap, monke
     assert result["ok"] is False
     assert taps.exists(1, taps.Source.BREWFATHER)
     assert list(paths.OLD_BEERS_DIR.glob("*")) == []
-    assert config_store.load_config()["last_sync_error"]
+    assert status_store.load_status()["last_sync_error"]
 
 
 def test_rate_limit_429_is_reported_without_changes(mock_network, write_tap, monkeypatch):

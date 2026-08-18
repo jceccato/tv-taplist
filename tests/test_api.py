@@ -2,7 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app import config_store, main, paths, tap_store as taps
+from app import config_store, main, paths, status_store, tap_store as taps
 from app.main import _safe_tap_image, app
 
 # Plain TestClient (no context manager) so the lifespan scheduler/initial-sync
@@ -529,12 +529,32 @@ def test_display_assets_are_cache_busted():
 
 def test_api_board_omits_sync_status():
     # /api/board is public and unauthenticated; sync status/error (which can carry
-    # upstream API error text) must NOT leak there.
-    config_store.update_config(num_taps=1, last_sync_error="boom: upstream 500 body",
+    # upstream API error text) must NOT leak there. Status lives in its own file
+    # now, so it is seeded through the Status store - writing it via the config
+    # store would be dropped as an unknown key and prove nothing.
+    config_store.update_config(num_taps=1)
+    status_store.update_status(last_sync_error="boom: upstream 500 body",
                                last_sync_success="2026-01-01T00:00:00")
     board = client.get("/api/board").json()
-    assert "last_sync_error" not in board
-    assert "last_sync_success" not in board
+    for key in status_store.STATUS_KEYS:
+        assert key not in board
+
+
+def test_admin_status_panel_renders_status_from_status_json():
+    # The panel used to read these off `cfg`; they come from the Status store
+    # now, so a rename in the template would otherwise fail silently to "never".
+    status_store.update_status(last_sync_success="2026-04-04T00:00:00",
+                               last_sync_attempt="2026-04-04T00:00:01",
+                               last_sync_error="upstream 500")
+    html = _login(TestClient(app)).get("/admin").text
+    assert "2026-04-04T00:00:00" in html
+    assert "2026-04-04T00:00:01" in html
+    assert "upstream 500" in html
+
+
+def test_admin_status_panel_says_never_on_a_fresh_box():
+    html = _login(TestClient(app)).get("/admin").text
+    assert "never" in html
 
 
 def test_img_responses_carry_svg_csp():

@@ -45,15 +45,15 @@
         </div>
         <div>
           <span class="k">Last successful sync</span>
-          <span class="v" id="status-last-sync">{{ cfg.last_sync_success or "never" }}</span>
+          <span class="v" id="status-last-sync">{{ status.last_sync_success or "never" }}</span>
         </div>
         <div>
           <span class="k">Last sync attempt</span>
-          <span class="v">{{ cfg.last_sync_attempt or "never" }}</span>
+          <span class="v">{{ status.last_sync_attempt or "never" }}</span>
         </div>
         <div>
           <span class="k">Last sync error</span>
-          <span class="v {{ 'err' if cfg.last_sync_error else '' }}" id="status-last-error">{{ cfg.last_sync_error or "none" }}</span>
+          <span class="v {{ 'err' if status.last_sync_error else '' }}" id="status-last-error">{{ status.last_sync_error or "none" }}</span>
         </div>
       </div>
       <div class="status-actions">

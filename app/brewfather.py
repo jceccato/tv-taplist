@@ -64,12 +64,11 @@ from .beer_glass import GLASS_KEYS
 from .colors import EBC_PER_SRM, parse_hex_color, parse_saturation
 from .config_store import (
     MAX_NUM_TAPS,
-    ConfigUnreadable,
     brewfather_credentials,
     load_config,
-    update_config,
 )
 from .paths import ensure_dirs
+from .status_store import update_status
 from .timezone import iso_now
 
 log = logging.getLogger("taplist.sync")
@@ -85,14 +84,17 @@ SYNC_SOURCE = taps.Source.BREWFATHER
 
 
 def _record_status(**changes: Any) -> None:
-    """Persist sync-status fields, tolerating a transiently unreadable config.
+    """Persist the sync Status fields. Never raises; never touches Settings.
 
-    Sync status is non-critical, so if config.json can't be read right now we
-    skip the update rather than let it bubble up (or risk clobbering settings).
+    Status lives in its own file now, so recording it cannot disturb
+    config.json or the Brewfather key inside it. `update_status` is already
+    tolerant of an unreadable status.json (the data is disposable), so the only
+    thing left to swallow here is a genuine write failure - a full or read-only
+    /data. Sync must not fail on account of its own bookkeeping.
     """
     try:
-        update_config(**changes)
-    except ConfigUnreadable as exc:
+        update_status(**changes)
+    except OSError as exc:
         log.warning("could not record sync status (%s)", exc)
 
 API_BASE = "https://api.brewfather.app/v2"
