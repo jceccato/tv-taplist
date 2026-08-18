@@ -82,6 +82,60 @@
   }
   document.querySelectorAll(".color-field").forEach(wireColorField);
 
+  // ---- card sizing (preset picker + the two scale sliders) ----
+  // Mirrors TAP_SIZE_PRESETS in app/config_store.py. The duplication is
+  // deliberate (no build step, so the browser cannot import the Python map) and
+  // is pinned by tests/test_frontend_constants.py so the two cannot drift.
+  // Note this map only drives what the operator SEES while picking: the server
+  // re-resolves the preset on save, so a stale browser can never store a preset
+  // beside another preset's scales.
+  const TAP_SIZE_PRESETS = {
+    small: { image: 0.6, text: 0.75 },
+    normal: { image: 1.0, text: 1.0 },
+    large: { image: 1.5, text: 1.4 },
+  };
+
+  function setupCardSizing(form) {
+    const preset = form.querySelector('select[name="tap_size_preset"]');
+    const image = form.querySelector('input[name="tap_image_scale"]');
+    const text = form.querySelector('input[name="tap_text_scale"]');
+    if (!preset || !image || !text) return;
+
+    // The readout lives in the <label>, outside the slider row, so look it up by
+    // the control's id rather than by DOM proximity.
+    function readout(input) {
+      return form.querySelector('[data-range-val-for="' + input.id + '"]');
+    }
+    function showValue(input) {
+      const el = readout(input);
+      if (el) el.textContent = Number(input.value).toFixed(2);
+    }
+
+    preset.addEventListener("change", () => {
+      const fixed = TAP_SIZE_PRESETS[preset.value];
+      // "Custom" has no numbers of its own: it means "keep what the sliders
+      // already show", so picking it must not disturb them.
+      if (!fixed) return;
+      image.value = String(fixed.image);
+      text.value = String(fixed.text);
+      showValue(image);
+      showValue(text);
+    });
+
+    // Assigning .value above does not fire "input", so repainting the sliders
+    // from a preset cannot bounce the picker back to Custom. Only a human drag
+    // reaches here.
+    [image, text].forEach((input) => {
+      input.addEventListener("input", () => {
+        showValue(input);
+        preset.value = "custom";
+      });
+    });
+
+    showValue(image);
+    showValue(text);
+  }
+
   // ---- settings form ----
   const settingsForm = document.getElementById("settings-form");
   if (settingsForm) {
@@ -92,6 +146,8 @@
       hRange.addEventListener("input", () => { hNum.value = hRange.value; });
       hNum.addEventListener("input", () => { hRange.value = hNum.value; });
     }
+
+    setupCardSizing(settingsForm);
 
     settingsForm.addEventListener("submit", async (e) => {
       e.preventDefault();
