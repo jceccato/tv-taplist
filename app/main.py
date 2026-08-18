@@ -478,6 +478,7 @@ async def save_settings(
     brewfather_user_id: str = Form(""),
     brewfather_api_key: str = Form(""),
     include_conditioning: bool = Form(False),
+    include_fermenting: bool = Form(False),
     num_taps: int = Form(...),
     hide_vacant_taps: bool = Form(False),
     announcement_text: str = Form(""),
@@ -528,6 +529,7 @@ async def save_settings(
 
     updates = {
         "include_conditioning": include_conditioning,
+        "include_fermenting": include_fermenting,
         "num_taps": num_taps,
         "hide_vacant_taps": hide_vacant_taps,
         "announcement_text": announcement_text,

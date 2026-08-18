@@ -147,6 +147,36 @@ def test_save_settings_persists():
     assert cfg["announcement_text"] == "Hi"
 
 
+def test_save_settings_sync_status_toggles_are_independent():
+    """Both Brewfather status toggles save in all four combinations.
+
+    An unchecked HTML checkbox is simply absent from the post, so this also pins
+    that a missing field turns the toggle off rather than leaving it stuck on.
+    """
+    c = _login(TestClient(app))
+    base = {"num_taps": "6", "max_archive_age_days": "90",
+            "max_archive_storage_mb": "1000"}
+    for conditioning, fermenting in [(True, True), (False, True),
+                                     (True, False), (False, False)]:
+        data = dict(base)
+        if conditioning:
+            data["include_conditioning"] = "true"
+        if fermenting:
+            data["include_fermenting"] = "true"
+        r = c.post("/admin/settings", data=data)
+        assert r.status_code == 200 and r.json()["ok"] is True
+        cfg = config_store.load_config()
+        assert cfg["include_conditioning"] is conditioning
+        assert cfg["include_fermenting"] is fermenting
+
+
+def test_admin_page_offers_both_sync_status_checkboxes():
+    c = _login(TestClient(app))
+    body = c.get("/admin").text
+    assert 'name="include_conditioning"' in body
+    assert 'name="include_fermenting"' in body
+
+
 def test_save_settings_rejects_negative_taps():
     c = _login(TestClient(app))
     r = c.post("/admin/settings", data={

@@ -97,6 +97,12 @@
               Include Conditioning batches
             </label>
             <p class="hint">Also show beers still in Conditioning (lagering / maturing), not just Completed batches.</p>
+
+            <label class="checkbox">
+              <input type="checkbox" name="include_fermenting" {{ 'checked' if cfg.include_fermenting else '' }}>
+              Include Fermenting batches
+            </label>
+            <p class="hint">Also show beers still in Fermenting (primary fermentation). Each extra status is another sweep of the Brewfather API, and a batch still needs a <code>tap:</code> note to appear.</p>
           </fieldset>
 
           <fieldset>
