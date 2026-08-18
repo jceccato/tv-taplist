@@ -597,10 +597,24 @@ def run_sync() -> dict[str, Any]:
     # setting, and sync depends only on what Brewfather claims. See
     # `_find_tap_number` and `_archive_undesired`.
     # Statuses to pull: always Completed, plus Conditioning when the operator
-    # opts in (a beer on tap but still lagering / too green to mark Completed).
+    # opts in (a beer on tap but still lagering / too green to mark Completed),
+    # plus Fermenting for an upcoming Beer still in primary. The two opt-ins are
+    # independent, so all four combinations are valid.
+    #
+    # Each extra status costs another sweep: `_list_batches` pages the API once
+    # per status, ceil(N/50) calls each, against a 500/hour key limit. Three
+    # statuses on a normal sync interval stay comfortably inside it, but this is
+    # the reason the status list is opt-in rather than "fetch everything".
+    #
+    # The status only decides which Batches are FETCHED. A Fermenting Batch still
+    # needs a `tap:X` note token to claim a Slot, and maps to a Tap exactly like
+    # any other Batch - nothing downstream knows or cares which status it came
+    # from, which is why MAPPING_VERSION is deliberately NOT bumped for this.
     statuses = ["Completed"]
     if bool(cfg.get("include_conditioning", False)):
         statuses.append("Conditioning")
+    if bool(cfg.get("include_fermenting", False)):
+        statuses.append("Fermenting")
 
     if not user_id or not api_key:
         msg = "sync skipped: Brewfather credentials not configured"

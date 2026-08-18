@@ -274,6 +274,82 @@ def test_sync_ignores_conditioning_when_disabled(mock_network):
     assert not taps.exists(3, taps.Source.BREWFATHER)
 
 
+def test_sync_includes_fermenting_when_enabled(mock_network):
+    _set_creds()
+    config_store.update_config(include_fermenting=True)
+    mock_network["batches"] = [_batch("f1", 3, "Green IPA", status="Fermenting")]
+    result = brewfather.run_sync()
+    assert result["written"] == 1
+    assert taps.read(3, taps.Source.BREWFATHER).front_matter["name"] == "Green IPA"
+
+
+def test_sync_ignores_fermenting_when_disabled(mock_network):
+    _set_creds()  # include_fermenting defaults False
+    mock_network["batches"] = [_batch("f1", 3, "Green IPA", status="Fermenting")]
+    result = brewfather.run_sync()
+    assert result["written"] == 0
+    assert not taps.exists(3, taps.Source.BREWFATHER)
+
+
+def test_fermenting_batch_without_tap_token_is_ignored(mock_network):
+    # The status toggle only decides what is FETCHED. Claiming a Slot still needs
+    # a `tap:X` note token, exactly as for a Completed or Conditioning Batch.
+    _set_creds()
+    config_store.update_config(include_fermenting=True)
+    mock_network["batches"] = [_batch("f1", 3, "Unassigned Ferment",
+                                      status="Fermenting", batchNotes="no token here")]
+    result = brewfather.run_sync()
+    assert result["written"] == 0
+    assert not taps.exists(3, taps.Source.BREWFATHER)
+
+
+def test_fermenting_tap_file_matches_a_completed_one(mock_network):
+    # A Fermenting Batch maps to a Tap identically: nothing downstream knows the
+    # Batch status, which is why MAPPING_VERSION is not bumped for this toggle.
+    _set_creds()
+    config_store.update_config(include_fermenting=True)
+    mock_network["batches"] = [
+        _batch("done", 1, "Same Beer", status="Completed"),
+        _batch("ferm", 2, "Same Beer", status="Fermenting"),
+    ]
+    brewfather.run_sync()
+    completed = dict(taps.read(1, taps.Source.BREWFATHER).front_matter)
+    fermenting = dict(taps.read(2, taps.Source.BREWFATHER).front_matter)
+    # Only the identifying fields may differ; every mapped Beer field must match.
+    for key in ("batch_id", "tap", "updated"):
+        completed.pop(key, None)
+        fermenting.pop(key, None)
+    assert completed == fermenting
+
+
+@pytest.mark.parametrize("conditioning,fermenting,expected", [
+    (False, False, ["Completed"]),
+    (True, False, ["Completed", "Conditioning"]),
+    (False, True, ["Completed", "Fermenting"]),
+    (True, True, ["Completed", "Conditioning", "Fermenting"]),
+])
+def test_status_list_covers_all_toggle_combinations(monkeypatch, mock_network,
+                                                    conditioning, fermenting, expected):
+    """Pin the exact status list `_list_batches` is asked for.
+
+    Each status is a separate paginated sweep of the Brewfather API, so the list
+    is what the rate-limit cost is proportional to - worth asserting directly
+    rather than only inferring it from which Batches came back.
+    """
+    _set_creds()
+    config_store.update_config(include_conditioning=conditioning,
+                               include_fermenting=fermenting)
+    seen: list[list[str]] = []
+
+    def recording_list(client, statuses):
+        seen.append(list(statuses))
+        return []
+
+    monkeypatch.setattr(brewfather, "_list_batches", recording_list)
+    brewfather.run_sync()
+    assert seen == [expected]
+
+
 def test_sync_writes_saturation_token(mock_network):
     _set_creds()
     mock_network["batches"] = [_batch("b1", 2, "Muted Ale", batchNotes="tap:2 saturation:50")]
