@@ -97,6 +97,18 @@ def test_include_conditioning_defaults_false_and_coerces_bool():
     assert cfg["include_conditioning"] is True
 
 
+def test_include_fermenting_defaults_false_and_coerces_bool():
+    assert config_store.DEFAULT_CONFIG["include_fermenting"] is False
+    cfg = config_store.update_config(include_fermenting="yes")  # truthy -> bool True
+    assert cfg["include_fermenting"] is True
+
+
+def test_include_fermenting_absent_from_stored_config_reads_false():
+    # A config written before the toggle existed has no such key; the merge over
+    # DEFAULT_CONFIG must treat that as off rather than raising or going truthy.
+    assert config_store._coerce({"num_taps": 4})["include_fermenting"] is False
+
+
 # ---- card sizing ---------------------------------------------------------
 
 def test_card_sizing_defaults_to_normal_at_scale_one():

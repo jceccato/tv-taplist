@@ -26,6 +26,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Brewfather sync scope: by default only Completed batches sync. When on, also
     # pull Conditioning batches (a beer that is on tap but still lagering/maturing).
     "include_conditioning": False,
+    # Widens the scope one stage earlier: Fermenting Batches (still in primary),
+    # so an upcoming Beer can be shown before it is ready. Independent of
+    # include_conditioning - all four combinations are valid. Either way a Batch
+    # still needs a `tap:X` note token to reach a Slot; this only decides which
+    # Batches are fetched, never which are displayed.
+    "include_fermenting": False,
     "num_taps": 0,
     "hide_vacant_taps": False,
     "announcement_text": "",
@@ -168,6 +174,7 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     merged["brewfather_user_id"] = str(merged["brewfather_user_id"] or "")
     merged["brewfather_api_key"] = str(merged["brewfather_api_key"] or "")
     merged["include_conditioning"] = bool(merged["include_conditioning"])
+    merged["include_fermenting"] = bool(merged["include_fermenting"])
 
     # Display options.
     merged["color_unit"] = "srm" if str(merged["color_unit"]).lower() == "srm" else "ebc"
