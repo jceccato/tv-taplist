@@ -82,25 +82,26 @@
   }
   document.querySelectorAll(".color-field").forEach(wireColorField);
 
-  // ---- card sizing (preset picker + the two scale sliders) ----
-  // Mirrors TAP_SIZE_PRESETS in app/config_store.py. The duplication is
-  // deliberate (no build step, so the browser cannot import the Python map) and
-  // is pinned by tests/test_frontend_constants.py so the two cannot drift.
-  // Note this map only drives what the operator SEES while picking: the server
-  // re-resolves the preset on save, so a stale browser can never store a preset
-  // beside another preset's scales.
-  const TAP_SIZE_PRESETS = {
-    small: { image: 0.6, text: 0.75 },
-    normal: { image: 1.0, text: 1.0 },
-    large: { image: 1.5, text: 1.4 },
+  // ---- card sizing (a preset picker + a scale slider, per axis) ----
+  // Mirror TAP_PHOTO_PRESETS / TAP_TEXT_PRESETS in app/config_store.py. The
+  // duplication is deliberate (no build step, so the browser cannot import the
+  // Python maps) and is pinned by tests/test_frontend_constants.py so the two
+  // cannot drift. These maps only drive what the operator SEES while picking:
+  // the server re-resolves the preset on save, so a stale browser can never
+  // store a preset beside another preset's scale.
+  const TAP_PHOTO_PRESETS = {
+    tiny: 0.4,
+    small: 0.6,
+    medium: 0.75,
+    default: 1.0,
+  };
+  const TAP_TEXT_PRESETS = {
+    small: 0.75,
+    default: 1.0,
+    large: 1.4,
   };
 
   function setupCardSizing(form) {
-    const preset = form.querySelector('select[name="tap_size_preset"]');
-    const image = form.querySelector('input[name="tap_image_scale"]');
-    const text = form.querySelector('input[name="tap_text_scale"]');
-    if (!preset || !image || !text) return;
-
     // The readout lives in the <label>, outside the slider row, so look it up by
     // the control's id rather than by DOM proximity.
     function readout(input) {
@@ -111,29 +112,36 @@
       if (el) el.textContent = Number(input.value).toFixed(2);
     }
 
-    preset.addEventListener("change", () => {
-      const fixed = TAP_SIZE_PRESETS[preset.value];
-      // "Custom" has no numbers of its own: it means "keep what the sliders
-      // already show", so picking it must not disturb them.
-      if (!fixed) return;
-      image.value = String(fixed.image);
-      text.value = String(fixed.text);
-      showValue(image);
-      showValue(text);
-    });
+    // One axis: its picker, its slider, its preset map. Wiring them separately is
+    // the point - the photo and the text are chosen independently, so nudging one
+    // slider must never move the other axis's picker.
+    function wireAxis(presetName, scaleName, presets) {
+      const preset = form.querySelector('select[name="' + presetName + '"]');
+      const scale = form.querySelector('input[name="' + scaleName + '"]');
+      if (!preset || !scale) return;
 
-    // Assigning .value above does not fire "input", so repainting the sliders
-    // from a preset cannot bounce the picker back to Custom. Only a human drag
-    // reaches here.
-    [image, text].forEach((input) => {
-      input.addEventListener("input", () => {
-        showValue(input);
+      preset.addEventListener("change", () => {
+        const fixed = presets[preset.value];
+        // "Custom" has no number of its own: it means "keep what the slider
+        // already shows", so picking it must not disturb it.
+        if (fixed === undefined) return;
+        scale.value = String(fixed);
+        showValue(scale);
+      });
+
+      // Assigning .value above does not fire "input", so repainting the slider
+      // from a preset cannot bounce the picker back to Custom. Only a human drag
+      // reaches here.
+      scale.addEventListener("input", () => {
+        showValue(scale);
         preset.value = "custom";
       });
-    });
 
-    showValue(image);
-    showValue(text);
+      showValue(scale);
+    }
+
+    wireAxis("tap_photo_preset", "tap_image_scale", TAP_PHOTO_PRESETS);
+    wireAxis("tap_text_preset", "tap_text_scale", TAP_TEXT_PRESETS);
   }
 
   // ---- settings form ----

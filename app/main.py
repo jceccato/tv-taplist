@@ -58,7 +58,8 @@ from .config_store import (
     MIN_TAP_TEXT_SCALE,
     brewfather_credentials,
     load_config,
-    resolve_tap_size_preset,
+    resolve_tap_photo_preset,
+    resolve_tap_text_preset,
     update_config,
 )
 from .theme import DEFAULT_THEME, THEME_FIELD_LABELS, THEME_KEYS, THEMES
@@ -506,7 +507,8 @@ async def save_settings(
     show_source_badge: bool = Form(False),
     theme: str = Form("default"),
     glass_type: str = Form("default"),
-    tap_size_preset: str = Form("normal"),
+    tap_photo_preset: str = Form("default"),
+    tap_text_preset: str = Form("default"),
     tap_image_scale: float = Form(1.0),
     tap_text_scale: float = Form(1.0),
     paginate: bool = Form(False),
@@ -527,13 +529,14 @@ async def save_settings(
         for key in THEME_KEYS
     }
 
-    # A named card-sizing preset owns its scales, so resolve here and let the
-    # posted slider values go: the browser may have been showing stale numbers
+    # A named card-sizing preset owns its scale, so resolve here and let the
+    # posted slider value go: the browser may have been showing stale numbers
     # (or none at all, for a scripted post), and the stored config must never
-    # say "small" beside Large's scales. Only "custom" keeps what was posted.
-    # Range clamping stays in config_store, as it does for every other setting.
-    size_preset, image_scale, text_scale = resolve_tap_size_preset(
-        tap_size_preset, tap_image_scale, tap_text_scale)
+    # say "small" beside Default's scale. Only "custom" keeps what was posted.
+    # The two axes resolve independently - picking a photo preset must not touch
+    # the text scale. Range clamping stays in config_store, as for every setting.
+    photo_preset, image_scale = resolve_tap_photo_preset(tap_photo_preset, tap_image_scale)
+    text_preset, text_scale = resolve_tap_text_preset(tap_text_preset, tap_text_scale)
 
     updates = {
         "include_conditioning": include_conditioning,
@@ -558,7 +561,8 @@ async def save_settings(
         "theme": theme,
         "theme_custom": theme_custom,
         "glass_type": glass_type,
-        "tap_size_preset": size_preset,
+        "tap_photo_preset": photo_preset,
+        "tap_text_preset": text_preset,
         "tap_image_scale": image_scale,
         "tap_text_scale": text_scale,
         "paginate": paginate,

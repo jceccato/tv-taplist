@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 
 from app.colors import EBC_PER_SRM
-from app.config_store import TAP_SIZE_PRESETS
+from app.config_store import TAP_PHOTO_PRESETS, TAP_TEXT_PRESETS
 from app.theme import THEME_KEYS
 
 _DISPLAY_JS = Path(__file__).resolve().parent.parent / "static" / "js" / "display.js"
@@ -38,19 +38,22 @@ _ADMIN_JS = Path(__file__).resolve().parent.parent / "static" / "js" / "admin.js
 _DISPLAY_CSS = Path(__file__).resolve().parent.parent / "static" / "css" / "display.css"
 
 
-def test_admin_js_size_presets_match_server():
-    # admin.js repaints the sliders when a preset is picked, so it mirrors
-    # TAP_SIZE_PRESETS. The server re-resolves on save, so drift here would not
-    # corrupt config - it would quietly show the operator the wrong numbers.
-    block = re.search(r"TAP_SIZE_PRESETS\s*=\s*\{(.*?)\n  \};", _ADMIN_JS.read_text(encoding="utf-8"),
+def _admin_js_presets(name: str) -> dict[str, float]:
+    block = re.search(name + r"\s*=\s*\{(.*?)\n  \};", _ADMIN_JS.read_text(encoding="utf-8"),
                       re.DOTALL)
-    assert block, "TAP_SIZE_PRESETS not found in admin.js"
-    js = {
-        name: (float(image), float(text))
-        for name, image, text in re.findall(
-            r"(\w+)\s*:\s*\{\s*image:\s*([0-9.]+)\s*,\s*text:\s*([0-9.]+)\s*\}", block.group(1))
-    }
-    assert js == TAP_SIZE_PRESETS
+    assert block, name + " not found in admin.js"
+    return {key: float(value) for key, value in re.findall(r"(\w+)\s*:\s*([0-9.]+)", block.group(1))}
+
+
+def test_admin_js_photo_presets_match_server():
+    # admin.js repaints the slider when a preset is picked, so it mirrors the
+    # server maps. The server re-resolves on save, so drift here would not corrupt
+    # config - it would quietly show the operator the wrong number.
+    assert _admin_js_presets("TAP_PHOTO_PRESETS") == TAP_PHOTO_PRESETS
+
+
+def test_admin_js_text_presets_match_server():
+    assert _admin_js_presets("TAP_TEXT_PRESETS") == TAP_TEXT_PRESETS
 
 
 def test_card_scale_css_variables_are_set_and_consumed():

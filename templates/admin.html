@@ -120,15 +120,24 @@
 
             <hr class="panel-sep">
             <h3>Card sizing</h3>
-            <label for="tap_size_preset">Preset</label>
-            <select id="tap_size_preset" name="tap_size_preset">
-              <option value="small" {{ 'selected' if cfg.tap_size_preset == 'small' else '' }}>Small</option>
-              <option value="normal" {{ 'selected' if cfg.tap_size_preset == 'normal' else '' }}>Normal</option>
-              <option value="large" {{ 'selected' if cfg.tap_size_preset == 'large' else '' }}>Large</option>
-              <option value="custom" {{ 'selected' if cfg.tap_size_preset == 'custom' else '' }}>Custom</option>
+            <label for="tap_photo_preset">Photo preset</label>
+            <select id="tap_photo_preset" name="tap_photo_preset">
+              <option value="tiny" {{ 'selected' if cfg.tap_photo_preset == 'tiny' else '' }}>Tiny</option>
+              <option value="small" {{ 'selected' if cfg.tap_photo_preset == 'small' else '' }}>Small</option>
+              <option value="medium" {{ 'selected' if cfg.tap_photo_preset == 'medium' else '' }}>Medium</option>
+              <option value="default" {{ 'selected' if cfg.tap_photo_preset == 'default' else '' }}>Default</option>
+              <option value="custom" {{ 'selected' if cfg.tap_photo_preset == 'custom' else '' }}>Custom</option>
             </select>
 
-            <label for="tap_image_scale">Image scale <span class="range-val" data-range-val-for="tap_image_scale">{{ '%.2f'|format(cfg.tap_image_scale) }}</span></label>
+            <label for="tap_text_preset">Text preset</label>
+            <select id="tap_text_preset" name="tap_text_preset">
+              <option value="small" {{ 'selected' if cfg.tap_text_preset == 'small' else '' }}>Small</option>
+              <option value="default" {{ 'selected' if cfg.tap_text_preset == 'default' else '' }}>Default</option>
+              <option value="large" {{ 'selected' if cfg.tap_text_preset == 'large' else '' }}>Large</option>
+              <option value="custom" {{ 'selected' if cfg.tap_text_preset == 'custom' else '' }}>Custom</option>
+            </select>
+
+            <label for="tap_image_scale">Photo scale <span class="range-val" data-range-val-for="tap_image_scale">{{ '%.2f'|format(cfg.tap_image_scale) }}</span></label>
             <div class="slider-row">
               <input type="range" id="tap_image_scale" name="tap_image_scale"
                      min="{{ min_image_scale }}" max="{{ max_image_scale }}" step="0.05"
@@ -141,7 +150,7 @@
                      min="{{ min_text_scale }}" max="{{ max_text_scale }}" step="0.05"
                      value="{{ cfg.tap_text_scale }}">
             </div>
-            <p class="hint">Scales the beer photo and the card text on the display, for screens the defaults do not suit. Picking a preset sets both sliders; moving a slider switches to Custom. Card padding and the colour swatch are unaffected, and the text keeps its pixel floor and ceiling, so an extreme scale cannot make the board illegible.</p>
+            <p class="hint">Scales the beer photo and the card text on the display, for screens the defaults do not suit. The two are independent: picking a preset sets its own slider, and moving a slider switches that preset to Custom. Photo scale only shrinks - the photo already fills the space the card text leaves it, so there is nothing above Default to give it. A larger text preset takes room from the photo, by design. Card padding and the colour swatch are unaffected, and the text keeps its pixel floor, so no scale can make the board illegible.</p>
           </fieldset>
 
           <fieldset>

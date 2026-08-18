@@ -589,16 +589,18 @@ def test_bad_number_does_not_orphan_uploaded_image():
 
 def test_save_settings_preset_overrides_the_posted_scales():
     # The sliders may be showing anything (a stale tab, a scripted post); a named
-    # preset owns its scales, so the stored Settings can never say "small" beside
-    # Large's numbers.
+    # preset owns its scale, so the stored Settings can never say "small" beside
+    # Default's number.
     c = _login(TestClient(app))
     r = c.post("/admin/settings", data={
         "num_taps": "4", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
-        "tap_size_preset": "small", "tap_image_scale": "2.5", "tap_text_scale": "1.9",
+        "tap_photo_preset": "small", "tap_text_preset": "small",
+        "tap_image_scale": "2.5", "tap_text_scale": "1.9",
     })
     assert r.status_code == 200
     cfg = config_store.load_config()
-    assert cfg["tap_size_preset"] == "small"
+    assert cfg["tap_photo_preset"] == "small"
+    assert cfg["tap_text_preset"] == "small"
     assert cfg["tap_image_scale"] == 0.6
     assert cfg["tap_text_scale"] == 0.75
 
@@ -607,10 +609,27 @@ def test_save_settings_custom_keeps_the_posted_scales():
     c = _login(TestClient(app))
     r = c.post("/admin/settings", data={
         "num_taps": "4", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
-        "tap_size_preset": "custom", "tap_image_scale": "0.4", "tap_text_scale": "1.8",
+        "tap_photo_preset": "custom", "tap_text_preset": "custom",
+        "tap_image_scale": "0.4", "tap_text_scale": "1.8",
     })
     assert r.status_code == 200
     cfg = config_store.load_config()
-    assert cfg["tap_size_preset"] == "custom"
+    assert cfg["tap_photo_preset"] == "custom"
+    assert cfg["tap_text_preset"] == "custom"
     assert cfg["tap_image_scale"] == 0.4
     assert cfg["tap_text_scale"] == 1.8
+
+
+def test_save_settings_axes_are_independent():
+    # Picking a photo preset must leave the text axis exactly as posted, and the
+    # other way round: the two controls do not share a preset any more.
+    c = _login(TestClient(app))
+    r = c.post("/admin/settings", data={
+        "num_taps": "4", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
+        "tap_photo_preset": "tiny", "tap_text_preset": "custom",
+        "tap_image_scale": "0.9", "tap_text_scale": "1.8",
+    })
+    assert r.status_code == 200
+    cfg = config_store.load_config()
+    assert cfg["tap_image_scale"] == 0.4      # the photo preset owns its number
+    assert cfg["tap_text_scale"] == 1.8       # the text axis kept what was posted

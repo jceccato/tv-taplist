@@ -111,26 +111,58 @@ def test_include_fermenting_absent_from_stored_config_reads_false():
 
 # ---- card sizing ---------------------------------------------------------
 
-def test_card_sizing_defaults_to_normal_at_scale_one():
-    assert config_store.DEFAULT_CONFIG["tap_size_preset"] == "normal"
+def test_card_sizing_defaults_to_default_at_scale_one():
+    assert config_store.DEFAULT_CONFIG["tap_photo_preset"] == "default"
+    assert config_store.DEFAULT_CONFIG["tap_text_preset"] == "default"
     assert config_store.DEFAULT_CONFIG["tap_image_scale"] == 1.0
     assert config_store.DEFAULT_CONFIG["tap_text_scale"] == 1.0
 
 
-def test_card_sizing_absent_from_an_existing_config_reads_as_normal():
-    # A config written before this feature existed has none of the three keys;
-    # it must keep rendering exactly as it did, at Normal.
+def test_card_sizing_absent_from_an_existing_config_reads_as_default():
+    # A config written before this feature existed has none of the keys; it must
+    # keep rendering exactly as it did, at Default on both axes.
     config_store.save_config({"num_taps": 4})
     cfg = config_store.load_config()
-    assert cfg["tap_size_preset"] == "normal"
+    assert cfg["tap_photo_preset"] == "default"
+    assert cfg["tap_text_preset"] == "default"
     assert cfg["tap_image_scale"] == 1.0
     assert cfg["tap_text_scale"] == 1.0
+
+
+def test_legacy_size_preset_migrates_to_the_two_axes():
+    # A config written while one preset drove both axes: the legacy key is
+    # dropped, the photo scale is clamped into the new range, and each picker is
+    # named from the scale that survived rather than from the old preset.
+    config_store.save_config({
+        "num_taps": 4, "tap_size_preset": "large",
+        "tap_image_scale": 1.5, "tap_text_scale": 1.4,
+    })
+    cfg = config_store.load_config()
+    assert "tap_size_preset" not in cfg
+    assert cfg["tap_image_scale"] == 1.0          # 1.5 is structurally impossible
+    assert cfg["tap_photo_preset"] == "default"   # ...which is exactly Default
+    assert cfg["tap_text_scale"] == 1.4
+    assert cfg["tap_text_preset"] == "large"
+
+
+def test_legacy_scale_with_no_matching_preset_migrates_to_custom():
+    config_store.save_config({"num_taps": 4, "tap_image_scale": 0.55})
+    cfg = config_store.load_config()
+    assert cfg["tap_image_scale"] == 0.55
+    assert cfg["tap_photo_preset"] == "custom"
 
 
 def test_coerce_clamps_card_scales_to_their_bounds():
     cfg = config_store.update_config(tap_image_scale=99, tap_text_scale=0.01)
     assert cfg["tap_image_scale"] == config_store.MAX_TAP_IMAGE_SCALE
     assert cfg["tap_text_scale"] == config_store.MIN_TAP_TEXT_SCALE
+
+
+def test_photo_scale_cannot_exceed_one():
+    # Above 1 the card has nothing left to give the photo, so the clamp is the
+    # feature: a config asking for 1.5 lands at 1.0 rather than pretending.
+    assert config_store.MAX_TAP_IMAGE_SCALE == 1.0
+    assert config_store.update_config(tap_image_scale=1.5)["tap_image_scale"] == 1.0
 
 
 def test_coerce_rejects_junk_and_nan_card_scales():
@@ -141,24 +173,30 @@ def test_coerce_rejects_junk_and_nan_card_scales():
     assert cfg["tap_text_scale"] == 1.0
 
 
-def test_coerce_normalises_the_size_preset_but_leaves_the_scales_alone():
+def test_coerce_normalises_the_presets_but_leaves_the_scales_alone():
     cfg = config_store.update_config(
-        tap_size_preset="ENORMOUS", tap_image_scale=0.6, tap_text_scale=0.75)
-    assert cfg["tap_size_preset"] == "normal"    # unknown preset -> the default
+        tap_photo_preset="ENORMOUS", tap_text_preset="ENORMOUS",
+        tap_image_scale=0.6, tap_text_scale=0.75)
+    assert cfg["tap_photo_preset"] == "default"   # unknown preset -> the default
+    assert cfg["tap_text_preset"] == "default"
     # The scales are what the board sends, so an unknown preset name must not
     # rewrite them out from under a hand-edited config.
     assert cfg["tap_image_scale"] == 0.6
     assert cfg["tap_text_scale"] == 0.75
 
 
-def test_resolve_preset_overrides_submitted_scales():
-    for preset, (image, text) in config_store.TAP_SIZE_PRESETS.items():
-        # Whatever the sliders posted is discarded: the preset owns its numbers.
-        assert config_store.resolve_tap_size_preset(preset, 2.5, 1.9) == (preset, image, text)
+def test_resolve_preset_overrides_the_submitted_scale():
+    for preset, image in config_store.TAP_PHOTO_PRESETS.items():
+        # Whatever the slider posted is discarded: the preset owns its number.
+        assert config_store.resolve_tap_photo_preset(preset, 2.5) == (preset, image)
+    for preset, text in config_store.TAP_TEXT_PRESETS.items():
+        assert config_store.resolve_tap_text_preset(preset, 1.9) == (preset, text)
 
 
-def test_resolve_custom_keeps_the_submitted_scales():
-    assert config_store.resolve_tap_size_preset("custom", 0.4, 1.8) == ("custom", 0.4, 1.8)
+def test_resolve_custom_keeps_the_submitted_scale():
+    assert config_store.resolve_tap_photo_preset("custom", 0.4) == ("custom", 0.4)
+    assert config_store.resolve_tap_text_preset("custom", 1.8) == ("custom", 1.8)
     # An unrecognised key is treated as Custom rather than silently rewriting
-    # the operator's numbers to some preset's.
-    assert config_store.resolve_tap_size_preset("bogus", 0.4, 1.8) == ("custom", 0.4, 1.8)
+    # the operator's number to some preset's.
+    assert config_store.resolve_tap_photo_preset("bogus", 0.4) == ("custom", 0.4)
+    assert config_store.resolve_tap_text_preset("bogus", 1.8) == ("custom", 1.8)
