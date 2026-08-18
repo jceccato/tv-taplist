@@ -233,12 +233,16 @@ html, body {
   min-width: 0;
   width: auto;
   max-width: 100%;         /* ... growing as large as fits, never overflowing */
-  /* The only lever on photo size. 80vmin at scale 1 is a deliberately generous
-     cap - it is above what the flex row ever hands out on a normal card, so the
-     default look is unchanged - and a scale below 1 bites, which is the point:
-     a Brewfather photo at its source resolution was filling the card. `flex`
-     and `min-height: 0` still bound the image, so this can only shrink it. */
-  max-height: calc(80vmin * var(--tap-image-scale, 1));
+  /* The only lever on photo size, and it is measured against the space the card
+     foot actually offers rather than the viewport. At scale 1 that is exactly
+     what the flex row already hands out, so the default look is unchanged; below
+     1 it bites proportionally on every layout, which is the point - a Brewfather
+     photo at its source resolution was filling the card. Above 1 it cannot grow
+     the image past its box, because `flex` and `min-height: 0` still bound it.
+     (A viewport-relative cap does not work here: on a multi-card page the image
+     is only ~30vmin tall, so any cap generous enough to leave scale 1 alone sits
+     above the natural size and Small would visibly change nothing.) */
+  max-height: calc(100% * var(--tap-image-scale, 1));
   object-fit: contain;
   object-position: center bottom;
   border-radius: 1vmin;
@@ -263,7 +267,7 @@ html, body {
     height: 100%;
     /* `height: 100%` would beat the base rule's cap, so the wide-card variant
        has to restate it or the image scale would silently do nothing here. */
-    max-height: calc(80vmin * var(--tap-image-scale, 1));
+    max-height: calc(100% * var(--tap-image-scale, 1));
     max-width: 46%;        /* leave room for the stats beside it */
     object-position: left bottom;
   }
