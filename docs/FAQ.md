@@ -203,14 +203,19 @@ pulled in this way looks exactly like any other on the board. Each status you ad
 is another paginated sweep of the API, so the call cost rises with the number of
 statuses (still comfortably under the 500/hour limit at normal sync intervals).
 When two batches (say a Conditioning and a Completed one) claim the same tap, the
-most recent wins.
+one furthest along wins: Completed beats Conditioning beats Fermenting. Only if
+both are at the same stage does the most recently updated one win. So tagging
+next week's brew with a tap it will take over does not knock the beer that is
+pouring off the board.
 
 ### Smart and safe
 
 - **Change detection** skips rewriting files and re-downloading images for batches
   that haven't changed, so most syncs are nearly free.
-- **Conflicts** (two batches claiming one tap) resolve to the most recently
-  updated batch, and the clash is logged.
+- **Conflicts** (two batches claiming one tap) resolve to the batch furthest
+  along its brew (Completed, then Conditioning, then Fermenting), falling back to
+  the most recently updated one when both are at the same stage. The clash is
+  logged either way.
 - **A failed sync changes nothing** - the last good board stays exactly as it was.
 - A rate-limit response (HTTP 429) is honoured (respecting `Retry-After`) and makes
   no changes.

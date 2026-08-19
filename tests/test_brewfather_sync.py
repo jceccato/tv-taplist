@@ -121,6 +121,82 @@ def test_conflict_newest_wins():
     assert brewfather._build_desired_map(batches)[3]["batch"]["name"] == "New"
 
 
+def test_conflict_completed_beats_newer_conditioning():
+    # The beer that is pouring must not be pushed off its Slot by the next brew
+    # that already carries the same token - and a conditioning Batch is edited
+    # far more often than a finished one, so recency alone picks the wrong beer.
+    batches = [
+        {"_id": "a", "name": "Pouring", "status": "Completed",
+         "batchNotes": "tap:3", "_timestamp_ms": 100},
+        {"_id": "b", "name": "NextBrew", "status": "Conditioning",
+         "batchNotes": "tap:3", "_timestamp_ms": 900},
+    ]
+    assert brewfather._build_desired_map(batches)[3]["batch"]["name"] == "Pouring"
+    # Order of arrival must not matter: the same pair reversed resolves the same.
+    assert brewfather._build_desired_map(
+        list(reversed(batches)))[3]["batch"]["name"] == "Pouring"
+
+
+def test_conflict_conditioning_beats_newer_fermenting():
+    batches = [
+        {"_id": "a", "name": "Conditioning", "status": "Conditioning",
+         "batchNotes": "tap:6", "_timestamp_ms": 100},
+        {"_id": "b", "name": "Fermenting", "status": "Fermenting",
+         "batchNotes": "tap:6", "_timestamp_ms": 900},
+    ]
+    assert brewfather._build_desired_map(batches)[6]["batch"]["name"] == "Conditioning"
+
+
+def test_conflict_within_one_status_still_resolves_by_recency():
+    # Status only orders DIFFERENT statuses; inside one, newest still wins.
+    batches = [
+        {"_id": "a", "name": "Old", "status": "Conditioning",
+         "batchNotes": "tap:2", "_timestamp_ms": 100},
+        {"_id": "b", "name": "New", "status": "Conditioning",
+         "batchNotes": "tap:2", "_timestamp_ms": 200},
+    ]
+    assert brewfather._build_desired_map(batches)[2]["batch"]["name"] == "New"
+    assert brewfather._build_desired_map(
+        list(reversed(batches)))[2]["batch"]["name"] == "New"
+
+
+def test_conflict_unknown_status_loses_to_a_known_one():
+    # An unlabelled Batch ranks below every status the API does name, however
+    # recent it is - we cannot tell how far along it is, so it does not win.
+    batches = [
+        {"_id": "a", "name": "Fermenting", "status": "Fermenting",
+         "batchNotes": "tap:4", "_timestamp_ms": 100},
+        {"_id": "b", "name": "Unlabelled", "batchNotes": "tap:4",
+         "_timestamp_ms": 900},
+    ]
+    assert brewfather._build_desired_map(batches)[4]["batch"]["name"] == "Fermenting"
+    assert brewfather._build_desired_map(
+        list(reversed(batches)))[4]["batch"]["name"] == "Fermenting"
+
+
+def test_conflict_all_unknown_status_falls_back_to_recency():
+    # If Brewfather ever stops sending `status`, everything ties on rank and
+    # resolution degrades to the newest-wins behaviour that shipped before.
+    batches = [
+        {"_id": "a", "name": "Old", "batchNotes": "tap:5", "_timestamp_ms": 100},
+        {"_id": "b", "name": "New", "status": "", "batchNotes": "tap:5",
+         "_timestamp_ms": 200},
+    ]
+    assert brewfather._build_desired_map(batches)[5]["batch"]["name"] == "New"
+
+
+def test_status_rank_orders_the_whole_lifecycle():
+    ranks = [brewfather._status_rank({"status": s})
+             for s in ("Completed", "Conditioning", "Fermenting", "Brewing", "Planning")]
+    assert ranks == sorted(ranks) and len(set(ranks)) == len(ranks)
+    # Case and stray whitespace from the API must not demote a Batch.
+    assert brewfather._status_rank({"status": " completed "}) == \
+        brewfather._status_rank({"status": "Completed"})
+    # Missing, empty, non-string and unrecognised statuses all rank last.
+    for batch in ({}, {"status": ""}, {"status": None}, {"status": "Archived"}):
+        assert brewfather._status_rank(batch) == len(brewfather.STATUS_PRECEDENCE)
+
+
 def test_no_tap_token_is_ignored():
     assert brewfather._build_desired_map([{"_id": "a", "status": "Completed", "batchNotes": "x"}]) == {}
 
