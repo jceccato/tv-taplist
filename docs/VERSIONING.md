@@ -76,6 +76,39 @@ The PR template checklist includes this as a reminder.
 
 ---
 
+## The test gate
+
+**A release requires a green test suite, and this is enforced in CI.**
+
+`.github/workflows/tests.yml` defines one test job - checkout, Python 3.12,
+both requirements files, `python -m pytest`. It runs on every pull request, and
+the publish workflow calls the same definition as a `test` job that
+`build-and-push` declares `needs: test` on. One definition, so the check a
+contributor sees on a PR and the check that guards a publish cannot drift.
+
+The gate covers **both** publish paths, `main` and `v*`. The tag path is the
+one that matters most - `:latest` follows releases, so an unverified tag build
+is what every default installation pulls - but the suite runs in seconds, so
+exempting `main` would only leave the `:main` canary unverified.
+
+Python is pinned to **3.12** to match `FROM python:3.12-slim` in the Dockerfile.
+CI is the only place the suite runs on the interpreter the image ships; the
+usual local interpreter on the maintainer's box is older.
+
+`tests.yml` carries **no path filter**, deliberately. The publish workflow's
+`paths` list mirrors `.dockerignore`, which excludes `tests/` - reusing it would
+make a test-only change skip running the tests. The workflow says so in a
+comment; do not add a filter for consistency.
+
+### Recovering from a tag whose tests fail
+
+A failed suite **skips** `build-and-push` rather than failing partway through
+it, so no login, build, push or GitHub Release happens. That is the same state
+the changelog gate produces - a tag in git and nothing published - and the
+recovery is the same delete-and-re-tag path documented below.
+
+---
+
 ## The changelog
 
 **`CHANGELOG.md` at the repo root is required reading and required writing.**
@@ -98,10 +131,11 @@ project's release notes are written for the person running the box.
 ### Recovering from a tag with no entry
 
 The build fails before publishing anything, so nothing is live and there is
-nothing to unpublish:
+nothing to unpublish. **The identical recovery applies to a tag whose tests
+fail** - substitute "fix the failing test" for "add the section":
 
 ```bash
-# add the section to CHANGELOG.md, commit it to main, then:
+# add the section to CHANGELOG.md (or fix the suite), commit it to main, then:
 git push origin :refs/tags/v1.3.1        # delete the remote tag
 git tag -d v1.3.1
 git tag -a v1.3.1 -m "Release v1.3.1"
@@ -179,7 +213,9 @@ judge for themselves. Reporting the unknown case as an all-clear was a real bug
 
 Before tagging a release:
 
-1. **All tests pass:** `python -m pytest -q` (127+ tests, 0 failures).
+1. **All tests pass:** `python -m pytest -q` (243 tests, 0 failures). CI runs
+   the same suite on Python 3.12 and a red suite blocks the publish, so this
+   step is now a way to find out early rather than the only thing checking.
 2. **Docker test passes:** `bash scripts/docker_test.sh` (builds, starts, asserts
    health, demo data, zero external origins, non-root PID 1).
 3. **`MAPPING_VERSION` has been bumped** if any extraction logic changed since
