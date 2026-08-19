@@ -11,6 +11,7 @@ production box behind HTTPS. For *how it all works* once it's running, see
 - [Guided installer (recommended)](#guided-installer-recommended)
 - [Manual Docker Compose](#manual-docker-compose)
 - [Unraid](#unraid)
+- [Windows (Docker Desktop)](#windows-docker-desktop)
 - [Getting your Brewfather API key](#getting-your-brewfather-api-key)
 - [Putting beers on the board](#putting-beers-on-the-board)
 - [Environment variables](#environment-variables)
@@ -145,6 +146,30 @@ step-by-step -- plugin install, a ready-to-paste template XML, and the
 reverse-proxy notes for SWAG / Nginx Proxy Manager -- is in
 **[UNRAID.md](UNRAID.md)**, and source-build details are in
 **[BUILDING.md](BUILDING.md)**.
+
+---
+
+## Windows (Docker Desktop)
+
+The standard Compose path above works on Docker Desktop for Windows. The essentials:
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| `DATA_DIR_HOST` | `C:\taplist\data` (or `C:/taplist/data`) | An absolute Windows path, or a relative one starting `./`. A bare name with neither is read as a volume name and Compose refuses to start. |
+| `PUID` / `PGID` | leave at `1000` | A Windows-filesystem bind mount carries no Linux ownership. Docker Desktop presents it as writable to any uid, so these values change nothing there. |
+| File sharing | nothing to configure on the WSL2 backend | On the Hyper-V backend, add the folder under **Settings -> Resources -> File sharing** first. |
+| Port | `8080` (host) -> `8080` (container) | Allow it through Windows Defender Firewall on **Private** networks so the TV can reach it. |
+
+Before entering real settings, confirm the mapped data directory is genuinely a
+bind mount: `docker inspect tv-taplist --format '{{json .Mounts}}'` reports
+`"Type":"bind"`, and `config.json` plus `taps\` appear in the folder on the Windows
+side. When `/data` is not mapped to a host folder nothing errors - the board works,
+then loses manual beers and settings the next time the container is recreated,
+while Brewfather beers rebuild themselves on the next sync.
+
+The full step-by-step - path forms, the persistence check, PUID/PGID, WSL2 versus
+Windows filesystem placement, and reaching the display from the TV - is in
+**[WINDOWS.md](WINDOWS.md)**.
 
 ---
 
