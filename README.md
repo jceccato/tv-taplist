@@ -60,6 +60,7 @@ key walkthrough: [INSTALLATION.md](docs/INSTALLATION.md).
 |------|----------|-------|
 | **Guided installer** | Linux / Raspberry Pi / NUC | [INSTALLATION.md -> Guided installer](docs/INSTALLATION.md#guided-installer-recommended) |
 | **Unraid** | Unraid servers | [INSTALLATION.md -> Unraid](docs/INSTALLATION.md#unraid) · [UNRAID.md](docs/UNRAID.md) |
+| **Windows** | Docker Desktop on a Windows PC | [INSTALLATION.md -> Windows](docs/INSTALLATION.md#windows-docker-desktop) · [WINDOWS.md](docs/WINDOWS.md) |
 | **Manual Docker Compose** | You already run Compose | [INSTALLATION.md -> Manual](docs/INSTALLATION.md#manual-docker-compose) |
 
 ---
@@ -112,6 +113,8 @@ guarantee, archiving, and security - is in **[FAQ.md](docs/FAQ.md)**.
   Unraid, manual Compose, env vars, reverse proxy, Brewfather API key.
 - **[FAQ.md](docs/FAQ.md)** - how everything works, in depth.
 - **[UNRAID.md](docs/UNRAID.md)** - the deep-dive Unraid walkthrough.
+- **[WINDOWS.md](docs/WINDOWS.md)** - Docker Desktop on Windows: the data
+  directory, verifying it persists, PUID/PGID, WSL2, and LAN access.
 - **[RASPBERRY_PI_KIOSK.md](docs/RASPBERRY_PI_KIOSK.md)** - turn a Raspberry Pi into a
   dedicated kiosk display.
 - **[ANDROID_KIOSK.md](docs/ANDROID_KIOSK.md)** - use an Android tablet, TV,
