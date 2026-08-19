@@ -1,0 +1,59 @@
+name: Tests
+
+# Two triggers, deliberately, and no more (issue #30):
+#
+#   pull_request   run the suite on every PR, on every branch. This is the
+#                  point of the workflow - a red suite is visible before a
+#                  merge, not after an image has already been published.
+#   workflow_call  let docker-publish.yml call this same definition as a
+#                  gate, so the tests that run on a PR and the tests that
+#                  guard a publish can never drift apart.
+#
+# There is no `push` trigger on purpose. Pushes to main are already covered
+# because the publish workflow calls this one, and adding `push` would run the
+# whole suite twice on every merge for no extra signal.
+#
+# THERE IS NO PATH FILTER HERE, AND ONE MUST NOT BE ADDED.
+# docker-publish.yml has a `paths` list, and copying it here for consistency
+# would be a bug: that list mirrors .dockerignore, which excludes tests/, so a
+# test-only change would skip running the tests - exactly backwards. The suite
+# takes about eight seconds; running it unconditionally is both cheaper to
+# reason about and correct.
+on:
+  pull_request:
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Pinned to 3.12 to match `FROM python:3.12-slim` in the Dockerfile
+      # rather than tracking whatever the runner happens to default to. The
+      # suite is meant to prove the code works on the interpreter the image
+      # ships, so the version is part of what is being tested. Deliberately one
+      # version, not a matrix - the appliance ships exactly one.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          # Restores the pip download cache between runs. Keyed on the
+          # requirements files, so a dependency bump invalidates it by itself.
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      # No arguments: pytest.ini already sets testpaths and addopts, so the
+      # invocation here stays the same one a contributor runs locally.
+      - name: Run the test suite
+        run: python -m pytest

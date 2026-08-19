@@ -31,8 +31,26 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # The test gate (issue #30). Calls the same workflow that runs on every pull
+  # request, so there is one definition of "the suite passed" and the PR check
+  # and the publish gate cannot drift apart.
+  #
+  # This covers BOTH publish paths. The tag path is the one that matters now
+  # that :latest follows releases - an unverified tag build is what every
+  # default install pulls - but the suite is fast enough that exempting main
+  # would only leave the :main canary unverified for no saving.
+  test:
+    uses: ./.github/workflows/tests.yml
+    permissions:
+      contents: read
+
   build-and-push:
     runs-on: ubuntu-latest
+    # A failed suite SKIPS this job, so nothing logs in, builds, pushes or
+    # releases. On a tag that leaves a tag in git and nothing published, which
+    # is the same recoverable state the changelog gate produces: fix, delete the
+    # tag, re-tag. See docs/VERSIONING.md.
+    needs: test
     permissions:
       contents: write   # create GitHub Releases on tag pushes
       packages: write
@@ -40,11 +58,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Runs BEFORE anything is built or pushed. A tag with no CHANGELOG.md
-      # entry fails here, leaving a tag in git but nothing published - which is
-      # recoverable (add the entry, delete the tag, re-tag). Falling back to
-      # auto-generated notes instead would let a release ship saying nothing,
-      # which is how v1.1.0 and v1.3.0 came out with no notes at all.
+      # Still the first step of this job, so it runs BEFORE any login, build or
+      # push. It now sits behind the test gate, which means a tag that is
+      # missing a changelog entry burns one test run before failing - accepted,
+      # because the property that matters is unchanged: nothing is published.
+      #
+      # A tag with no CHANGELOG.md entry fails here, leaving a tag in git but
+      # nothing published - which is recoverable (add the entry, delete the
+      # tag, re-tag). Falling back to auto-generated notes instead would let a
+      # release ship saying nothing, which is how v1.1.0 and v1.3.0 came out
+      # with no notes at all.
       - name: Verify the release has a changelog entry
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
