@@ -76,6 +76,52 @@ The PR template checklist includes this as a reminder.
 
 ---
 
+## The changelog
+
+**`CHANGELOG.md` at the repo root is required reading and required writing.**
+Every release must have a `## vX.Y.Z - YYYY-MM-DD` section in it before the tag
+is pushed.
+
+This is enforced, not merely asked for. The publish workflow runs
+`scripts/release_notes.sh <tag>` as its **first** step on a `v*` tag and fails
+the whole job when there is no section for that tag - before any image is built
+or pushed. The extracted section becomes the GitHub Release body.
+
+### Why it is a gate rather than a fallback
+
+`--generate-notes` was the fallback until v1.3.1, and the result was that
+v1.1.0 and v1.3.0 shipped with a release body consisting of one compare link.
+A list of commit subjects records what was typed; it does not tell an operator
+what changed for them or whether upgrading will cost them anything. The
+project's release notes are written for the person running the box.
+
+### Recovering from a tag with no entry
+
+The build fails before publishing anything, so nothing is live and there is
+nothing to unpublish:
+
+```bash
+# add the section to CHANGELOG.md, commit it to main, then:
+git push origin :refs/tags/v1.3.1        # delete the remote tag
+git tag -d v1.3.1
+git tag -a v1.3.1 -m "Release v1.3.1"
+git push origin main --tags
+```
+
+This is the one case where deleting a tag is correct - the rule against moving
+a tag protects *published* releases, and this one never published.
+
+### What to write
+
+Follow the shape of the existing entries: what an operator gains or must do,
+in present tense, with the migration cost stated up front (usually "none: pull
+and restart"). Bugs are described by what went wrong for the user, not by the
+function that was fixed. Under-the-hood work gets a short section at the end
+when it explains something an operator might otherwise trip over. Close with
+`Closes #N` for the issues shipped, and the compare link.
+
+---
+
 ## Registry tags
 
 One image build can carry several tags. There is a single meaning of
@@ -138,8 +184,9 @@ Before tagging a release:
    health, demo data, zero external origins, non-root PID 1).
 3. **`MAPPING_VERSION` has been bumped** if any extraction logic changed since
    the last release.
-4. *(nothing to do -- `__version__` reads the build's env var, so no source
-   file carries a version number to update.)*
+4. **`CHANGELOG.md` has a section for the new tag** (`## v1.2.0 - YYYY-MM-DD`).
+   This is a hard gate -- the publish workflow fails without it. Check the
+   rendering locally: `bash scripts/release_notes.sh v1.2.0`.
 5. **No secrets in the diff:** `.env` and `taplist_data/` are git-ignored and
    untracked. Verify with `git ls-files .env taplist_data/ data/` (must print
    nothing).

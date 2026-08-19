@@ -28,6 +28,9 @@ Fixes #
 - [ ] **Docs updated** if the change affects user-facing behavior
 - [ ] **`MAPPING_VERSION` bumped** in `app/brewfather.py` if Brewfather
   extraction logic changed
+- [ ] **`CHANGELOG.md` updated** if this is user-facing. Add to the section for
+  the next release, or start one. A release tag cannot publish without its
+  section - see `docs/VERSIONING.md`.
 
 ## Screenshots (if UI change)
 
