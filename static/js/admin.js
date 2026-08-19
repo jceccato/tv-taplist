@@ -407,25 +407,74 @@
   }
 
   // ---- update check ----
-  const updateAvailable = document.getElementById("status-update-available");
+  // The server resolves which of four states applies; this file only chooses
+  // wording. Do NOT re-derive the state here from update_available - that pair
+  // cannot tell "current" from "could not compare", which is the whole of
+  // issue #26. These strings mirror update_check.STATE_*; the drift guard in
+  // tests/test_frontend_constants.py pins them.
+  const UPDATE_STATE_DISABLED = "disabled";
+  const UPDATE_STATE_UNKNOWN = "unknown";
+  const UPDATE_STATE_BEHIND = "behind";
+  const UPDATE_STATE_CURRENT = "current";
+
+  const updateRow = document.getElementById("status-update-row");
   const updateLink = document.getElementById("status-update-link");
   const latestVersion = document.getElementById("status-latest-version");
+  const updateNote = document.getElementById("status-update-note");
   const versionEl = document.getElementById("status-version");
+
+  // One sentence for the state, used by both the toast and the status row, so
+  // the button and the panel can never tell the operator two different things.
+  function updateMessage(data) {
+    const cur = data.current_version || "dev";
+    const latest = data.latest_version;
+    switch (data.status) {
+      case UPDATE_STATE_BEHIND:
+        return "Update available: " + latest;
+      case UPDATE_STATE_CURRENT:
+        return "Up to date (" + cur + ").";
+      case UPDATE_STATE_DISABLED:
+        return "Update checks are disabled.";
+      default:
+        // Untagged build, or nothing known to compare against. Say so plainly
+        // rather than implying the container is current, which it may not be.
+        return "Running an untagged build (" + cur + "). Update checks only apply"
+          + " to tagged releases"
+          + (latest ? "; latest release is " + latest + "." : ".");
+    }
+  }
+
+  function renderUpdateStatus(data) {
+    if (versionEl) versionEl.textContent = data.current_version || "dev";
+    if (!updateRow) return;
+    const state = data.status;
+    // Nothing worth a row when the container is provably current, or when the
+    // operator has turned checking off.
+    if (state === UPDATE_STATE_CURRENT || state === UPDATE_STATE_DISABLED) {
+      updateRow.hidden = true;
+      return;
+    }
+    updateRow.hidden = false;
+    const behind = state === UPDATE_STATE_BEHIND;
+    if (updateLink) {
+      updateLink.hidden = !data.latest_url;
+      updateLink.textContent = behind ? "Update available" : "Latest release";
+      updateLink.href = data.latest_url || "#";
+    }
+    if (latestVersion) latestVersion.textContent = data.latest_version || "";
+    if (updateNote) {
+      // The link already says "update available"; the note is only needed to
+      // explain why an untagged build cannot be compared.
+      updateNote.hidden = behind;
+      updateNote.textContent = behind ? "" : updateMessage(data);
+    }
+  }
 
   async function refreshUpdateStatus() {
     try {
       const resp = await fetch("/api/update-status");
       if (!resp.ok) return;
-      const data = await resp.json();
-      if (versionEl) versionEl.textContent = data.current_version || "dev";
-      if (data.update_available && updateAvailable && updateLink && latestVersion) {
-        updateAvailable.hidden = false;
-        updateLink.textContent = "Update available";
-        updateLink.href = data.latest_url || "#";
-        latestVersion.textContent = data.latest_version;
-      } else if (updateAvailable) {
-        updateAvailable.hidden = true;
-      }
+      renderUpdateStatus(await resp.json());
     } catch (_) { /* offline: leave the last state */ }
   }
 
@@ -441,10 +490,12 @@
       checkUpdateBtn.textContent = "Checking…";
       try {
         const res = await postForm("/admin/check-update", new FormData());
-        if (res && res.update_available) {
-          showToast("Update available: " + res.latest_version, "ok");
-        } else if (res) {
-          showToast("Up to date (" + res.current_version + ").", "ok");
+        if (res) {
+          // "unknown" is not a failure, but it is not an all-clear either, so
+          // it gets the neutral toast rather than the ok one.
+          const known = res.status === UPDATE_STATE_BEHIND
+            || res.status === UPDATE_STATE_CURRENT;
+          showToast(updateMessage(res), known ? "ok" : "warn");
         }
         refreshUpdateStatus();
       } catch (err) {

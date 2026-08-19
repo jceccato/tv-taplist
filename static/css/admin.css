@@ -10,6 +10,9 @@
   --accent-2: #2f7df6;
   --danger: #ff5d5d;
   --ok: #3ecf8e;
+  /* Neither good nor bad: an answer the app could not determine, e.g. an
+     update check against an untagged build. */
+  --warn: #e0a33e;
 }
 * { box-sizing: border-box; }
 body {
@@ -71,6 +74,8 @@ legend { padding: 0 0.5rem; color: var(--accent); font-weight: 600; }
 .status-grid .k { display: block; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
 .status-grid .v { display: block; font-weight: 600; word-break: break-word; }
 .status-grid .v.err { color: var(--danger); }
+/* The "cannot compare" note in the update row - informational, not an error. */
+#status-update-note { color: var(--warn); }
 
 .status-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
 
@@ -102,6 +107,7 @@ legend { padding: 0 0.5rem; color: var(--accent); font-weight: 600; }
 }
 .toast.ok { border-color: var(--ok); }
 .toast.err { border-color: var(--danger); }
+.toast.warn { border-color: var(--warn); }
 
 select {
   width: 100%; padding: 0.55rem 0.65rem; background: var(--panel-2);

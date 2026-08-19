@@ -36,11 +36,15 @@
           <span class="k">Version</span>
           <span class="v" id="status-version">{{ update_current_version }}</span>
         </div>
-        <div id="status-update-available" hidden>
+        <!-- Shown for any state worth reporting: a newer release exists, or the
+             running build is not comparable to one at all. Hidden only when the
+             container is provably current, or checks are off (issue #26). -->
+        <div id="status-update-row" hidden>
           <span class="k">Update</span>
           <span class="v">
-            <a class="update-link" id="status-update-link" href="#" target="_blank" rel="noopener">Update available</a>
+            <a class="update-link" id="status-update-link" href="#" target="_blank" rel="noopener" hidden>Update available</a>
             <span class="v" id="status-latest-version"></span>
+            <span class="v" id="status-update-note" hidden></span>
           </span>
         </div>
         <div>
