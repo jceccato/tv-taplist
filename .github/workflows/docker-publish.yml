@@ -2,7 +2,7 @@ name: Build and publish Docker image
 
 on:
   push:
-    branches: [main]
+    branches: [main, ci/verify-30-scratch]   # TEMPORARY scratch-branch trigger, issue #30 verification
     # Skip a build for changes that cannot reach the image. This mirrors
     # .dockerignore, which excludes docs/ and every markdown file EXCEPT
     # README.md - so README is re-included below and still builds.
