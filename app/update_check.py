@@ -12,6 +12,7 @@ import re
 
 import httpx
 
+from . import VERSION_ENV, VERSION_FALLBACK
 from .atomic import JOB_LOCK
 from .config_store import load_config
 from .status_store import load_status, update_status
@@ -46,8 +47,48 @@ def _looks_like_release(version: str) -> bool:
 
 
 def current_version() -> str:
-    """The version baked into the running container (dev when run locally)."""
-    return os.environ.get("TVTAPLIST_VERSION", "dev")
+    """The version baked into the running container (dev when run locally).
+
+    The env var name and the fallback live in `app/__init__` so the package's
+    conventional `__version__` and this live read can never name two different
+    things (issue #25).
+    """
+    return os.environ.get(VERSION_ENV, VERSION_FALLBACK)
+
+
+# ---------------------------------------------------------------------------
+# The four states an update check can be in. `update_available` alone collapsed
+# "we compared and you are current" together with "we could not compare at all",
+# and the admin reported both as "Up to date" - an affirmative claim the checker
+# had not made, on a container that was genuinely behind a release (issue #26).
+#
+# Resolved on the SERVER. Deriving it in JS would mean reimplementing
+# _looks_like_release's regex there, which is exactly the drift
+# tests/test_frontend_constants.py exists to prevent.
+# ---------------------------------------------------------------------------
+STATE_DISABLED = "disabled"   # the operator turned update checks off
+STATE_UNKNOWN = "unknown"     # not comparable: untagged build, or nothing found yet
+STATE_BEHIND = "behind"       # a newer release exists
+STATE_CURRENT = "current"     # compared, and running the newest release
+
+
+def update_state(latest: str | None, current: str, enabled: bool = True) -> str:
+    """Classify the running version against the latest known release.
+
+    Order matters: intent first, then whether a comparison is even possible,
+    and only then the comparison itself. Anything that is not comparable is
+    UNKNOWN and must never be presented as "up to date":
+      * the running version is not a release tag (main / dev / a bare SHA), or
+      * no release is known yet - never checked, offline, or a repo with no
+        releases at all ("unreleased").
+    """
+    if not enabled:
+        return STATE_DISABLED
+    if not _looks_like_release(current):
+        return STATE_UNKNOWN
+    if not latest or latest == _UNRELEASED:
+        return STATE_UNKNOWN
+    return STATE_BEHIND if _is_newer(latest, current) else STATE_CURRENT
 
 
 def _parse_github_release(data: dict | None) -> tuple[str | None, str | None]:
@@ -112,6 +153,7 @@ def check_for_updates() -> dict[str, str | bool | None]:
             "latest_version": status.get("update_latest_version"),
             "latest_url": status.get("update_latest_url"),
             "update_available": False,
+            "status": STATE_DISABLED,
             "last_check": status.get("update_last_check"),
             "enabled": False,
         }
@@ -160,6 +202,7 @@ def check_for_updates() -> dict[str, str | bool | None]:
         "latest_version": saved.get("update_latest_version"),
         "latest_url": saved.get("update_latest_url"),
         "update_available": available,
+        "status": update_state(saved.get("update_latest_version"), cur, True),
         "last_check": saved.get("update_last_check"),
         "enabled": True,
         "error": error,

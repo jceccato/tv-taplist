@@ -103,3 +103,20 @@ def test_photo_cap_is_measured_from_the_painted_height():
         "the measured height should be the smaller of the box and the "
         "aspect-fitted height"
     )
+
+
+def test_admin_js_update_states_match_server():
+    """The four update states are named in both admin.js and update_check.py.
+
+    admin.js only chooses wording from the state the server resolved - it must
+    never re-derive it, because that would mean reimplementing
+    _looks_like_release's regex in JS. This pins the strings so a rename cannot
+    silently leave the admin matching nothing and falling through to the
+    "untagged build" wording on a healthy container (issue #26).
+    """
+    from app import update_check
+    js = _ADMIN_JS.read_text(encoding="utf-8")
+    server = {update_check.STATE_DISABLED, update_check.STATE_UNKNOWN,
+              update_check.STATE_BEHIND, update_check.STATE_CURRENT}
+    found = set(re.findall(r'UPDATE_STATE_\w+\s*=\s*"([a-z]+)"', js))
+    assert found == server, (found, server)

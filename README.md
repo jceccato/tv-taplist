@@ -116,6 +116,7 @@ guarantee, archiving, and security - is in **[FAQ.md](docs/FAQ.md)**.
   dedicated kiosk display.
 - **[ANDROID_KIOSK.md](docs/ANDROID_KIOSK.md)** - use an Android tablet, TV,
   Chromecast or Fire Stick as a kiosk display.
+- **[CHANGELOG.md](CHANGELOG.md)** - what changed in each release.
 - **[BUILDING.md](docs/BUILDING.md)** - build from source (development, customisation,
   or architectures without a prebuilt image).
 

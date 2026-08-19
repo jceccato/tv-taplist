@@ -122,3 +122,103 @@ def test_update_check_findings_are_status():
     for key in ("update_last_check", "update_latest_version", "update_latest_url"):
         assert key in DEFAULT_STATUS
         assert key not in DEFAULT_CONFIG
+
+
+# ---- the four-state model (issue #26) ------------------------------------
+
+def test_update_state_covers_the_four_cases():
+    from app.update_check import (STATE_BEHIND, STATE_CURRENT, STATE_DISABLED,
+                                  STATE_UNKNOWN, update_state)
+    assert update_state("v1.3.0", "v1.2.0") == STATE_BEHIND
+    assert update_state("v1.3.0", "v1.3.0") == STATE_CURRENT
+    # Intent beats everything: an operator who turned checks off is told that,
+    # not a stale comparison.
+    assert update_state("v1.3.0", "v1.2.0", enabled=False) == STATE_DISABLED
+    # The bug this exists for: an untagged build is NOT "up to date".
+    for build in ("main", "dev", "1a2b3c4"):
+        assert update_state("v1.3.0", build) == STATE_UNKNOWN
+
+
+def test_update_state_is_unknown_when_no_release_is_known():
+    """Never checked, offline, or a repo with no releases at all.
+
+    A running release with nothing to compare against is still unknown - the old
+    code reported that pair as "up to date" too.
+    """
+    from app.update_check import STATE_UNKNOWN, update_state
+    assert update_state(None, "v1.3.0") == STATE_UNKNOWN
+    assert update_state("", "v1.3.0") == STATE_UNKNOWN
+    assert update_state("unreleased", "v1.3.0") == STATE_UNKNOWN
+
+
+def test_unknown_state_never_coincides_with_update_available():
+    """The two fields must not contradict each other.
+
+    `update_available` stays the "definitely behind" signal for compatibility;
+    `status` carries the nuance. An untagged build reports false/unknown, and
+    the admin must read the pair as "cannot tell", not "current".
+    """
+    from app.update_check import STATE_UNKNOWN, is_update_available, update_state
+    assert is_update_available("v1.3.0", "main") is False
+    assert update_state("v1.3.0", "main") == STATE_UNKNOWN
+
+
+def test_api_update_status_exposes_the_state(monkeypatch):
+    monkeypatch.setenv("TVTAPLIST_VERSION", "main")
+    from app import status_store
+    status_store.update_status(update_latest_version="v9.9.9")
+    data = client.get("/api/update-status").json()
+    assert data["status"] == "unknown"
+    assert data["update_available"] is False
+
+
+def test_api_update_status_reports_behind(monkeypatch):
+    monkeypatch.setenv("TVTAPLIST_VERSION", "v1.0.0")
+    from app import status_store
+    status_store.update_status(update_latest_version="v9.9.9")
+    data = client.get("/api/update-status").json()
+    assert data["status"] == "behind"
+    assert data["update_available"] is True
+
+
+def test_api_update_status_reports_disabled(monkeypatch):
+    monkeypatch.setenv("TVTAPLIST_VERSION", "v1.0.0")
+    from app import config_store, status_store
+    status_store.update_status(update_latest_version="v9.9.9")
+    config_store.update_config(update_check_enabled=False)
+    try:
+        data = client.get("/api/update-status").json()
+        assert data["status"] == "disabled"
+        assert data["enabled"] is False
+    finally:
+        config_store.update_config(update_check_enabled=True)
+
+
+# ---- the version string (issue #25) --------------------------------------
+
+def test_package_version_is_not_a_hardcoded_literal():
+    """`__version__` must come from the build, not from a number in the source.
+
+    A literal here was two releases stale before anyone noticed, and it sits in
+    the first place a reader looks for the version.
+    """
+    import re
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "app" / "__init__.py").read_text(encoding="utf-8")
+    body = "\n".join(line for line in src.splitlines() if not line.lstrip().startswith("#"))
+    assert not re.search(r"__version__\s*=\s*['\"]\d", body), "hardcoded version literal"
+
+
+def test_package_version_matches_the_running_version(monkeypatch):
+    """One env var, one fallback - `__version__` cannot disagree with the checker.
+
+    `__version__` is snapshotted at import, so this compares the SOURCE of both
+    rather than monkeypatching (which only the live read would see).
+    """
+    import app
+    from app import update_check
+    assert app.VERSION_FALLBACK == "dev"
+    monkeypatch.delenv("TVTAPLIST_VERSION", raising=False)
+    assert update_check.current_version() == app.VERSION_FALLBACK
+    monkeypatch.setenv(app.VERSION_ENV, "v4.5.6")
+    assert update_check.current_version() == "v4.5.6"

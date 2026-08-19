@@ -3,6 +3,26 @@ name: Build and publish Docker image
 on:
   push:
     branches: [main]
+    # Skip a build for changes that cannot reach the image. This mirrors
+    # .dockerignore, which excludes docs/ and every markdown file EXCEPT
+    # README.md - so README is re-included below and still builds.
+    #
+    # This has to be `paths`, not `paths-ignore`: the `!` exclusion character
+    # works only in `paths`. Order is significant - a later pattern wins - so
+    # read the list top to bottom: everything, then not markdown, then README
+    # after all, then not docs/ (which also drops its images).
+    #
+    # Path filters are not evaluated for tag pushes, so a release always builds
+    # whatever it touched.
+    #
+    # A test workflow must NOT reuse this filter: .dockerignore also excludes
+    # tests/, so a test-only change would skip running the tests (issue #30).
+    paths:
+      - "**"
+      - ".github/**"
+      - "!**.md"
+      - "README.md"
+      - "!docs/**"
     tags: ["v*"]
   workflow_dispatch:
 
@@ -20,6 +40,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Runs BEFORE anything is built or pushed. A tag with no CHANGELOG.md
+      # entry fails here, leaving a tag in git but nothing published - which is
+      # recoverable (add the entry, delete the tag, re-tag). Falling back to
+      # auto-generated notes instead would let a release ship saying nothing,
+      # which is how v1.1.0 and v1.3.0 came out with no notes at all.
+      - name: Verify the release has a changelog entry
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          bash scripts/release_notes.sh "${GITHUB_REF_NAME}" > /tmp/release-notes.md
+          echo "Release notes for ${GITHUB_REF_NAME}:"
+          cat /tmp/release-notes.md
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -27,6 +59,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Tagging policy (issue #24). There is ONE meaning of "released" and both
+      # the registry and the in-app update checker use it: a v* tag.
+      #
+      #   :latest      only a v* tag push. This is what README, docker-compose,
+      #                INSTALLATION and UNRAID all steer operators at, and it
+      #                now delivers what those docs promise - the newest
+      #                release, the same version the update checker names.
+      #   :main        every merge to main. An unreleased canary for testing a
+      #                merge before it is tagged; nobody is steered at it.
+      #   :<short-sha> every build, for pinning an exact one.
+      #   :vX.Y.Z      the release itself.
+      #
+      # Before this, :latest moved on every merge while the update checker only
+      # moved on a tag, so an operator on :latest could be ahead of what the app
+      # called newest. Note this is an inverted gate, not new machinery.
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
@@ -36,7 +83,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=sha,prefix=,format=short
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -51,14 +98,14 @@ jobs:
       # On a v* tag push, publish a GitHub Release so the in-app update checker
       # (which reads the /releases/latest API) can detect new versions. A pushed
       # tag alone is not returned by that API. Uses the runner's preinstalled gh
-      # CLI + the built-in GITHUB_TOKEN; --generate-notes builds notes from the
-      # commits since the previous release, and --latest marks it as newest.
+      # CLI + the built-in GITHUB_TOKEN, and --latest marks it as newest.
+      #
+      # The body is the CHANGELOG.md section for the tag, extracted by the step
+      # above. Not --generate-notes: a list of commit subjects is a record of
+      # what was typed, not a description of what changed for the operator.
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "${GITHUB_REF_NAME}" \
-            --generate-notes \
-            --latest
+          gh release create "${GITHUB_REF_NAME}"             --title "${GITHUB_REF_NAME}"             --notes-file /tmp/release-notes.md             --latest

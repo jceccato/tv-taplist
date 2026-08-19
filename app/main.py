@@ -63,7 +63,8 @@ from .config_store import (
     update_config,
 )
 from .theme import DEFAULT_THEME, THEME_FIELD_LABELS, THEME_KEYS, THEMES
-from .update_check import check_for_updates, current_version, is_update_available
+from .update_check import (check_for_updates, current_version,
+                           is_update_available, update_state)
 from .demo import maybe_seed_demo
 from .paths import (
     DATA_DIR,
@@ -784,13 +785,19 @@ async def api_update_status():
     status = load_status()
     cur = current_version()
     latest = status.get("update_latest_version")
+    enabled = bool(cfg.get("update_check_enabled", True))
     return {
         "current_version": cur,
         "latest_version": latest,
         "latest_url": status.get("update_latest_url"),
         "update_available": is_update_available(latest, cur),
+        # `status` is the honest four-state answer; `update_available` is kept
+        # for compatibility and stays the "definitely behind" signal only. An
+        # untagged build reports status="unknown" with update_available=false,
+        # and the admin must not read that pair as "up to date" (issue #26).
+        "status": update_state(latest, cur, enabled),
         "last_check": status.get("update_last_check"),
-        "enabled": cfg.get("update_check_enabled", True),
+        "enabled": enabled,
     }
 
 

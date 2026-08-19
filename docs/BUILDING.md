@@ -4,7 +4,9 @@ The recommended way to run TV Tap List is to pull the prebuilt image
 (`ghcr.io/jceccato/tv-taplist:latest`) -- see [INSTALLATION.md](INSTALLATION.md).
 Building from source is an advanced option for when you want to:
 
-- Run the bleeding edge (unreleased `main`).
+- Customise the build itself (build args, base image, architecture).
+  For simply running unreleased `main`, pull `ghcr.io/jceccato/tv-taplist:main`
+  instead of building - it is published on every merge.
 - Customise the application code or static assets.
 - Build for an architecture without a prebuilt image.
 - Develop and test changes locally.

@@ -107,6 +107,19 @@ docker compose up -d
 The compose file pulls `ghcr.io/jceccato/tv-taplist:latest` by default. Key `.env`
 values are documented inline and in [Environment variables](#environment-variables).
 
+### Which image tag to use
+
+| Tag | What you get |
+|-----|--------------|
+| `:latest` | The newest release. The default, and what you want. |
+| `:v1.3.0` | One exact release, pinned. It never moves, so an update is always a deliberate edit. |
+| `:main` | Unreleased work, rebuilt on every merge. For trying a change before it is released - expect rough edges. |
+
+`:latest` and the in-app update checker agree: both move only when a release is
+published, so the version the admin panel reports is the version `:latest`
+serves. An image built from `:main` reports its version as `main`, and the admin
+panel says plainly that an untagged build cannot be compared against releases.
+
 To build from source instead, see [BUILDING.md](BUILDING.md).
 
 The compose file maps `${DATA_DIR_HOST:-./taplist_data}` on the host to `/data` in

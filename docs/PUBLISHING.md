@@ -122,9 +122,10 @@ git tag -a v1.0.0 -m "Release v1.0.0"
 git push origin main --tags
 ```
 
-The CI builds and publishes a tagged image for every `v*` tag pushed; users pin
-to `ghcr.io/jceccato/tv-taplist:v1.0.0` for stable releases or track `latest`
-for the bleeding edge.
+The CI builds and publishes a tagged image for every `v*` tag pushed, and moves
+`:latest` to it. Users track `ghcr.io/jceccato/tv-taplist:latest` for the newest
+release, or pin `:v1.0.0` to hold one version. The bleeding edge is `:main`,
+rebuilt on every merge - see [VERSIONING.md](VERSIONING.md#registry-tags).
 
 ---
 

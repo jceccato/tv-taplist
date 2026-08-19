@@ -42,12 +42,14 @@ the admin panel reports as the running version.
 
 ### The `__version__` constant
 
-`app/__init__.py` carries a `__version__ = "1.0.0"` string. It is a **soft
-reference** -- human-readable, discoverable by tooling that inspects packages,
-but not consumed by any runtime logic (the update checker, the CI, and the admin
-panel all read `TVTAPLIST_VERSION` from the environment). It should be updated
-to match the latest tag when convenient, but it is not a release gate and
-nothing breaks if it drifts.
+`app/__init__.py` exposes `__version__` for tooling that inspects packages, but
+it holds no number of its own: it reads the same `TVTAPLIST_VERSION` env var the
+update checker does, falling back to `"dev"` outside a container. There is
+nothing to update at release time and nothing that can drift.
+
+A hardcoded literal lived here until v1.3.1 and was two releases stale. Do not
+put one back -- the running version is a build artefact, so the source can name
+the env var but never the number.
 
 ---
 
@@ -74,6 +76,77 @@ The PR template checklist includes this as a reminder.
 
 ---
 
+## The changelog
+
+**`CHANGELOG.md` at the repo root is required reading and required writing.**
+Every release must have a `## vX.Y.Z - YYYY-MM-DD` section in it before the tag
+is pushed.
+
+This is enforced, not merely asked for. The publish workflow runs
+`scripts/release_notes.sh <tag>` as its **first** step on a `v*` tag and fails
+the whole job when there is no section for that tag - before any image is built
+or pushed. The extracted section becomes the GitHub Release body.
+
+### Why it is a gate rather than a fallback
+
+`--generate-notes` was the fallback until v1.3.1, and the result was that
+v1.1.0 and v1.3.0 shipped with a release body consisting of one compare link.
+A list of commit subjects records what was typed; it does not tell an operator
+what changed for them or whether upgrading will cost them anything. The
+project's release notes are written for the person running the box.
+
+### Recovering from a tag with no entry
+
+The build fails before publishing anything, so nothing is live and there is
+nothing to unpublish:
+
+```bash
+# add the section to CHANGELOG.md, commit it to main, then:
+git push origin :refs/tags/v1.3.1        # delete the remote tag
+git tag -d v1.3.1
+git tag -a v1.3.1 -m "Release v1.3.1"
+git push origin main --tags
+```
+
+This is the one case where deleting a tag is correct - the rule against moving
+a tag protects *published* releases, and this one never published.
+
+### What to write
+
+Follow the shape of the existing entries: what an operator gains or must do,
+in present tense, with the migration cost stated up front (usually "none: pull
+and restart"). Bugs are described by what went wrong for the user, not by the
+function that was fixed. Under-the-hood work gets a short section at the end
+when it explains something an operator might otherwise trip over. Close with
+`Closes #N` for the issues shipped, and the compare link.
+
+---
+
+## Registry tags
+
+One image build can carry several tags. There is a single meaning of
+"released" -- a `v*` tag -- and both the registry and the in-app update checker
+use it.
+
+| Tag | Moves when | For |
+|-----|-----------|-----|
+| `:latest` | a `v*` tag is pushed | The default. What every install guide and the shipped `docker-compose.yml` point at. |
+| `:v1.2.3` | never (immutable) | Pinning to an exact release. |
+| `:main` | every merge to `main` | An unreleased canary, for trying a merge before it is tagged. Nobody is steered here. |
+| `:<short-sha>` | every build | Pinning one exact build, released or not. |
+
+`:latest` used to track `main`, which meant an operator on `:latest` could be
+running ahead of the version the app called newest -- the update checker has
+only ever moved on a `v*` tag. Now both move together.
+
+Docs-only pushes to `main` do not build at all. The workflow's `paths` filter
+mirrors `.dockerignore`, which keeps `README.md` in the image, so a README
+change still builds while `docs/**` and every other markdown file does not.
+(It has to be `paths` rather than `paths-ignore`: the `!` exclusion character
+works only in the former.)
+
+---
+
 ## Pre-release and dev versions
 
 Images that are **not** built from a versioned git tag carry non-release version
@@ -81,18 +154,24 @@ strings:
 
 | Source | `TVTAPLIST_VERSION` | Behaviour |
 |--------|---------------------|-----------|
-| Local dev run (`uvicorn` directly) | `"dev"` | Update checker never reports "update available" |
-| CI push to `main` (the `:latest` image) | `"main"` | Update checker never reports "update available" |
-| CI push of any branch (non-tag) | Short commit SHA | Update checker never reports "update available" |
-| CI push of a `v*` tag | `"v1.2.3"` | Update checker compares against GitHub releases |
+| Local dev run (`uvicorn` directly) | `"dev"` | Not comparable -- reported as unknown |
+| CI push to `main` (the `:main` canary image) | `"main"` | Not comparable -- reported as unknown |
+| CI push of any branch (non-tag) | Short commit SHA | Not comparable -- reported as unknown |
+| CI push of a `v*` tag (`:latest`, `:v1.2.3`) | `"v1.2.3"` | Compared against GitHub releases |
 
-This is deliberate: only pinned-version users (`docker compose` pointing at
-`:v1.2.3`) see update notifications. Users tracking `:latest` or running dev
-builds are already on the bleeding edge, so nagging them is spurious noise.
+This is deliberate: a build that is not a release cannot be placed against the
+release history, so it is never nagged with a spurious "update available".
 
 The gate is in `app/update_check.py` -- `_looks_like_release()` requires the
 version string to contain at least one dot, which excludes `"dev"`, `"main"`,
 and bare hex SHAs.
+
+**"Not comparable" is reported as such, not as "up to date".**
+`update_check.update_state()` resolves one of four states -- `current`,
+`behind`, `unknown`, `disabled` -- and the admin panel says plainly that an
+untagged build cannot be compared, naming the latest release so the operator can
+judge for themselves. Reporting the unknown case as an all-clear was a real bug
+(issue #26): a container genuinely behind a release was reassured it was not.
 
 ---
 
@@ -105,8 +184,9 @@ Before tagging a release:
    health, demo data, zero external origins, non-root PID 1).
 3. **`MAPPING_VERSION` has been bumped** if any extraction logic changed since
    the last release.
-4. **`__version__` in `app/__init__.py` is updated** to match the new tag
-   (best-effort; not a gate).
+4. **`CHANGELOG.md` has a section for the new tag** (`## v1.2.0 - YYYY-MM-DD`).
+   This is a hard gate -- the publish workflow fails without it. Check the
+   rendering locally: `bash scripts/release_notes.sh v1.2.0`.
 5. **No secrets in the diff:** `.env` and `taplist_data/` are git-ignored and
    untracked. Verify with `git ls-files .env taplist_data/ data/` (must print
    nothing).
@@ -126,8 +206,8 @@ Before tagging a release:
 
 ### Post-release
 
-- The CI builds `ghcr.io/<owner>/tv-taplist:v1.2.0` and `:latest` (since the
-  tag is on `main`).
+- The CI builds `ghcr.io/<owner>/tv-taplist:v1.2.0` and moves `:latest` to it.
+  **`:latest` follows releases, not `main`** -- see "Registry tags" below.
 - Pinned users (`image: ...:v1.1.0`) receive an update notification on their
   next daily check, visible in the admin panel.
 - If the release is a new **major** version, include migration instructions in
@@ -173,7 +253,7 @@ cycle), then remove in the next MAJOR. Never silently break a running install.
 | Feature work | Feature branch off `main` |
 | Bug fixes | Feature branch off `main` |
 | Release tags | **Only on `main`** |
-| Pre-release / RC tags | Not used (the project is small; `:latest` serves as the canary) |
+| Pre-release / RC tags | Not used (the project is small; the `:main` image serves as the canary) |
 
 Tags must be **annotated** (`-a`), not lightweight. This records the tagger,
 date, and message -- useful when inspecting history.
@@ -207,8 +287,8 @@ Practical implications:
 
 - Always use `v` prefix on tags (the CI, the Docker metadata action, and
   `_looks_like_release()` all expect it).
-- A repo with no releases returns `"unreleased"`; the admin panel shows "No
-  releases yet" instead of an error.
+- A repo with no releases returns `"unreleased"`; that is the `unknown` state
+  rather than an error, and the admin says so.
 - The `GITHUB_OWNER` / `GITHUB_REPO` constants in `update_check.py` are
   hardcoded at build time. Forkers who rebuild the image get update checks
   against their own repo automatically.
