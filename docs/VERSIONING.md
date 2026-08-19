@@ -301,10 +301,10 @@ and tag a new release; do not re-tag the same version.
 
 ## Changelog
 
-This project does not currently maintain a `CHANGELOG.md`. Release notes are
-written in the GitHub Releases UI when publishing a tag. If a changelog is
-adopted later, it follows the [Keep a Changelog](https://keepachangelog.com/)
-format and lives at the repo root.
+`CHANGELOG.md` lives at the repo root and every release must have a section in
+it before its tag is pushed. The publish workflow enforces this and uses that
+section as the GitHub Release body. See [The changelog](#the-changelog) above
+for the rules and the recovery path.
 
 ---
 
