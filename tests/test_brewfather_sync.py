@@ -293,8 +293,15 @@ def mock_network(monkeypatch):
     on disk is then a real assertion about production code rather than about the
     fixture. `state["downloads"]` maps a URL -> (bytes, ext); a URL that is
     absent from it stands for a failed download.
+
+    The fake also records the client it was handed in `state["download_clients"]`.
+    That first argument is the only place a test can observe WHICH of sync's two
+    httpx clients actually reaches an image fetch, and the difference between them
+    is a credential leak: image URLs are off-host and httpx applies a client's
+    auth to every host. Recording it here rather than asserting inline keeps the
+    fixture behaviour-free, so tests that only care about bytes are unaffected.
     """
-    state = {"batches": [], "downloads": {}}
+    state = {"batches": [], "downloads": {}, "download_clients": []}
 
     def fake_list(client, statuses):
         wanted = {str(s).lower() for s in statuses}
@@ -312,6 +319,7 @@ def mock_network(monkeypatch):
     monkeypatch.setattr(brewfather, "_list_batches", fake_list)
 
     def fake_download(client, url):
+        state["download_clients"].append(client)
         return state["downloads"].get(url)
 
     monkeypatch.setattr(brewfather, "_download_image", fake_download)
@@ -682,3 +690,28 @@ def test_image_client_carries_no_credentials():
     finally:
         api.close()
         img.close()
+
+
+def test_sync_downloads_images_with_the_unauthenticated_client(mock_network):
+    # The companion to the factory test above, and the one that matters: building
+    # a credential-free client is worthless if the AUTHENTICATED one is the client
+    # actually handed to the download. That wiring is a single `with` statement in
+    # run_sync, and transposing its two clients is a live leak of the Brewfather
+    # key to a third-party image host - which every other test in this suite would
+    # happily pass through, because nothing else observes the download's client.
+    #
+    # The assertion is deliberately made against the download seam (the first
+    # argument `_download_image` receives) rather than against run_sync's
+    # internals, so it keeps holding if the Mapping half is ever split out of this
+    # module (issue #10) and the client is threaded through differently.
+    _set_creds()
+    mock_network["downloads"] = {"http://x/pic.webp": (b"img-bytes", ".webp")}
+    mock_network["batches"] = [_batch(
+        "b1", 1, "Photo Ale", recipe={"img_url": "http://x/pic.webp", "ibu": 20})]
+
+    result = brewfather.run_sync()
+
+    assert result["ok"] is True
+    # Guard against a vacuous pass: no download attempt means nothing was checked.
+    assert len(mock_network["download_clients"]) == 1
+    assert mock_network["download_clients"][0].auth is None
