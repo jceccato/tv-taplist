@@ -5,17 +5,24 @@ on:
     branches: [main]
     # Skip a build for changes that cannot reach the image. This mirrors
     # .dockerignore, which excludes docs/ and every markdown file EXCEPT
-    # README.md - so README is deliberately un-ignored here and still builds.
+    # README.md - so README is re-included below and still builds.
+    #
+    # This has to be `paths`, not `paths-ignore`: the `!` exclusion character
+    # works only in `paths`. Order is significant - a later pattern wins - so
+    # read the list top to bottom: everything, then not markdown, then README
+    # after all, then not docs/ (which also drops its images).
+    #
     # Path filters are not evaluated for tag pushes, so a release always builds
     # whatever it touched.
     #
     # A test workflow must NOT reuse this filter: .dockerignore also excludes
     # tests/, so a test-only change would skip running the tests (issue #30).
-    paths-ignore:
-      - "**.md"
-      - "!README.md"
-      - "docs/**"
-      - ".github/ISSUE_TEMPLATE/**"
+    paths:
+      - "**"
+      - ".github/**"
+      - "!**.md"
+      - "README.md"
+      - "!docs/**"
     tags: ["v*"]
   workflow_dispatch:
 
