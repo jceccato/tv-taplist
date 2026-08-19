@@ -12,6 +12,40 @@ Versions follow [Semver](https://semver.org/). Dates are the release date.
 
 ---
 
+## v1.3.2 - 2026-08-20
+
+A small release. **No migration, no settings change:** pull and restart.
+
+### Swipe between pages on a touch screen
+
+The display has always rotated through its pages on a timer, and an operator
+could jump to a page with the dots or the keyboard. On a touch screen the dots
+were the only option, and on a TV-sized layout they are a small target.
+
+Now a **horizontal swipe anywhere on the board changes page**: swipe left for
+the next page, swipe right for the previous one. Both wrap, so a swipe back
+from the first page lands on the last. The rotation timer restarts on a swipe,
+so the page you chose is not flipped away a moment later.
+
+Nothing to turn on and nothing to configure. Tapping a page dot still works
+exactly as before, a short or mostly-vertical drag leaves the page alone, and
+keyboard navigation is unchanged.
+
+### A Windows install guide
+
+Docker Desktop on Windows is a common way to run this, and until now the docs
+had nothing about it. [WINDOWS.md](docs/WINDOWS.md) covers the data directory
+and the path forms that work, how to confirm it is really persisting before you
+commit real data to it, what `PUID` and `PGID` actually do on Windows, where to
+put the files relative to WSL2, and reaching the display from the TV.
+
+### Also
+
+- An internal test now covers a piece of the Brewfather sync that was only
+  covered by convention. No behaviour changed.
+
+---
+
 ## v1.3.1 - 2026-08-19
 
 Housekeeping on how a release reaches you. **No migration, no settings change:**
