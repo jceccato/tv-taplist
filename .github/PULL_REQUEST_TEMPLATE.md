@@ -17,7 +17,8 @@ Fixes #
 
 ## Checklist
 
-- [ ] **Tests pass:** `python -m pytest -q` - all 127+ tests passing
+- [ ] **Tests pass:** `python -m pytest -q` - all 243 tests passing
+  (CI runs the same suite on Python 3.12 and blocks the publish if it is red)
 - [ ] **New tests added** for any new functionality or bug fix
 - [ ] **Code style** matches the surrounding code (defensive type coercion,
   comments explain *why*, docstrings present)
@@ -28,9 +29,10 @@ Fixes #
 - [ ] **Docs updated** if the change affects user-facing behavior
 - [ ] **`MAPPING_VERSION` bumped** in `app/brewfather.py` if Brewfather
   extraction logic changed
-- [ ] **`CHANGELOG.md` updated** if this is user-facing. Add to the section for
-  the next release, or start one. A release tag cannot publish without its
-  section - see `docs/VERSIONING.md`.
+- [ ] **`CHANGELOG.md` updated** if this is user-facing. Add it under the
+  `## Unreleased` heading at the top, creating that section if it is not there.
+  Write it when the change merges, not on release day - a release tag cannot
+  publish without its section. See `docs/VERSIONING.md`.
 
 ## Screenshots (if UI change)
 

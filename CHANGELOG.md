@@ -8,7 +8,45 @@ workflow uses the section matching the tag as the GitHub Release body, so a
 missing entry means a release that only says "Full Changelog: compare/...".
 See [docs/VERSIONING.md](docs/VERSIONING.md#the-changelog) for the rules.
 
+**Merged work that is not released yet goes under `## Unreleased`.** Add to that
+section as changes land on `main`, rather than saving it all up for release day.
+At release time the heading becomes `## vX.Y.Z - YYYY-MM-DD` and a fresh empty
+`## Unreleased` takes its place. `scripts/release_notes.sh` matches a version
+heading only, so an Unreleased section is never published as a release body -
+and a tag pushed while the notes still sit under `## Unreleased` fails the
+build, which is the intended safety net.
+
 Versions follow [Semver](https://semver.org/). Dates are the release date.
+
+---
+
+## Unreleased
+
+Merged to `main` and shipping in the next release.
+
+### Nothing publishes without a green suite
+
+The test suite has never gated a publish. A merge to `main` or a version tag
+built and pushed an image whether or not the 243 tests passed, or whether anyone
+had run them. Since `:latest` started following releases in v1.3.1, that
+unverified build is what every default installation pulls.
+
+Now the suite runs on **every pull request**, and the publish workflow calls the
+same definition as a gate: a red suite skips the build entirely, so no image is
+pushed and no release is created. On a version tag that leaves the tag in git
+with nothing published, recoverable the same way a missing changelog entry is.
+
+The tests run on **Python 3.12**, the version the image ships, rather than
+whatever the runner defaults to.
+
+This changes nothing about running the box. It changes what it takes for a
+change to reach it.
+
+### Also
+
+- **Documentation fix:** the versioning guide contained two contradictory
+  answers about whether this project keeps a changelog, the wrong one nearer
+  the end. It now has one.
 
 ---
 

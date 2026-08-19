@@ -120,6 +120,25 @@ This is enforced, not merely asked for. The publish workflow runs
 the whole job when there is no section for that tag - before any image is built
 or pushed. The extracted section becomes the GitHub Release body.
 
+### Work that has merged but not shipped
+
+Changes land on `main` continuously; releases are cut deliberately. The gap
+between them lives under a **`## Unreleased`** heading at the top of
+`CHANGELOG.md`.
+
+Write the entry when the change merges, not on release day. The person who made
+the change knows what it means for an operator; the person cutting the release a
+fortnight later is reconstructing it from commit subjects, which is how v1.1.0
+and v1.3.0 ended up with no notes at all.
+
+Cutting a release renames that heading to `## vX.Y.Z - YYYY-MM-DD` and starts a
+fresh empty `## Unreleased` above it. Nothing else moves.
+
+`scripts/release_notes.sh` matches a version heading only, so an Unreleased
+section can never be published as a release body. If a tag is pushed while the
+notes still sit under `## Unreleased`, the build fails on the missing section -
+which is the safety net working, not a problem to route around.
+
 ### Why it is a gate rather than a fallback
 
 `--generate-notes` was the fallback until v1.3.1, and the result was that
@@ -221,8 +240,10 @@ Before tagging a release:
 3. **`MAPPING_VERSION` has been bumped** if any extraction logic changed since
    the last release.
 4. **`CHANGELOG.md` has a section for the new tag** (`## v1.2.0 - YYYY-MM-DD`).
-   This is a hard gate -- the publish workflow fails without it. Check the
-   rendering locally: `bash scripts/release_notes.sh v1.2.0`.
+   Normally this means renaming the `## Unreleased` heading to the new version
+   and date, then starting a fresh empty `## Unreleased` above it. This is a
+   hard gate -- the publish workflow fails without it. Check the rendering
+   locally: `bash scripts/release_notes.sh v1.2.0`.
 5. **No secrets in the diff:** `.env` and `taplist_data/` are git-ignored and
    untracked. Verify with `git ls-files .env taplist_data/ data/` (must print
    nothing).
