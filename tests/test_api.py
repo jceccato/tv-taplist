@@ -2,7 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app import config_store, main, paths, tap_store as taps
+from app import config_store, main, paths, status_store, tap_store as taps
 from app.main import _safe_tap_image, app
 
 # Plain TestClient (no context manager) so the lifespan scheduler/initial-sync
@@ -145,6 +145,36 @@ def test_save_settings_persists():
     assert cfg["num_taps"] == 6
     assert cfg["hide_vacant_taps"] is True
     assert cfg["announcement_text"] == "Hi"
+
+
+def test_save_settings_sync_status_toggles_are_independent():
+    """Both Brewfather status toggles save in all four combinations.
+
+    An unchecked HTML checkbox is simply absent from the post, so this also pins
+    that a missing field turns the toggle off rather than leaving it stuck on.
+    """
+    c = _login(TestClient(app))
+    base = {"num_taps": "6", "max_archive_age_days": "90",
+            "max_archive_storage_mb": "1000"}
+    for conditioning, fermenting in [(True, True), (False, True),
+                                     (True, False), (False, False)]:
+        data = dict(base)
+        if conditioning:
+            data["include_conditioning"] = "true"
+        if fermenting:
+            data["include_fermenting"] = "true"
+        r = c.post("/admin/settings", data=data)
+        assert r.status_code == 200 and r.json()["ok"] is True
+        cfg = config_store.load_config()
+        assert cfg["include_conditioning"] is conditioning
+        assert cfg["include_fermenting"] is fermenting
+
+
+def test_admin_page_offers_both_sync_status_checkboxes():
+    c = _login(TestClient(app))
+    body = c.get("/admin").text
+    assert 'name="include_conditioning"' in body
+    assert 'name="include_fermenting"' in body
 
 
 def test_save_settings_rejects_negative_taps():
@@ -499,12 +529,32 @@ def test_display_assets_are_cache_busted():
 
 def test_api_board_omits_sync_status():
     # /api/board is public and unauthenticated; sync status/error (which can carry
-    # upstream API error text) must NOT leak there.
-    config_store.update_config(num_taps=1, last_sync_error="boom: upstream 500 body",
+    # upstream API error text) must NOT leak there. Status lives in its own file
+    # now, so it is seeded through the Status store - writing it via the config
+    # store would be dropped as an unknown key and prove nothing.
+    config_store.update_config(num_taps=1)
+    status_store.update_status(last_sync_error="boom: upstream 500 body",
                                last_sync_success="2026-01-01T00:00:00")
     board = client.get("/api/board").json()
-    assert "last_sync_error" not in board
-    assert "last_sync_success" not in board
+    for key in status_store.STATUS_KEYS:
+        assert key not in board
+
+
+def test_admin_status_panel_renders_status_from_status_json():
+    # The panel used to read these off `cfg`; they come from the Status store
+    # now, so a rename in the template would otherwise fail silently to "never".
+    status_store.update_status(last_sync_success="2026-04-04T00:00:00",
+                               last_sync_attempt="2026-04-04T00:00:01",
+                               last_sync_error="upstream 500")
+    html = _login(TestClient(app)).get("/admin").text
+    assert "2026-04-04T00:00:00" in html
+    assert "2026-04-04T00:00:01" in html
+    assert "upstream 500" in html
+
+
+def test_admin_status_panel_says_never_on_a_fresh_box():
+    html = _login(TestClient(app)).get("/admin").text
+    assert "never" in html
 
 
 def test_img_responses_carry_svg_csp():
@@ -535,3 +585,51 @@ def test_bad_number_does_not_orphan_uploaded_image():
     assert r.status_code == 422
     assert taps.image_for(1, taps.Source.MANUAL) is None
     assert not taps.exists(1, taps.Source.MANUAL)
+
+
+def test_save_settings_preset_overrides_the_posted_scales():
+    # The sliders may be showing anything (a stale tab, a scripted post); a named
+    # preset owns its scale, so the stored Settings can never say "small" beside
+    # Default's number.
+    c = _login(TestClient(app))
+    r = c.post("/admin/settings", data={
+        "num_taps": "4", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
+        "tap_photo_preset": "small", "tap_text_preset": "small",
+        "tap_image_scale": "2.5", "tap_text_scale": "1.9",
+    })
+    assert r.status_code == 200
+    cfg = config_store.load_config()
+    assert cfg["tap_photo_preset"] == "small"
+    assert cfg["tap_text_preset"] == "small"
+    assert cfg["tap_image_scale"] == 0.6
+    assert cfg["tap_text_scale"] == 0.75
+
+
+def test_save_settings_custom_keeps_the_posted_scales():
+    c = _login(TestClient(app))
+    r = c.post("/admin/settings", data={
+        "num_taps": "4", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
+        "tap_photo_preset": "custom", "tap_text_preset": "custom",
+        "tap_image_scale": "0.4", "tap_text_scale": "1.8",
+    })
+    assert r.status_code == 200
+    cfg = config_store.load_config()
+    assert cfg["tap_photo_preset"] == "custom"
+    assert cfg["tap_text_preset"] == "custom"
+    assert cfg["tap_image_scale"] == 0.4
+    assert cfg["tap_text_scale"] == 1.8
+
+
+def test_save_settings_axes_are_independent():
+    # Picking a photo preset must leave the text axis exactly as posted, and the
+    # other way round: the two controls do not share a preset any more.
+    c = _login(TestClient(app))
+    r = c.post("/admin/settings", data={
+        "num_taps": "4", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
+        "tap_photo_preset": "tiny", "tap_text_preset": "custom",
+        "tap_image_scale": "0.9", "tap_text_scale": "1.8",
+    })
+    assert r.status_code == 200
+    cfg = config_store.load_config()
+    assert cfg["tap_image_scale"] == 0.4      # the photo preset owns its number
+    assert cfg["tap_text_scale"] == 1.8       # the text axis kept what was posted

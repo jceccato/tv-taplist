@@ -51,9 +51,15 @@ from .colors import (
     text_color_for,
 )
 from .config_store import (
+    MAX_TAP_IMAGE_SCALE,
+    MAX_TAP_TEXT_SCALE,
     MAX_VENUE_LOGO_VH,
+    MIN_TAP_IMAGE_SCALE,
+    MIN_TAP_TEXT_SCALE,
     brewfather_credentials,
     load_config,
+    resolve_tap_photo_preset,
+    resolve_tap_text_preset,
     update_config,
 )
 from .theme import DEFAULT_THEME, THEME_FIELD_LABELS, THEME_KEYS, THEMES
@@ -70,6 +76,7 @@ from .paths import (
     venue_logo_path,
 )
 from .scheduler import shutdown_scheduler, start_scheduler
+from .status_store import load_status, migrate_legacy_status
 from .timezone import iso_now
 
 logging.basicConfig(
@@ -84,6 +91,10 @@ async def lifespan(app: FastAPI):
     """Startup/shutdown: bootstrap data, seed demo, run an initial sync, schedule jobs."""
     ensure_dirs()
     load_config()  # first-run bootstrap of config.json
+    # One-time carry of the Status fields out of a pre-split config.json. Runs
+    # before the scheduler so no job can write status.json ahead of it, which is
+    # what lets the migration treat an existing status.json as authoritative.
+    migrate_legacy_status()
     _ensure_local_placeholder()
     maybe_seed_demo()
     if auth.demo_admin_open():
@@ -335,12 +346,21 @@ async def admin_page(request: Request):
         {
             "request": request,
             "cfg": cfg,
+            # Status is a separate file and a separate template variable, so a
+            # template can never reach a sync timestamp through `cfg`.
+            "status": load_status(),
             "rows": rows,
             "asset_v": _asset_version("css/admin.css", "js/admin.js"),
             "bf": brewfather_credentials(),
             "color_label": "SRM" if cfg.get("color_unit") == "srm" else "EBC",
             "venue_logo_url": "/img/venue-logo" if venue_logo_path() else None,
             "max_logo_vh": MAX_VENUE_LOGO_VH,
+            # Card-sizing slider bounds, taken from the server clamps so the two
+            # can never drift into an input that posts a value config rejects.
+            "min_image_scale": MIN_TAP_IMAGE_SCALE,
+            "max_image_scale": MAX_TAP_IMAGE_SCALE,
+            "min_text_scale": MIN_TAP_TEXT_SCALE,
+            "max_text_scale": MAX_TAP_TEXT_SCALE,
             # Theme + glassware pickers.
             "themes": THEMES,
             "theme_fields": THEME_FIELD_LABELS,
@@ -467,6 +487,7 @@ async def save_settings(
     brewfather_user_id: str = Form(""),
     brewfather_api_key: str = Form(""),
     include_conditioning: bool = Form(False),
+    include_fermenting: bool = Form(False),
     num_taps: int = Form(...),
     hide_vacant_taps: bool = Form(False),
     announcement_text: str = Form(""),
@@ -486,6 +507,10 @@ async def save_settings(
     show_source_badge: bool = Form(False),
     theme: str = Form("default"),
     glass_type: str = Form("default"),
+    tap_photo_preset: str = Form("default"),
+    tap_text_preset: str = Form("default"),
+    tap_image_scale: float = Form(1.0),
+    tap_text_scale: float = Form(1.0),
     paginate: bool = Form(False),
     page_size: int = Form(6),
     rotation_seconds: int = Form(30),
@@ -504,8 +529,18 @@ async def save_settings(
         for key in THEME_KEYS
     }
 
+    # A named card-sizing preset owns its scale, so resolve here and let the
+    # posted slider value go: the browser may have been showing stale numbers
+    # (or none at all, for a scripted post), and the stored config must never
+    # say "small" beside Default's scale. Only "custom" keeps what was posted.
+    # The two axes resolve independently - picking a photo preset must not touch
+    # the text scale. Range clamping stays in config_store, as for every setting.
+    photo_preset, image_scale = resolve_tap_photo_preset(tap_photo_preset, tap_image_scale)
+    text_preset, text_scale = resolve_tap_text_preset(tap_text_preset, tap_text_scale)
+
     updates = {
         "include_conditioning": include_conditioning,
+        "include_fermenting": include_fermenting,
         "num_taps": num_taps,
         "hide_vacant_taps": hide_vacant_taps,
         "announcement_text": announcement_text,
@@ -526,6 +561,10 @@ async def save_settings(
         "theme": theme,
         "theme_custom": theme_custom,
         "glass_type": glass_type,
+        "tap_photo_preset": photo_preset,
+        "tap_text_preset": text_preset,
+        "tap_image_scale": image_scale,
+        "tap_text_scale": text_scale,
         "paginate": paginate,
         "page_size": page_size,
         "rotation_seconds": rotation_seconds,
@@ -731,19 +770,26 @@ async def trigger_sync(_: None = Depends(auth.require_admin)):
 
 @app.get("/api/update-status")
 async def api_update_status():
-    """Return the current update-check state from config.json.
-    
-    Public (no auth) so the admin page can poll it. Contains no secrets — just
-    version strings and a URL.
+    """Return the current update-check state.
+
+    What the last check found is Status (status.json); whether checking is
+    enabled at all is a Setting (config.json). Public (no auth) so the admin
+    page can poll it, which is safe because it carries no secrets - just version
+    strings and a URL. Note this is the ONLY endpoint that exposes any Status,
+    and it deliberately exposes none of the sync fields: /api/board omits Status
+    entirely, `last_sync_error` included, because that can carry upstream API
+    error text.
     """
     cfg = load_config()
+    status = load_status()
     cur = current_version()
+    latest = status.get("update_latest_version")
     return {
         "current_version": cur,
-        "latest_version": cfg.get("update_latest_version"),
-        "latest_url": cfg.get("update_latest_url"),
-        "update_available": is_update_available(cfg.get("update_latest_version"), cur),
-        "last_check": cfg.get("update_last_check"),
+        "latest_version": latest,
+        "latest_url": status.get("update_latest_url"),
+        "update_available": is_update_available(latest, cur),
+        "last_check": status.get("update_last_check"),
         "enabled": cfg.get("update_check_enabled", True),
     }
 

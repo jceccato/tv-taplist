@@ -189,6 +189,13 @@ def build_board() -> dict[str, Any]:
         "show_source_badge": bool(cfg.get("show_source_badge", False)),
         # Theme colours (display.js writes these onto the document root).
         "theme": resolve_theme(cfg),
+        # Card sizing, already resolved to plain numbers. The preset keys stay
+        # behind in Settings: the display only needs to know how big to draw,
+        # not which button produced the number. The photo scale is applied by
+        # display.js against each photo's measured height, not by CSS - see the
+        # `.card .thumb` rule for why.
+        "tap_image_scale": float(cfg.get("tap_image_scale", 1.0) or 1.0),
+        "tap_text_scale": float(cfg.get("tap_text_scale", 1.0) or 1.0),
         # Pagination / carousel.
         "paginate": bool(cfg.get("paginate", False)),
         "page_size": int(cfg.get("page_size", 6) or 6),
@@ -196,8 +203,8 @@ def build_board() -> dict[str, Any]:
         "venue_logo_url": venue_logo_url,
         "venue_logo_height_vh": logo_height,
         "taps": taps,
-        # Sync status (last_sync_*) is deliberately NOT exposed here: /api/board is
-        # public and unauthenticated, the display never consumes it, and
-        # last_sync_error can carry upstream API error text. It stays in
-        # config.json and is shown only on the authenticated admin page.
+        # Status is deliberately NOT exposed here: /api/board is public and
+        # unauthenticated, the display never consumes it, and last_sync_error can
+        # carry upstream API error text. It lives in status.json - a file this
+        # module never opens - and is shown only on the authenticated admin page.
     }

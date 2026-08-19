@@ -1,4 +1,4 @@
-"""Tests for app/update_check.py — release parsing, config fields, and API."""
+"""Tests for app/update_check.py - release parsing, where the fields live, and the API."""
 from __future__ import annotations
 
 import json
@@ -86,6 +86,19 @@ def test_api_update_status_returns_expected_keys():
     assert "password" not in raw
 
 
+def test_api_update_status_reads_the_findings_from_status_json():
+    """The endpoint serves Status from status.json, not from config.json."""
+    from app import status_store
+    status_store.update_status(update_latest_version="v9.9.9",
+                               update_latest_url="https://example.invalid/r/v9.9.9",
+                               update_last_check="2026-05-05T00:00:00")
+    data = client.get("/api/update-status").json()
+    assert data["latest_version"] == "v9.9.9"
+    assert data["latest_url"] == "https://example.invalid/r/v9.9.9"
+    assert data["last_check"] == "2026-05-05T00:00:00"
+    assert data["enabled"] is True   # the Setting still comes from config.json
+
+
 # ---- API: admin-only trigger ---------------------------------------------
 
 def test_check_update_requires_admin():
@@ -93,12 +106,19 @@ def test_check_update_requires_admin():
     assert r.status_code in (302, 303, 401)
 
 
-# ---- config schema -------------------------------------------------------
+# ---- schema: intent is a Setting, findings are Status ---------------------
 
-def test_config_has_update_fields():
+def test_update_check_intent_is_a_setting():
+    """Whether to check is operator intent, so it stays in config.json."""
     from app.config_store import DEFAULT_CONFIG
     assert "update_check_enabled" in DEFAULT_CONFIG
-    assert "update_last_check" in DEFAULT_CONFIG
-    assert "update_latest_version" in DEFAULT_CONFIG
-    assert "update_latest_url" in DEFAULT_CONFIG
     assert DEFAULT_CONFIG["update_check_enabled"] is True
+
+
+def test_update_check_findings_are_status():
+    """What the check FOUND is machine-written runtime state, so it is Status."""
+    from app.config_store import DEFAULT_CONFIG
+    from app.status_store import DEFAULT_STATUS
+    for key in ("update_last_check", "update_latest_version", "update_latest_url"):
+        assert key in DEFAULT_STATUS
+        assert key not in DEFAULT_CONFIG

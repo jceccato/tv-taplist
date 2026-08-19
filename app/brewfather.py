@@ -64,12 +64,11 @@ from .beer_glass import GLASS_KEYS
 from .colors import EBC_PER_SRM, parse_hex_color, parse_saturation
 from .config_store import (
     MAX_NUM_TAPS,
-    ConfigUnreadable,
     brewfather_credentials,
     load_config,
-    update_config,
 )
 from .paths import ensure_dirs
+from .status_store import update_status
 from .timezone import iso_now
 
 log = logging.getLogger("taplist.sync")
@@ -85,14 +84,17 @@ SYNC_SOURCE = taps.Source.BREWFATHER
 
 
 def _record_status(**changes: Any) -> None:
-    """Persist sync-status fields, tolerating a transiently unreadable config.
+    """Persist the sync Status fields. Never raises; never touches Settings.
 
-    Sync status is non-critical, so if config.json can't be read right now we
-    skip the update rather than let it bubble up (or risk clobbering settings).
+    Status lives in its own file now, so recording it cannot disturb
+    config.json or the Brewfather key inside it. `update_status` is already
+    tolerant of an unreadable status.json (the data is disposable), so the only
+    thing left to swallow here is a genuine write failure - a full or read-only
+    /data. Sync must not fail on account of its own bookkeeping.
     """
     try:
-        update_config(**changes)
-    except ConfigUnreadable as exc:
+        update_status(**changes)
+    except OSError as exc:
         log.warning("could not record sync status (%s)", exc)
 
 API_BASE = "https://api.brewfather.app/v2"
@@ -323,6 +325,41 @@ def _extract_updated_ms(batch: dict[str, Any]) -> int:
     return 0
 
 
+# Brewfather's batch lifecycle, most complete first. Only the first three can
+# reach a sync today (see the include_conditioning / include_fermenting
+# toggles); Brewing and Planning are listed anyway so this reads as the whole
+# lifecycle rather than an arbitrary subset if the toggles ever widen.
+STATUS_PRECEDENCE: tuple[str, ...] = (
+    "completed", "conditioning", "fermenting", "brewing", "planning",
+)
+
+
+def _status_rank(batch: dict[str, Any]) -> int:
+    """Sort key for Batch status - LOWER is more complete.
+
+    An unrecognised or missing status ranks last, which deliberately makes a
+    Batch the API did not label lose to one it did. It also means that if
+    Brewfather ever stops sending `status`, every Batch ranks the same and
+    conflict resolution falls back to recency - exactly the behaviour that
+    shipped before this rule existed.
+    """
+    try:
+        return STATUS_PRECEDENCE.index(_status_label(batch))
+    except ValueError:
+        return len(STATUS_PRECEDENCE)
+
+
+def _status_label(batch: dict[str, Any]) -> str:
+    """The Batch status, normalised for comparison and for the conflict log.
+
+    Missing, empty, and non-string statuses all collapse to "unknown" so the
+    logged conflict line never prints a bare '' or 'None' at the operator.
+    """
+    raw = batch.get("status")
+    label = str(raw).strip().lower() if isinstance(raw, str) else ""
+    return label or "unknown"
+
+
 def _find_tap_number(batch: dict[str, Any]) -> int | None:
     """The Slot a batch claims via its `tap:X` note token, or None for no claim.
 
@@ -497,29 +534,50 @@ def _download_image(img_client: httpx.Client, url: str) -> tuple[bytes, str] | N
 # ---- sync orchestration --------------------------------------------------
 
 def _build_desired_map(batches: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
-    """Map tap number -> chosen batch, resolving conflicts (newest wins)."""
+    """Map tap number -> chosen batch, resolving conflicts.
+
+    The most COMPLETE Batch wins, and recency only breaks a tie within one
+    status. A beer that is pouring should not be pushed off its Slot by the
+    next brew that happens to carry the same `tap:X` token while it is still
+    conditioning - and because a conditioning Batch is edited more often than a
+    finished one, plain recency reliably picked the wrong beer once the
+    Conditioning and Fermenting toggles made more than one status reachable.
+    """
     desired: dict[int, dict[str, Any]] = {}
     for batch in batches:
         tap = _find_tap_number(batch)
         if tap is None:
             continue
-        candidate = {"batch": batch, "updated_ms": _extract_updated_ms(batch)}
+        candidate = {
+            "batch": batch,
+            "updated_ms": _extract_updated_ms(batch),
+            "rank": _status_rank(batch),
+        }
         existing = desired.get(tap)
         if existing is None:
             desired[tap] = candidate
             continue
-        # Conflict: two Completed batches claim the same tap. Newest wins.
-        winner, loser = (
-            (candidate, existing)
-            if candidate["updated_ms"] >= existing["updated_ms"]
-            else (existing, candidate)
-        )
+        # Status first, then recency. `>=` on the tie keeps the previous
+        # newest-wins behaviour for two Batches sharing one status.
+        if candidate["rank"] != existing["rank"]:
+            winner = candidate if candidate["rank"] < existing["rank"] else existing
+            reason = "more complete status"
+        else:
+            winner = (
+                candidate
+                if candidate["updated_ms"] >= existing["updated_ms"]
+                else existing
+            )
+            reason = "more recent"
         log.warning(
-            "tap:%d conflict between '%s' and '%s'; keeping more recent '%s'",
+            "tap:%d conflict between '%s' (%s) and '%s' (%s); keeping '%s' (%s)",
             tap,
             _extract_name(candidate["batch"]),
+            _status_label(candidate["batch"]),
             _extract_name(existing["batch"]),
+            _status_label(existing["batch"]),
             _extract_name(winner["batch"]),
+            reason,
         )
         desired[tap] = winner
     return desired
@@ -597,10 +655,26 @@ def run_sync() -> dict[str, Any]:
     # setting, and sync depends only on what Brewfather claims. See
     # `_find_tap_number` and `_archive_undesired`.
     # Statuses to pull: always Completed, plus Conditioning when the operator
-    # opts in (a beer on tap but still lagering / too green to mark Completed).
+    # opts in (a beer on tap but still lagering / too green to mark Completed),
+    # plus Fermenting for an upcoming Beer still in primary. The two opt-ins are
+    # independent, so all four combinations are valid.
+    #
+    # Each extra status costs another sweep: `_list_batches` pages the API once
+    # per status, ceil(N/50) calls each, against a 500/hour key limit. Three
+    # statuses on a normal sync interval stay comfortably inside it, but this is
+    # the reason the status list is opt-in rather than "fetch everything".
+    #
+    # The status decides which Batches are FETCHED, and (in `_build_desired_map`)
+    # which one wins a Slot two Batches both claim. It does not change EXTRACTION:
+    # a Fermenting Batch still needs a `tap:X` note token to claim a Slot, and
+    # maps to a Tap field-for-field like any other Batch. That is why
+    # MAPPING_VERSION is deliberately NOT bumped for any of this - selection
+    # changed, the mapping did not, so cached bf_tap files need no rewrite.
     statuses = ["Completed"]
     if bool(cfg.get("include_conditioning", False)):
         statuses.append("Conditioning")
+    if bool(cfg.get("include_fermenting", False)):
+        statuses.append("Fermenting")
 
     if not user_id or not api_key:
         msg = "sync skipped: Brewfather credentials not configured"

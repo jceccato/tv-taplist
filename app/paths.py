@@ -18,8 +18,13 @@ TAPS_DIR = DATA_DIR / "taps"
 # Archive of removed beers (md + image pairs with a datetime suffix).
 OLD_BEERS_DIR = DATA_DIR / "old_beers"
 
-# Single settings file (atomic-written).
+# Operator Settings, including the Brewfather credentials (atomic-written).
 CONFIG_PATH = DATA_DIR / "config.json"
+
+# Machine-written runtime Status, kept out of CONFIG_PATH so the scheduled jobs
+# never rewrite the file holding the credentials. Disposable - see
+# app/status_store.py and docs/adr/0002-config-status-separation.md.
+STATUS_PATH = DATA_DIR / "status.json"
 
 # Bundled assets shipped inside the image (read-only, no external origins).
 # __file__ is .../app/paths.py, so the project root is two parents up.

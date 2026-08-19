@@ -84,8 +84,8 @@ cocktail - even if Brewfather knows nothing about it, and the sync never touches
 **On a timer** (every `SYNC_INTERVAL_MINUTES`, default 15) and whenever you click
 **Sync Brewfather now**, the app:
 
-1. Lists your **Completed** batches (plus **Conditioning** ones if you enabled
-   that - see below) in one paginated request per page (`complete=True`, 50 per
+1. Lists your **Completed** batches (plus **Conditioning** and **Fermenting** ones
+   if you enabled those - see below) in one paginated request per page (`complete=True`, 50 per
    page), so a single call carries all the data it needs - ABV, IBU, colour, notes
    and the image. Cost is `ceil(batches / 50)` calls per status, comfortably under
    Brewfather's limit of **500 calls/hour per key**.
@@ -188,17 +188,34 @@ way.
 
 **Completed** ones by default. Planning, Brewing, Fermenting and Archived batches
 are ignored, so a beer you're still working on never appears until you mark it
-Completed. Tick **Include Conditioning batches** on the Settings tab to *also* pull
-batches still in **Conditioning** (lagering / maturing) - handy for a beer that's
-already on tap but too green to mark Completed. When two batches (say a
-Conditioning and a Completed one) claim the same tap, the most recent wins.
+Completed.
+
+Two independent checkboxes on the Settings tab widen that:
+
+- **Include Conditioning batches** also pulls batches still in **Conditioning**
+  (lagering / maturing) - handy for a beer that's already on tap but too green to
+  mark Completed.
+- **Include Fermenting batches** also pulls batches still in **Fermenting**
+  (primary fermentation) - handy for showing what's coming next.
+
+Either way a batch still needs its `tap:N` note token to reach a tap, and a beer
+pulled in this way looks exactly like any other on the board. Each status you add
+is another paginated sweep of the API, so the call cost rises with the number of
+statuses (still comfortably under the 500/hour limit at normal sync intervals).
+When two batches (say a Conditioning and a Completed one) claim the same tap, the
+one furthest along wins: Completed beats Conditioning beats Fermenting. Only if
+both are at the same stage does the most recently updated one win. So tagging
+next week's brew with a tap it will take over does not knock the beer that is
+pouring off the board.
 
 ### Smart and safe
 
 - **Change detection** skips rewriting files and re-downloading images for batches
   that haven't changed, so most syncs are nearly free.
-- **Conflicts** (two batches claiming one tap) resolve to the most recently
-  updated batch, and the clash is logged.
+- **Conflicts** (two batches claiming one tap) resolve to the batch furthest
+  along its brew (Completed, then Conditioning, then Fermenting), falling back to
+  the most recently updated one when both are at the same stage. The clash is
+  logged either way.
 - **A failed sync changes nothing** - the last good board stays exactly as it was.
 - A rate-limit response (HTTP 429) is honoured (respecting `Retry-After`) and makes
   no changes.
@@ -356,8 +373,10 @@ deleted outright. A daily cleanup (03:30 local time) keeps the archive tidy:
 ## Where is my data?
 
 In the **host directory you mapped to `/data`** (see [The data
-directory](INSTALLATION.md#the-data-directory)). Settings live in `config.json`;
-each beer is a small Markdown file in `taps/` with its image alongside. It's all
+directory](INSTALLATION.md#the-data-directory)). Your settings live in
+`config.json` and the app's own bookkeeping - when it last synced, what the last
+update check found - lives in `status.json`; each beer is a small Markdown file
+in `taps/` with its image alongside. It's all
 plain text and standard image files - open any of it in a text editor or file
 browser to see exactly what the board is showing. Nothing is hidden in a database.
 

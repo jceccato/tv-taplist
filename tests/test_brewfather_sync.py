@@ -2,7 +2,7 @@
 import httpx
 import pytest
 
-from app import brewfather, config_store, paths, tap_store as taps
+from app import brewfather, config_store, paths, status_store, tap_store as taps
 
 
 # ---- field extraction --------------------------------------------------
@@ -119,6 +119,82 @@ def test_conflict_newest_wins():
         {"_id": "b", "name": "New", "status": "Completed", "batchNotes": "tap:3", "updated": 200},
     ]
     assert brewfather._build_desired_map(batches)[3]["batch"]["name"] == "New"
+
+
+def test_conflict_completed_beats_newer_conditioning():
+    # The beer that is pouring must not be pushed off its Slot by the next brew
+    # that already carries the same token - and a conditioning Batch is edited
+    # far more often than a finished one, so recency alone picks the wrong beer.
+    batches = [
+        {"_id": "a", "name": "Pouring", "status": "Completed",
+         "batchNotes": "tap:3", "_timestamp_ms": 100},
+        {"_id": "b", "name": "NextBrew", "status": "Conditioning",
+         "batchNotes": "tap:3", "_timestamp_ms": 900},
+    ]
+    assert brewfather._build_desired_map(batches)[3]["batch"]["name"] == "Pouring"
+    # Order of arrival must not matter: the same pair reversed resolves the same.
+    assert brewfather._build_desired_map(
+        list(reversed(batches)))[3]["batch"]["name"] == "Pouring"
+
+
+def test_conflict_conditioning_beats_newer_fermenting():
+    batches = [
+        {"_id": "a", "name": "Conditioning", "status": "Conditioning",
+         "batchNotes": "tap:6", "_timestamp_ms": 100},
+        {"_id": "b", "name": "Fermenting", "status": "Fermenting",
+         "batchNotes": "tap:6", "_timestamp_ms": 900},
+    ]
+    assert brewfather._build_desired_map(batches)[6]["batch"]["name"] == "Conditioning"
+
+
+def test_conflict_within_one_status_still_resolves_by_recency():
+    # Status only orders DIFFERENT statuses; inside one, newest still wins.
+    batches = [
+        {"_id": "a", "name": "Old", "status": "Conditioning",
+         "batchNotes": "tap:2", "_timestamp_ms": 100},
+        {"_id": "b", "name": "New", "status": "Conditioning",
+         "batchNotes": "tap:2", "_timestamp_ms": 200},
+    ]
+    assert brewfather._build_desired_map(batches)[2]["batch"]["name"] == "New"
+    assert brewfather._build_desired_map(
+        list(reversed(batches)))[2]["batch"]["name"] == "New"
+
+
+def test_conflict_unknown_status_loses_to_a_known_one():
+    # An unlabelled Batch ranks below every status the API does name, however
+    # recent it is - we cannot tell how far along it is, so it does not win.
+    batches = [
+        {"_id": "a", "name": "Fermenting", "status": "Fermenting",
+         "batchNotes": "tap:4", "_timestamp_ms": 100},
+        {"_id": "b", "name": "Unlabelled", "batchNotes": "tap:4",
+         "_timestamp_ms": 900},
+    ]
+    assert brewfather._build_desired_map(batches)[4]["batch"]["name"] == "Fermenting"
+    assert brewfather._build_desired_map(
+        list(reversed(batches)))[4]["batch"]["name"] == "Fermenting"
+
+
+def test_conflict_all_unknown_status_falls_back_to_recency():
+    # If Brewfather ever stops sending `status`, everything ties on rank and
+    # resolution degrades to the newest-wins behaviour that shipped before.
+    batches = [
+        {"_id": "a", "name": "Old", "batchNotes": "tap:5", "_timestamp_ms": 100},
+        {"_id": "b", "name": "New", "status": "", "batchNotes": "tap:5",
+         "_timestamp_ms": 200},
+    ]
+    assert brewfather._build_desired_map(batches)[5]["batch"]["name"] == "New"
+
+
+def test_status_rank_orders_the_whole_lifecycle():
+    ranks = [brewfather._status_rank({"status": s})
+             for s in ("Completed", "Conditioning", "Fermenting", "Brewing", "Planning")]
+    assert ranks == sorted(ranks) and len(set(ranks)) == len(ranks)
+    # Case and stray whitespace from the API must not demote a Batch.
+    assert brewfather._status_rank({"status": " completed "}) == \
+        brewfather._status_rank({"status": "Completed"})
+    # Missing, empty, non-string and unrecognised statuses all rank last.
+    for batch in ({}, {"status": ""}, {"status": None}, {"status": "Archived"}):
+        assert brewfather._status_rank(batch) == len(brewfather.STATUS_PRECEDENCE)
 
 
 def test_no_tap_token_is_ignored():
@@ -274,6 +350,82 @@ def test_sync_ignores_conditioning_when_disabled(mock_network):
     assert not taps.exists(3, taps.Source.BREWFATHER)
 
 
+def test_sync_includes_fermenting_when_enabled(mock_network):
+    _set_creds()
+    config_store.update_config(include_fermenting=True)
+    mock_network["batches"] = [_batch("f1", 3, "Green IPA", status="Fermenting")]
+    result = brewfather.run_sync()
+    assert result["written"] == 1
+    assert taps.read(3, taps.Source.BREWFATHER).front_matter["name"] == "Green IPA"
+
+
+def test_sync_ignores_fermenting_when_disabled(mock_network):
+    _set_creds()  # include_fermenting defaults False
+    mock_network["batches"] = [_batch("f1", 3, "Green IPA", status="Fermenting")]
+    result = brewfather.run_sync()
+    assert result["written"] == 0
+    assert not taps.exists(3, taps.Source.BREWFATHER)
+
+
+def test_fermenting_batch_without_tap_token_is_ignored(mock_network):
+    # The status toggle only decides what is FETCHED. Claiming a Slot still needs
+    # a `tap:X` note token, exactly as for a Completed or Conditioning Batch.
+    _set_creds()
+    config_store.update_config(include_fermenting=True)
+    mock_network["batches"] = [_batch("f1", 3, "Unassigned Ferment",
+                                      status="Fermenting", batchNotes="no token here")]
+    result = brewfather.run_sync()
+    assert result["written"] == 0
+    assert not taps.exists(3, taps.Source.BREWFATHER)
+
+
+def test_fermenting_tap_file_matches_a_completed_one(mock_network):
+    # A Fermenting Batch maps to a Tap identically: nothing downstream knows the
+    # Batch status, which is why MAPPING_VERSION is not bumped for this toggle.
+    _set_creds()
+    config_store.update_config(include_fermenting=True)
+    mock_network["batches"] = [
+        _batch("done", 1, "Same Beer", status="Completed"),
+        _batch("ferm", 2, "Same Beer", status="Fermenting"),
+    ]
+    brewfather.run_sync()
+    completed = dict(taps.read(1, taps.Source.BREWFATHER).front_matter)
+    fermenting = dict(taps.read(2, taps.Source.BREWFATHER).front_matter)
+    # Only the identifying fields may differ; every mapped Beer field must match.
+    for key in ("batch_id", "tap", "updated"):
+        completed.pop(key, None)
+        fermenting.pop(key, None)
+    assert completed == fermenting
+
+
+@pytest.mark.parametrize("conditioning,fermenting,expected", [
+    (False, False, ["Completed"]),
+    (True, False, ["Completed", "Conditioning"]),
+    (False, True, ["Completed", "Fermenting"]),
+    (True, True, ["Completed", "Conditioning", "Fermenting"]),
+])
+def test_status_list_covers_all_toggle_combinations(monkeypatch, mock_network,
+                                                    conditioning, fermenting, expected):
+    """Pin the exact status list `_list_batches` is asked for.
+
+    Each status is a separate paginated sweep of the Brewfather API, so the list
+    is what the rate-limit cost is proportional to - worth asserting directly
+    rather than only inferring it from which Batches came back.
+    """
+    _set_creds()
+    config_store.update_config(include_conditioning=conditioning,
+                               include_fermenting=fermenting)
+    seen: list[list[str]] = []
+
+    def recording_list(client, statuses):
+        seen.append(list(statuses))
+        return []
+
+    monkeypatch.setattr(brewfather, "_list_batches", recording_list)
+    brewfather.run_sync()
+    assert seen == [expected]
+
+
 def test_sync_writes_saturation_token(mock_network):
     _set_creds()
     mock_network["batches"] = [_batch("b1", 2, "Muted Ale", batchNotes="tap:2 saturation:50")]
@@ -426,7 +578,7 @@ def test_failed_sync_makes_no_destructive_changes(mock_network, write_tap, monke
     assert result["ok"] is False
     assert taps.exists(1, taps.Source.BREWFATHER)
     assert list(paths.OLD_BEERS_DIR.glob("*")) == []
-    assert config_store.load_config()["last_sync_error"]
+    assert status_store.load_status()["last_sync_error"]
 
 
 def test_rate_limit_429_is_reported_without_changes(mock_network, write_tap, monkeypatch):

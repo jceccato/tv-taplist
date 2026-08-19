@@ -121,6 +121,16 @@ select {
 .stat-grid-name { font-weight: 600; }
 .stat-grid input[type=checkbox] { width: auto; justify-self: center; }
 
+/* The live numeric readout beside a range label (card sizing). Tabular figures
+   and a fixed min-width so the label does not jog sideways while dragging. */
+.range-val {
+  display: inline-block;
+  min-width: 3ch;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 /* Logo height slider + number */
 .slider-row { display: flex; align-items: center; gap: 0.8rem; }
 .slider-row input[type=range] { flex: 1; }

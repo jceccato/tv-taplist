@@ -13,7 +13,8 @@ import re
 import httpx
 
 from .atomic import JOB_LOCK
-from .config_store import load_config, update_config
+from .config_store import load_config
+from .status_store import load_status, update_status
 from .timezone import iso_now
 
 log = logging.getLogger("taplist.update")
@@ -96,19 +97,22 @@ def check_for_updates() -> dict[str, str | bool | None]:
     """Query the GitHub releases API and persist any change.
 
     Returns a status dict suitable for the /api/update-status response.
-    Designed to run from a scheduler job (takes JOB_LOCK internally to avoid
-    racing with config writes).
+    Designed to run from a scheduler job (takes JOB_LOCK internally so its
+    Status write never interleaves with the sync job's).
     """
     cur = current_version()
+    # Whether to check at all is a Setting (operator intent); what the last
+    # check found is Status. The two now come from two different files.
     cfg = load_config()
+    status = load_status()
 
     if not cfg.get("update_check_enabled", True):
         return {
             "current_version": cur,
-            "latest_version": cfg.get("update_latest_version"),
-            "latest_url": cfg.get("update_latest_url"),
+            "latest_version": status.get("update_latest_version"),
+            "latest_url": status.get("update_latest_url"),
             "update_available": False,
-            "last_check": cfg.get("update_last_check"),
+            "last_check": status.get("update_last_check"),
             "enabled": False,
         }
 
@@ -124,7 +128,7 @@ def check_for_updates() -> dict[str, str | bool | None]:
                 headers={"Accept": "application/vnd.github+json"},
             )
         if resp.status_code == 404:
-            # Repo exists but has no releases — not an error.
+            # Repo exists but has no releases - not an error.
             latest_tag, latest_url = _UNRELEASED, None
         elif resp.status_code == 403 and "rate limit" in (resp.text or "").lower():
             error = "GitHub rate-limited; will retry tomorrow"
@@ -145,10 +149,10 @@ def check_for_updates() -> dict[str, str | bool | None]:
         if latest_url is not None:
             updates["update_latest_url"] = latest_url
         try:
-            saved = update_config(**updates)
+            saved = update_status(**updates)
         except Exception:
             log.exception("could not persist update check result")
-            saved = cfg
+            saved = status
 
     available = _is_newer(latest_tag or "", cur) if latest_tag else False
     return {

@@ -45,15 +45,15 @@
         </div>
         <div>
           <span class="k">Last successful sync</span>
-          <span class="v" id="status-last-sync">{{ cfg.last_sync_success or "never" }}</span>
+          <span class="v" id="status-last-sync">{{ status.last_sync_success or "never" }}</span>
         </div>
         <div>
           <span class="k">Last sync attempt</span>
-          <span class="v">{{ cfg.last_sync_attempt or "never" }}</span>
+          <span class="v">{{ status.last_sync_attempt or "never" }}</span>
         </div>
         <div>
           <span class="k">Last sync error</span>
-          <span class="v {{ 'err' if cfg.last_sync_error else '' }}" id="status-last-error">{{ cfg.last_sync_error or "none" }}</span>
+          <span class="v {{ 'err' if status.last_sync_error else '' }}" id="status-last-error">{{ status.last_sync_error or "none" }}</span>
         </div>
       </div>
       <div class="status-actions">
@@ -97,6 +97,12 @@
               Include Conditioning batches
             </label>
             <p class="hint">Also show beers still in Conditioning (lagering / maturing), not just Completed batches.</p>
+
+            <label class="checkbox">
+              <input type="checkbox" name="include_fermenting" {{ 'checked' if cfg.include_fermenting else '' }}>
+              Include Fermenting batches
+            </label>
+            <p class="hint">Also show beers still in Fermenting (primary fermentation). Each extra status is another sweep of the Brewfather API, and a batch still needs a <code>tap:</code> note to appear.</p>
           </fieldset>
 
           <fieldset>
@@ -111,6 +117,40 @@
 
             <label for="announcement">Announcement text (bottom ticker)</label>
             <textarea id="announcement" name="announcement_text" rows="2">{{ cfg.announcement_text }}</textarea>
+
+            <hr class="panel-sep">
+            <h3>Card sizing</h3>
+            <label for="tap_photo_preset">Photo preset</label>
+            <select id="tap_photo_preset" name="tap_photo_preset">
+              <option value="tiny" {{ 'selected' if cfg.tap_photo_preset == 'tiny' else '' }}>Tiny</option>
+              <option value="small" {{ 'selected' if cfg.tap_photo_preset == 'small' else '' }}>Small</option>
+              <option value="medium" {{ 'selected' if cfg.tap_photo_preset == 'medium' else '' }}>Medium</option>
+              <option value="default" {{ 'selected' if cfg.tap_photo_preset == 'default' else '' }}>Default</option>
+              <option value="custom" {{ 'selected' if cfg.tap_photo_preset == 'custom' else '' }}>Custom</option>
+            </select>
+
+            <label for="tap_text_preset">Text preset</label>
+            <select id="tap_text_preset" name="tap_text_preset">
+              <option value="small" {{ 'selected' if cfg.tap_text_preset == 'small' else '' }}>Small</option>
+              <option value="default" {{ 'selected' if cfg.tap_text_preset == 'default' else '' }}>Default</option>
+              <option value="large" {{ 'selected' if cfg.tap_text_preset == 'large' else '' }}>Large</option>
+              <option value="custom" {{ 'selected' if cfg.tap_text_preset == 'custom' else '' }}>Custom</option>
+            </select>
+
+            <label for="tap_image_scale">Photo scale <span class="range-val" data-range-val-for="tap_image_scale">{{ '%.2f'|format(cfg.tap_image_scale) }}</span></label>
+            <div class="slider-row">
+              <input type="range" id="tap_image_scale" name="tap_image_scale"
+                     min="{{ min_image_scale }}" max="{{ max_image_scale }}" step="0.05"
+                     value="{{ cfg.tap_image_scale }}">
+            </div>
+
+            <label for="tap_text_scale">Text scale <span class="range-val" data-range-val-for="tap_text_scale">{{ '%.2f'|format(cfg.tap_text_scale) }}</span></label>
+            <div class="slider-row">
+              <input type="range" id="tap_text_scale" name="tap_text_scale"
+                     min="{{ min_text_scale }}" max="{{ max_text_scale }}" step="0.05"
+                     value="{{ cfg.tap_text_scale }}">
+            </div>
+            <p class="hint">Scales the beer photo and the card text on the display, for screens the defaults do not suit. The two are independent: picking a preset sets its own slider, and moving a slider switches that preset to Custom. Photo scale only shrinks - the photo already fills the space the card text leaves it, so there is nothing above Default to give it. A larger text preset takes room from the photo, by design. Card padding and the colour swatch are unaffected, and the text keeps its pixel floor, so no scale can make the board illegible.</p>
           </fieldset>
 
           <fieldset>

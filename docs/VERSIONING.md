@@ -62,7 +62,7 @@ changes to the Brewfather extraction logic.
 | Field mapping changes (new fields, renamed keys, different fallback order) | Bump `MAPPING_VERSION` |
 | New token support (`glass:`, `saturation:`, etc.) | Bump `MAPPING_VERSION` |
 | A bug in the mapping that produced wrong data for cached taps | Bump `MAPPING_VERSION` |
-| Changing `include_conditioning` behaviour or `PAGE_SIZE` | Do **not** bump |
+| Which batches are selected (`include_conditioning`, `include_fermenting`) or `PAGE_SIZE` | Do **not** bump |
 
 When `MAPPING_VERSION` differs from the stored `map_rev` on a cached `bf_tap`
 file, the sync treats that batch as changed and rewrites the file. This

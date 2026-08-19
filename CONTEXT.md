@@ -145,8 +145,10 @@ _Avoid_: config (in prose), options, preferences
 
 **Status**:
 Machine-written runtime state - sync timestamps, last error, update-check
-results. Regenerable on the next cycle, and written constantly by scheduled
-jobs, which is why it does not belong in the same file as Settings.
+results. Regenerable on the next cycle and written constantly by scheduled jobs,
+which is why it lives in `status.json` rather than beside the Brewfather key in
+`config.json`. Disposable: deleting the file costs a stale-looking admin panel
+until the next cycle, nothing more. See ADR-0002.
 _Avoid_: sync state, metadata
 
 ### Lifecycle
@@ -177,7 +179,14 @@ _Avoid_: cleaned, pruned, expired
 (`bf_tap_3`); in the glassware SVG it is the stem of a glass. Different areas,
 no bug - but a grep for `stem` hits both.
 
-**Settings and Status share `config.json` today.** They should not - Status is
-written every sync cycle while Settings holds the Brewfather key, which is the
-reason the never-overwrite-with-defaults guard exists. Splitting them is agreed
-but not yet implemented; the ADR gets written when the code lands.
+**Settings and Status have opposite read policies, on purpose.** They are now
+two files (ADR-0002). `config_store` refuses to write over an existing-but-
+unreadable `config.json`, because the operator's settings and API key are
+irreplaceable. `status_store` does the reverse and rebuilds from defaults,
+because every Status field regenerates on the next cycle and a guard there would
+strand a healthy box on "never synced" forever. A reader who unifies the two
+stores for consistency will break one of them.
+
+**Whether a field is Settings or Status is decided by who authored it**, not by
+its name prefix. `update_check_enabled` is operator intent and stays in
+Settings; the three `update_*` fields recording what the check found are Status.

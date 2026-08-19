@@ -162,9 +162,11 @@ The board shows Brewfather batches you mark as on tap:
 On the next sync (every `SYNC_INTERVAL_MINUTES`, or click **Sync Brewfather now**)
 the beer appears on tap `N`. **Completed** batches sync by default - Planning,
 Brewing, Fermenting and Archived batches are ignored, so works-in-progress never
-show up by accident. To also show a beer that's on tap but still **Conditioning**
-(lagering / maturing), tick **Include Conditioning batches** on the admin Settings
-tab.
+show up by accident. Two checkboxes on the admin Settings tab widen that: tick
+**Include Conditioning batches** for a beer that's on tap but still **Conditioning**
+(lagering / maturing), and **Include Fermenting batches** for one still in
+**Fermenting** (primary). They work independently, and a batch still needs its
+`tap:N` note either way.
 
 You can drive the swatch and glass straight from the **Batch Notes** field with
 extra tokens:
@@ -212,7 +214,8 @@ host path so an admin can read and edit it directly:
 
 ```
 taplist_data/
-  config.json        # settings + sync status
+  config.json        # your settings (tap count, theme, Brewfather key)
+  status.json        # sync + update-check timestamps, written by the app
   placeholder.svg    # fallback image (replaceable)
   taps/              # current beers: custom_tap_N.md / bf_tap_N.md (+ images)
   old_beers/         # archived beers (markdown + image pairs)
@@ -220,7 +223,9 @@ taplist_data/
 
 Each tap is a small Markdown file with front-matter (name, ABV, IBU, colour, …)
 and a body of tasting notes - open one in any text editor to see exactly what the
-board will show. Set `PUID`/`PGID` to the host user that should own these files so
+board will show. `status.json` is written by the app rather than by you, and is
+safe to delete: every value in it is regenerated on the next sync and the next
+daily update check. Set `PUID`/`PGID` to the host user that should own these files so
 the non-root container can write them.
 
 ---
