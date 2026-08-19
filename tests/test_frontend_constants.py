@@ -79,3 +79,27 @@ def test_text_scale_scales_the_clamp_ceiling_but_not_the_floor():
             r"font-size: clamp\(\d+px, calc\([0-9.]+vmin \* var\(--tap-text-scale, 1\)\), "
             r"calc\(\d+px \* var\(--tap-text-scale, 1\)\)\);", site)
         assert m, site
+
+
+def test_photo_cap_is_measured_from_the_painted_height():
+    """The photo cap must be taken from the painted image, not its box.
+
+    `object-fit: contain` letterboxes a photo whose width is the binding
+    constraint - a 16:9 Brewfather shot in the wide-card layout, where
+    `max-width: 46%` decides the width. Measuring the box there leaves the top
+    of the scale inert: capping a 177px box does nothing visible until the cap
+    falls below the 159px the photo is actually painted at, so every scale above
+    about 0.85 looked broken on landscape photos while working on square ones.
+
+    This pins the aspect-ratio correction rather than the arithmetic, which has
+    no JS test harness in this project - it is covered by browser checks.
+    """
+    js = _display_js()
+    assert "naturalWidth" in js and "naturalHeight" in js, (
+        "applyPhotoScale no longer consults the photo's intrinsic size, so a "
+        "width-bound photo will be capped against its letterboxed box again"
+    )
+    assert "Math.min(box.height" in js, (
+        "the measured height should be the smaller of the box and the "
+        "aspect-fitted height"
+    )

@@ -197,7 +197,20 @@
     // per image would force a synchronous reflow per card.
     imgs.forEach((img) => { img.style.maxHeight = "none"; });
     void document.body.offsetHeight;
-    const natural = imgs.map((img) => img.getBoundingClientRect().height);
+    // Measure the height the photo is actually PAINTED at, not the height of
+    // its box. `object-fit: contain` letterboxes a photo whose width is the
+    // binding constraint - a 16:9 Brewfather shot in the wide-card layout,
+    // where `max-width: 46%` decides the width - so the box can be taller than
+    // anything the eye sees. Capping the box then does nothing until the cap
+    // drops below the painted height, which is why scales above about 0.85
+    // appeared to be dead on exactly those photos and worked fine on square
+    // ones. naturalWidth is 0 until the photo decodes, so fall back to the box
+    // and let the `load` handler re-run this with the real aspect ratio.
+    const natural = imgs.map((img) => {
+      const box = img.getBoundingClientRect();
+      if (!img.naturalWidth || !img.naturalHeight) return box.height;
+      return Math.min(box.height, box.width * img.naturalHeight / img.naturalWidth);
+    });
     imgs.forEach((img, i) => {
       // A card on a page that is mid-transition can measure 0; leaving the cap
       // off is the safe answer, because the next remeasure will set it and a
