@@ -22,8 +22,15 @@
   const DEFAULT_ROTATION_MS = 30000;
   const MAX_CARDS_PER_PAGE = 8;   // the per-count grid layouts are tuned up to 8
   const EBC_PER_SRM = 1.97;
+  // Minimum horizontal travel, in CSS pixels, before a touch counts as a swipe.
+  // Deliberately a constant here and not an operator setting: it describes how a
+  // finger behaves on glass, not anything about the venue, so there is nothing
+  // for an operator to decide. Keeping it client-only also keeps it out of the
+  // config schema, the admin form and the board payload.
+  const SWIPE_MIN_PX = 50;
 
   // ---- DOM refs ----
+  const board = document.getElementById("board");
   const stage = document.getElementById("stage");
   const dotsEl = document.getElementById("dots");
   const tickerEl = document.getElementById("ticker");
@@ -490,6 +497,15 @@
     goToPage((state.currentPage + 1) % state.pages.length);
   }
 
+  // Backward companion to nextPage(). Both route through goToPage() so the
+  // rotation timer is restarted in exactly one place, however navigation
+  // started. Adding the page count before the modulo keeps the index positive
+  // when stepping back off page 0, which JS's % would otherwise return as -1.
+  function prevPage() {
+    if (state.pages.length <= 1) return;
+    goToPage((state.currentPage - 1 + state.pages.length) % state.pages.length);
+  }
+
   function renderDots() {
     const n = state.pages.length;
     if (n <= 1) { dotsEl.hidden = true; dotsEl.innerHTML = ""; return; }
@@ -549,6 +565,57 @@
       nextPage();
     }
   });
+
+  /* ---- touch navigation: a horizontal swipe flips a page ----
+
+     Bound to the board, not the stage: the stage is only the flexible grid row
+     and shrinks whenever the venue header, the dots or the ticker appear, so on
+     a touch TV a finger landing near the top or bottom edge would miss it. The
+     board is the whole visible screen, which is what an operator actually swipes.
+
+     The flip is instant on release, with no drag-follow: pages are stacked in
+     one layout box and cross-faded (only opacity differs), so there is no
+     horizontal filmstrip to translate mid-gesture. */
+  const swipe = { id: null, x: 0, y: 0 };
+  function abandonSwipe() { swipe.id = null; }
+
+  if (board) {
+    board.addEventListener("touchstart", (e) => {
+      // Single touch point only. A second finger means a pinch or a two-finger
+      // scroll, so abandon rather than guess which one is steering.
+      if (e.touches.length !== 1) { abandonSwipe(); return; }
+      const t = e.changedTouches[0];
+      swipe.id = t.identifier;
+      swipe.x = t.clientX;
+      swipe.y = t.clientY;
+    }, { passive: true });
+
+    // A gesture the browser or the OS takes over (or a pointer that leaves the
+    // surface) never becomes a page change: the current page simply stands.
+    board.addEventListener("touchcancel", abandonSwipe, { passive: true });
+
+    board.addEventListener("touchend", (e) => {
+      if (swipe.id === null) return;
+      // Match by identifier so a stray finger's touchend cannot end this gesture.
+      let t = null;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === swipe.id) { t = e.changedTouches[i]; break; }
+      }
+      if (!t) return;
+      const dx = t.clientX - swipe.x;
+      const dy = t.clientY - swipe.y;
+      abandonSwipe();
+      // Two separate guards, both needed. The distance test keeps a stationary
+      // tap a tap, so the page dots stay independently clickable. The dominance
+      // test stops a mostly-vertical drag that happened to wander past the
+      // threshold from flipping the page sideways.
+      if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) <= Math.abs(dy)) return;
+      // Swipe left (content dragged towards the left edge) advances, matching
+      // every mobile carousel. nextPage/prevPage carry the single-page guard and
+      // the wrap-around, and restart the rotation timer via goToPage().
+      if (dx < 0) nextPage(); else prevPage();
+    }, { passive: true });
+  }
 
   // ---- polling ----
   async function poll() {
