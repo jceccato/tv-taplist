@@ -151,6 +151,24 @@ which is why it lives in `status.json` rather than beside the Brewfather key in
 until the next cycle, nothing more. See ADR-0002.
 _Avoid_: sync state, metadata
 
+**Data Directory Identity (DDI)**:
+A random identifier naming *which* data directory this box is using. Written to
+two places: `.data_dir_id` in the data directory, which is always the authority,
+and a container-local copy outside it, which is only the appliance's memory of
+what it last saw there. Comparing them at startup separates a container recreate
+over intact data (silent) from data that was wiped or swapped underneath a
+surviving container (one warning, once).
+
+It is a **third kind of state, deliberately neither Settings nor Status**, and
+lives in its own file for that reason. It is not operator intent, so it does not
+belong in `config.json`; and it is not a fact about the last cycle that a job
+regenerates, so putting it in `status.json` would break that store's stated
+contract that every field is rewritten by a job and losing the file costs
+nothing. ADR-0002 stands unchanged - this sits alongside it.
+
+DDI is **not a general wipe detector**. See _Known hazards_.
+_Avoid_: data id, volume id, install id
+
 ### Lifecycle
 
 A Tap moves through four states:
@@ -186,6 +204,16 @@ irreplaceable. `status_store` does the reverse and rebuilds from defaults,
 because every Status field regenerates on the next cycle and a guard there would
 strand a healthy box on "never synced" forever. A reader who unifies the two
 stores for consistency will break one of them.
+
+**DDI catches less than its name suggests.** It cannot see the failure it
+descends from - a Docker Desktop VM reset - because both copies of the
+identifier live inside that same VM disk, so a reset takes both and the next
+boot reads as a first run. The "not mapped" check is what catches that case,
+because such a box is unmapped. DDI covers a narrower set: a data directory on
+host tmpfs or a RAM disk, a mapped directory the operator deleted, storage that
+failed to mount before Docker started, and remapping mistakes. Silence from DDI
+is not proof the data is safe, and it must not be "improved" into a claim that
+it is.
 
 **Whether a field is Settings or Status is decided by who authored it**, not by
 its name prefix. `update_check_enabled` is operator intent and stays in

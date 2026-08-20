@@ -144,8 +144,11 @@ is the difference between a box that keeps its data and one that quietly does no
    ```
 
    The output must say `"Type":"bind"` with `"Source"` equal to the intended folder.
-   `"Type":"volume"` with a long random `"Name"` means the mapped data directory
-   never took effect - go back to Step 1.
+   An empty list (`[]`), or `"Type":"volume"`, means the mapped data directory never
+   took effect - go back to Step 1. The appliance flags this case itself, with a
+   banner on `/admin` and a warning in `docker logs`, but check it here anyway: this
+   step also catches a mapping that is real and points at the wrong folder, which
+   nothing can detect for the operator.
 
 2. **Confirm the files exist on the Windows side.** After the first start the
    container writes its skeleton immediately:
@@ -185,16 +188,23 @@ the Windows side prove the mapped data directory is real.
 
 ---
 
-## What silent data loss looks like
+## What data loss looks like, and how the appliance flags it
 
 When `/data` is not a bind mount to a host folder, **nothing fails**. The container
 starts, the admin saves settings, the board renders, and every write really does
 succeed - just into storage that is invisible from Windows and tied to the life of
-that container. The image declares `/data` as a volume, so Docker always supplies
-*something* there: with no mapping it creates an **anonymous volume** with a random
-64-character name inside the Linux VM. Remove and recreate the container and Docker
-supplies a **different** anonymous volume, empty; the old one lingers unnamed and
-unreferenced.
+that container. With no mapping, `/data` is an ordinary directory inside the
+container's own writable layer: it disappears with the container, on the next
+update or `docker compose down` and `up`.
+
+The appliance checks this at startup and says so. With nothing mapped onto `/data`,
+`/admin` shows a banner reading **"Data is not being saved"** and the container log
+carries the same warning. It is not a dismissible banner, because it describes a
+condition that is still true. A second check notices when the mapped directory is
+suddenly empty or is a different directory from the one the container last used -
+the shape of a host folder that was deleted, or storage that was not mounted before
+Docker started - and warns once. `DEMO_MODE` suppresses both banners, since a demo
+box is meant to be disposable.
 
 Two ways to land there:
 
@@ -205,7 +215,7 @@ Two ways to land there:
   Desktop reset) after having got the mapping wrong. The first container's data is
   simply not in the second one.
 
-The tell is a **half-empty board**, not an error. Brewfather-sourced taps rebuild
+If the banner goes unread, the tell is a **half-empty board**. Brewfather-sourced taps rebuild
 themselves within one sync interval, because the beers still live in Brewfather and
 sync rewrites `bf_tap_N.md` from scratch. **Manual overrides do not** - a
 `custom_tap_N.md` file exists only where it was written, and so do the settings in
@@ -215,9 +225,9 @@ was never a bind mount.
 
 Both misconfigurations that this project's compose file can produce - a bare volume
 name, or an empty `DATA_DIR_HOST` - **fail loudly at `docker compose up`** rather
-than silently falling back to a volume (see the table in Step 1). That is the
-reason Step 4 is worth doing anyway: it is the check that catches the case where the
-mapping is real but points somewhere the operator did not intend.
+than silently falling back to unmapped storage (see the table in Step 1). Between
+that and the startup banner, the remaining gap is a mapping that is real but points
+somewhere the operator did not intend, which is what Step 4 is for.
 
 ---
 

@@ -16,7 +16,7 @@ vMAJOR.MINOR.PATCH
 
 | Component | When to increment |
 |-----------|-------------------|
-| **MAJOR** | Breaking changes -- a config migration users must perform, a data-layout change that invalidates existing `/data` directories, or a Docker/Compose change that requires manual intervention (new required env vars, port changes, volume remapping). |
+| **MAJOR** | Breaking changes -- a config migration users must perform, a data-layout change that invalidates existing `/data` directories, or a Docker/Compose change that requires manual intervention (new required env vars, port changes, remapping the data directory). |
 | **MINOR** | New features that are backwards-compatible -- a new display option, new Brewfather token support, new theme preset, new API endpoint. Also used when `MAPPING_VERSION` is bumped (the extraction logic changed but old cached taps still work). |
 | **PATCH** | Bug fixes, performance improvements, docs-only changes, dependency updates that don't alter behaviour. |
 
@@ -284,8 +284,9 @@ new image. Examples:
 - **Env var change** -- a new required variable or a renamed variable (the
   Dockerfile, `entrypoint.sh`, or `docker-compose.yml` is the source of truth
   for the env-var contract).
-- **Port or volume change** -- the default `PORT` changes, or the `/data` volume
-  path changes in a way that existing Compose files break.
+- **Port or data directory change** -- the default `PORT` changes, or the
+  container path the data directory is mapped to (`/data`) changes in a way that
+  existing Compose files break.
 
 Backwards-compatible changes (no major bump required):
 
