@@ -151,7 +151,8 @@ Inside `app/`, each module has a clear responsibility:
 | `config_store.py` | `config.json` load/save/coerce; `DEFAULT_CONFIG` is the schema |
 | `status_store.py` | `status.json` - disposable runtime Status, kept out of Settings |
 | `board.py` | Builds the `/api/board` payload (tap resolution + display opts) |
-| `brewfather.py` | Brewfather API fetch + sync job + note-token parsing |
+| `brewfather.py` | Brewfather API fetch + sync job (no pure mapping logic) |
+| `mapping.py` | Batch to Beer: field extraction, note tokens, Slot conflicts |
 | `colors.py` | EBC to hex colour model, hex/saturation parsing, text contrast |
 | `beer_glass.py` | Tinted beer-glass SVG placeholders |
 | `theme.py` | Colour theme presets + resolution to CSS variables |
@@ -201,7 +202,7 @@ Inside `app/`, each module has a clear responsibility:
   now better."
 - **The data directory is a mapped host directory**, never a Docker named volume
   (in docs and examples).
-- **`MAPPING_VERSION`** in `brewfather.py` must be bumped whenever extraction
+- **`MAPPING_VERSION`** in `mapping.py` must be bumped whenever extraction
   logic changes, forcing a one-time rewrite of cached tap files.
 - **Larger work happens on a feature branch.** Do not merge to `main` without
   explicit confirmation from a maintainer.
