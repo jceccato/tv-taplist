@@ -24,7 +24,14 @@ Versions follow [Semver](https://semver.org/). Dates are the release date.
 
 Merged to `main` and shipping in the next release.
 
-### Nothing publishes without a green suite
+Closed so far: [#9](https://github.com/jceccato/tv-taplist/issues/9),
+[#10](https://github.com/jceccato/tv-taplist/issues/10),
+[#11](https://github.com/jceccato/tv-taplist/issues/11),
+[#13](https://github.com/jceccato/tv-taplist/issues/13),
+[#28](https://github.com/jceccato/tv-taplist/issues/28),
+[#30](https://github.com/jceccato/tv-taplist/issues/30).
+
+### Nothing publishes without a green suite ([#30](https://github.com/jceccato/tv-taplist/issues/30))
 
 The test suite has never gated a publish. A merge to `main` or a version tag
 built and pushed an image whether or not the 243 tests passed, or whether anyone
@@ -42,7 +49,7 @@ whatever the runner defaults to.
 This changes nothing about running the box. It changes what it takes for a
 change to reach it.
 
-### The admin warns when your data is not actually being saved
+### The admin warns when your data is not actually being saved ([#28](https://github.com/jceccato/tv-taplist/issues/28))
 
 Nothing used to check that the mapped data directory was real. An operator whose
 data was not persisting found out when their manual beers were gone - and only
@@ -73,7 +80,7 @@ survives nothing. An operator who mapped a host directory as documented does
 nothing. An operator who did not was already losing data on every container
 recreate; this does not make that worse, it makes it visible.
 
-### A beer with no colour data no longer looks broken
+### A beer with no colour data no longer looks broken ([#11](https://github.com/jceccato/tv-taplist/issues/11))
 
 A beer with neither a colour nor an EBC reading used to render a grey swatch
 beside an amber glass on the same card, because the colour was worked out
@@ -85,14 +92,14 @@ A colour override combined with a saturation now behaves as documented: the
 override is used exactly as written and is never muted. Saturation was only ever
 meant to tame the computed colour.
 
-### The display is told what to show, not how to work it out
+### The display is told what to show, not how to work it out ([#9](https://github.com/jceccato/tv-taplist/issues/9))
 
 The five show/hide settings, their "hide when empty" partners and the per-tap
 overrides were all sent to the TV, which then applied the rules itself. The
 board now applies them and sends the answer. The same settings produce the same
 board, and the admin is unchanged - the per-tap override is still yours to set.
 
-### Settings limits now match between the form and the box
+### Settings limits now match between the form and the box ([#13](https://github.com/jceccato/tv-taplist/issues/13))
 
 The number-of-taps field had a minimum but no maximum, so a value above the
 supported limit appeared to save and then snapped back to 200 when the page
@@ -103,7 +110,7 @@ what the form accepts is what the box stores.
 Editing `config.json` by hand still clamps rather than refusing to start, which
 is deliberate - a file has no one to report an error to.
 
-### Changed: the `/api/board` payload
+### Changed: the `/api/board` payload ([#11](https://github.com/jceccato/tv-taplist/issues/11), [#9](https://github.com/jceccato/tv-taplist/issues/9))
 
 Only the built-in display consumes this, but the endpoint is public, so if you
 read it directly:
@@ -121,11 +128,12 @@ read it directly:
 
 ### Also
 
-- **Documentation fix:** the versioning guide contained two contradictory
+- **Documentation fix** ([#30](https://github.com/jceccato/tv-taplist/issues/30)):
+  the versioning guide contained two contradictory
   answers about whether this project keeps a changelog, the wrong one nearer
   the end. It now has one.
-- **Internal:** the Brewfather integration is split into a fetch half and a
-  mapping half. Nothing changes for the operator - beers map to taps by exactly
+- **Internal** ([#10](https://github.com/jceccato/tv-taplist/issues/10)): the
+  Brewfather integration is split into a fetch half and a mapping half. Nothing changes for the operator - beers map to taps by exactly
   the same rules, cached tap files are not rewritten, and no setting moves.
 
 ---
