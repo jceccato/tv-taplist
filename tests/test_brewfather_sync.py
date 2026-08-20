@@ -1,204 +1,12 @@
-"""Brewfather field extraction, the efficient fetch, and sync/archive logic."""
+"""The Brewfather Source: the efficient fetch, the image download, and sync.
+
+The Batch-to-Beer transformation these tests exercise indirectly is tested
+directly, with no client and no fake, in test_mapping.py.
+"""
 import httpx
 import pytest
 
-from app import brewfather, config_store, paths, status_store, tap_store as taps
-
-
-# ---- field extraction --------------------------------------------------
-
-def test_find_tap_number_variants():
-    assert brewfather._find_tap_number({"batchNotes": "pour on tap:3"}) == 3
-    assert brewfather._find_tap_number({"batchNotes": "Tap: 12 please"}) == 12
-    assert brewfather._find_tap_number({"batchNotes": "no token"}) is None
-    assert brewfather._find_tap_number({"notes": [{"note": "tap:7"}]}) == 7
-
-
-def test_extract_abv_prefers_measured():
-    assert brewfather._extract_abv({"measuredAbv": 6.5, "recipe": {"abv": 6.0}}) == 6.5
-    assert brewfather._extract_abv({"recipe": {"abv": 6.0}}) == 6.0
-
-
-def test_extract_name_prefers_recipe_over_generic_batch():
-    # Brewfather's default batch name is generic; the recipe holds the beer name.
-    assert brewfather._extract_name({"name": "Batch", "recipe": {"name": "Hazy IPA"}}) == "Hazy IPA"
-    assert brewfather._extract_name({"name": "Batch #12", "recipe": {"name": "Stout"}}) == "Stout"
-    # A user-customised batch name is respected over the recipe name.
-    assert brewfather._extract_name(
-        {"name": "Festbier 2026", "recipe": {"name": "Festbier"}}) == "Festbier 2026"
-    # No recipe name -> fall back to the batch number.
-    assert brewfather._extract_name({"name": "Batch", "batchNo": 7}) == "Batch 7"
-
-
-def test_zero_stats_are_treated_as_missing():
-    # Brewfather sends 0 (not null) for unset values; we store None so the
-    # display hides the stat instead of showing a "0".
-    assert brewfather._extract_abv({"measuredAbv": 0, "recipe": {"abv": 0}}) is None
-    assert brewfather._extract_ibu({"measuredIbu": 0}) is None
-    assert brewfather._extract_ebc({"measuredEbc": 0, "estimatedColor": 0}) is None
-    # A real value still comes through even when a measured field is 0.
-    assert brewfather._extract_abv({"measuredAbv": 0, "recipe": {"abv": 5.2}}) == 5.2
-
-
-def test_description_uses_taste_notes_then_style():
-    # A dedicated tasting-note field wins (and any tap token in it is stripped).
-    assert brewfather._extract_description(
-        {"tasteNotes": "Crisp and clean", "batchNotes": "tap:4"}) == "Crisp and clean"
-    # No tasting notes -> fall back to the recipe style name.
-    assert brewfather._extract_description(
-        {"batchNotes": "tap:4", "recipe": {"style": {"name": "English Porter"}}}) == "English Porter"
-    assert brewfather._extract_description(
-        {"recipe": {"style": "Cider With Other Fruit"}}) == "Cider With Other Fruit"
-    # Batch notes (control data) are NEVER used as the description body.
-    assert brewfather._extract_description({"batchNotes": "tap:4 brew log text"}) == ""
-    # Nothing available -> blank.
-    assert brewfather._extract_description({"recipe": {}}) == ""
-
-
-def test_extract_ebc_and_srm():
-    # A measured EBC reading is taken at face value.
-    assert brewfather._extract_ebc({"measuredEbc": 40}) == 40.0
-    # estimatedColor / color / recipe.color are SRM -> converted to EBC (*1.97).
-    assert brewfather._extract_ebc({"estimatedColor": 37.5}) == pytest.approx(73.9, abs=0.05)
-    assert brewfather._extract_ebc({"recipe": {"color": 25}}) == pytest.approx(49.25, abs=0.06)
-    assert brewfather._extract_ebc({"srm": 10}) == pytest.approx(19.7, abs=0.05)
-    # Measured EBC wins over an estimated SRM colour.
-    assert brewfather._extract_ebc({"measuredEbc": 30, "estimatedColor": 99}) == 30.0
-
-
-def test_extract_image_url_handles_null():
-    assert brewfather._extract_image_url({"recipe": {"img_url": None}}) is None
-    assert brewfather._extract_image_url({"recipe": {"img_url": "http://x/y.webp"}}) == "http://x/y.webp"
-
-
-def test_extract_saturation_from_notes():
-    assert brewfather._extract_saturation({"batchNotes": "tap:3 saturation:60"}) == 0.6
-    assert brewfather._extract_saturation({"batchNotes": "saturation: 0.4"}) == 0.4
-    assert brewfather._extract_saturation({"batchNotes": "tap:3 only"}) is None
-
-
-def test_saturation_token_stripped_from_description():
-    # A stray saturation token in tasting notes is not shown on the card.
-    assert brewfather._extract_description(
-        {"tasteNotes": "Roasty saturation:70 finish"}) == "Roasty finish"
-
-
-def test_extract_color_override_token():
-    assert brewfather._extract_color_override({"batchNotes": "tap:3 colour:#780606"}) == "#780606"
-    assert brewfather._extract_color_override({"batchNotes": "color: 780606"}) == "#780606"
-    assert brewfather._extract_color_override({"batchNotes": "tap:3"}) is None
-
-
-def test_extract_glass_token():
-    assert brewfather._extract_glass({"batchNotes": "tap:3 glass:nonicpint"}) == "nonicpint"
-    assert brewfather._extract_glass({"batchNotes": "glass:Teku"}) == "teku"
-    assert brewfather._extract_glass({"batchNotes": "glass:notaglass"}) is None
-    assert brewfather._extract_glass({"batchNotes": "tap:3"}) is None
-
-
-def test_color_and_glass_tokens_stripped_from_description():
-    assert brewfather._extract_description(
-        {"tasteNotes": "Smooth colour:#112233 and glass:tulip pour"}) == "Smooth and pour"
-
-
-def test_extract_og_fg_specific_gravity_only():
-    assert brewfather._extract_og({"measuredOg": 1.052, "recipe": {"og": 1.060}}) == 1.052
-    assert brewfather._extract_og({"recipe": {"og": 1.060}}) == 1.060
-    assert brewfather._extract_fg({"measuredFg": 1.010}) == 1.010
-    # Unset (0 / 1.0) or out-of-range (Plato-like) values are treated as missing.
-    assert brewfather._extract_og({"measuredOg": 0, "og": 1.0}) is None
-    assert brewfather._extract_og({"og": 12.5}) is None
-    assert brewfather._extract_fg({}) is None
-
-
-# ---- desired map / conflict resolution ---------------------------------
-
-def test_conflict_newest_wins():
-    batches = [
-        {"_id": "a", "name": "Old", "status": "Completed", "batchNotes": "tap:3", "_timestamp_ms": 100},
-        {"_id": "b", "name": "New", "status": "Completed", "batchNotes": "tap:3", "updated": 200},
-    ]
-    assert brewfather._build_desired_map(batches)[3]["batch"]["name"] == "New"
-
-
-def test_conflict_completed_beats_newer_conditioning():
-    # The beer that is pouring must not be pushed off its Slot by the next brew
-    # that already carries the same token - and a conditioning Batch is edited
-    # far more often than a finished one, so recency alone picks the wrong beer.
-    batches = [
-        {"_id": "a", "name": "Pouring", "status": "Completed",
-         "batchNotes": "tap:3", "_timestamp_ms": 100},
-        {"_id": "b", "name": "NextBrew", "status": "Conditioning",
-         "batchNotes": "tap:3", "_timestamp_ms": 900},
-    ]
-    assert brewfather._build_desired_map(batches)[3]["batch"]["name"] == "Pouring"
-    # Order of arrival must not matter: the same pair reversed resolves the same.
-    assert brewfather._build_desired_map(
-        list(reversed(batches)))[3]["batch"]["name"] == "Pouring"
-
-
-def test_conflict_conditioning_beats_newer_fermenting():
-    batches = [
-        {"_id": "a", "name": "Conditioning", "status": "Conditioning",
-         "batchNotes": "tap:6", "_timestamp_ms": 100},
-        {"_id": "b", "name": "Fermenting", "status": "Fermenting",
-         "batchNotes": "tap:6", "_timestamp_ms": 900},
-    ]
-    assert brewfather._build_desired_map(batches)[6]["batch"]["name"] == "Conditioning"
-
-
-def test_conflict_within_one_status_still_resolves_by_recency():
-    # Status only orders DIFFERENT statuses; inside one, newest still wins.
-    batches = [
-        {"_id": "a", "name": "Old", "status": "Conditioning",
-         "batchNotes": "tap:2", "_timestamp_ms": 100},
-        {"_id": "b", "name": "New", "status": "Conditioning",
-         "batchNotes": "tap:2", "_timestamp_ms": 200},
-    ]
-    assert brewfather._build_desired_map(batches)[2]["batch"]["name"] == "New"
-    assert brewfather._build_desired_map(
-        list(reversed(batches)))[2]["batch"]["name"] == "New"
-
-
-def test_conflict_unknown_status_loses_to_a_known_one():
-    # An unlabelled Batch ranks below every status the API does name, however
-    # recent it is - we cannot tell how far along it is, so it does not win.
-    batches = [
-        {"_id": "a", "name": "Fermenting", "status": "Fermenting",
-         "batchNotes": "tap:4", "_timestamp_ms": 100},
-        {"_id": "b", "name": "Unlabelled", "batchNotes": "tap:4",
-         "_timestamp_ms": 900},
-    ]
-    assert brewfather._build_desired_map(batches)[4]["batch"]["name"] == "Fermenting"
-    assert brewfather._build_desired_map(
-        list(reversed(batches)))[4]["batch"]["name"] == "Fermenting"
-
-
-def test_conflict_all_unknown_status_falls_back_to_recency():
-    # If Brewfather ever stops sending `status`, everything ties on rank and
-    # resolution degrades to the newest-wins behaviour that shipped before.
-    batches = [
-        {"_id": "a", "name": "Old", "batchNotes": "tap:5", "_timestamp_ms": 100},
-        {"_id": "b", "name": "New", "status": "", "batchNotes": "tap:5",
-         "_timestamp_ms": 200},
-    ]
-    assert brewfather._build_desired_map(batches)[5]["batch"]["name"] == "New"
-
-
-def test_status_rank_orders_the_whole_lifecycle():
-    ranks = [brewfather._status_rank({"status": s})
-             for s in ("Completed", "Conditioning", "Fermenting", "Brewing", "Planning")]
-    assert ranks == sorted(ranks) and len(set(ranks)) == len(ranks)
-    # Case and stray whitespace from the API must not demote a Batch.
-    assert brewfather._status_rank({"status": " completed "}) == \
-        brewfather._status_rank({"status": "Completed"})
-    # Missing, empty, non-string and unrecognised statuses all rank last.
-    for batch in ({}, {"status": ""}, {"status": None}, {"status": "Archived"}):
-        assert brewfather._status_rank(batch) == len(brewfather.STATUS_PRECEDENCE)
-
-
-def test_no_tap_token_is_ignored():
-    assert brewfather._build_desired_map([{"_id": "a", "status": "Completed", "batchNotes": "x"}]) == {}
+from app import brewfather, config_store, mapping, paths, status_store, tap_store as taps
 
 
 # ---- efficient list (complete=True + pagination) -----------------------
@@ -280,43 +88,72 @@ def _batch(bid, tap, name, **extra):
 
 @pytest.fixture
 def mock_network(monkeypatch):
-    """Patch the batch fetch + image download so sync runs offline.
+    """Run sync offline: a fake API transport, plus a fake image download.
 
-    The fake fetch mirrors the real `_list_batches`: it returns only batches whose
-    status is among the requested statuses, deduped by _id - so run_sync tests
-    genuinely exercise the include_conditioning status selection.
+    The API side is faked at the **transport**, not at `_list_batches`. The
+    fixture hands `_client` a real `httpx.Client` wired to an `httpx.MockTransport`
+    that serves `state["batches"]` the way Brewfather does - one status per
+    request, paginated by `start_after`. The production `_list_batches` then runs
+    for real, so the status filtering, the dedupe and the pagination that sync
+    depends on are the shipped ones rather than a fake's re-implementation of
+    them. (The previous fixture reimplemented that filtering and conceded as
+    much in a comment; a bug in the real listing could not fail a sync test.)
+    `state["requests"]` records every request the transport saw, which is how a
+    test can assert exactly which statuses were swept and at what cost.
 
-    The fake download mirrors nothing. `_download_image` now returns bytes plus an
-    extension for the Tap file store to file, so the fake only has to answer
-    "did this URL download, and to what?" - it picks no filename, reproduces no
-    extension rules, and writes nothing. Whether the bytes reach the right file
-    on disk is then a real assertion about production code rather than about the
-    fixture. `state["downloads"]` maps a URL -> (bytes, ext); a URL that is
-    absent from it stands for a failed download.
+    The download side stays patched at `_download_image`, which is a seam on
+    purpose: it takes the client to use as its first argument, and WHICH of
+    sync's two httpx clients arrives there is the difference between a fetch and
+    a credential leak (image URLs are off-host and httpx applies a client's auth
+    to every host). `state["download_clients"]` records that argument. The fake
+    reproduces nothing: `_download_image` returns bytes plus an extension for the
+    Tap file store to file, so the fake only answers "did this URL download, and
+    to what?" - `state["downloads"]` maps a URL -> (bytes, ext), and a URL absent
+    from it stands for a failed download.
 
-    The fake also records the client it was handed in `state["download_clients"]`.
-    That first argument is the only place a test can observe WHICH of sync's two
-    httpx clients actually reaches an image fetch, and the difference between them
-    is a credential leak: image URLs are off-host and httpx applies a client's
-    auth to every host. Recording it here rather than asserting inline keeps the
-    fixture behaviour-free, so tests that only care about bytes are unaffected.
+    Both client factories are stood in for, and both stand-ins keep the real
+    thing's auth posture - the API client authenticated, the image client not -
+    so that recorded argument still means what it meant before.
     """
-    state = {"batches": [], "downloads": {}, "download_clients": []}
+    state = {"batches": [], "downloads": {}, "download_clients": [],
+             "requests": [], "respond": None}
 
-    def fake_list(client, statuses):
-        wanted = {str(s).lower() for s in statuses}
-        out, seen = [], set()
-        for b in state["batches"]:
-            if str(b.get("status", "")).lower() not in wanted:
-                continue
-            bid = str(b.get("_id") or b.get("id"))
-            if bid in seen:
-                continue
-            seen.add(bid)
-            out.append(b)
-        return out
+    def handler(request: httpx.Request) -> httpx.Response:
+        state["requests"].append(request)
+        if state["respond"] is not None:
+            return state["respond"](request)
+        params = request.url.params
+        wanted = str(params.get("status", "")).lower()
+        rows = [b for b in state["batches"]
+                if str(b.get("status", "")).lower() == wanted]
+        after = params.get("start_after")
+        if after:
+            ids = [str(b.get("_id") or b.get("id")) for b in rows]
+            rows = rows[ids.index(after) + 1:] if after in ids else []
+        limit = int(params.get("limit", brewfather.PAGE_SIZE))
+        return httpx.Response(200, json=rows[:limit])
 
-    monkeypatch.setattr(brewfather, "_list_batches", fake_list)
+    def fake_client(user_id, api_key):
+        return httpx.Client(
+            base_url=brewfather.API_BASE,
+            auth=(user_id, api_key),
+            transport=httpx.MockTransport(handler),
+        )
+
+    def fake_image_client():
+        # Unauthenticated, exactly like the real factory - that is the property
+        # the download seam is watched for. (The real factory's own
+        # credential-freeness is pinned separately, by
+        # test_image_client_carries_no_credentials.) It carries the API base_url
+        # too, which the real one has no use for: it means that transposing
+        # sync's two clients still reaches the image download and trips the
+        # credential assertion, instead of every sync test dying earlier on a
+        # relative URL and burying the reason.
+        return httpx.Client(base_url=brewfather.API_BASE,
+                            transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(brewfather, "_client", fake_client)
+    monkeypatch.setattr(brewfather, "_image_client", fake_image_client)
 
     def fake_download(client, url):
         state["download_clients"].append(client)
@@ -412,26 +249,20 @@ def test_fermenting_tap_file_matches_a_completed_one(mock_network):
     (False, True, ["Completed", "Fermenting"]),
     (True, True, ["Completed", "Conditioning", "Fermenting"]),
 ])
-def test_status_list_covers_all_toggle_combinations(monkeypatch, mock_network,
-                                                    conditioning, fermenting, expected):
-    """Pin the exact status list `_list_batches` is asked for.
+def test_status_list_covers_all_toggle_combinations(mock_network, conditioning,
+                                                    fermenting, expected):
+    """Pin the exact statuses the API is swept for.
 
     Each status is a separate paginated sweep of the Brewfather API, so the list
     is what the rate-limit cost is proportional to - worth asserting directly
-    rather than only inferring it from which Batches came back.
+    against the requests that actually left, rather than only inferring it from
+    which Batches came back.
     """
     _set_creds()
     config_store.update_config(include_conditioning=conditioning,
                                include_fermenting=fermenting)
-    seen: list[list[str]] = []
-
-    def recording_list(client, statuses):
-        seen.append(list(statuses))
-        return []
-
-    monkeypatch.setattr(brewfather, "_list_batches", recording_list)
     brewfather.run_sync()
-    assert seen == [expected]
+    assert [r.url.params["status"] for r in mock_network["requests"]] == expected
 
 
 def test_sync_writes_saturation_token(mock_network):
@@ -474,6 +305,46 @@ def test_sync_rewrites_when_revision_changes(mock_network):
     result = brewfather.run_sync()
     assert result["written"] == 1
     assert taps.read(2, taps.Source.BREWFATHER).front_matter["name"] == "Ale Renamed"
+
+
+def test_a_mapping_version_bump_rewrites_every_cached_tap_once(mock_network, monkeypatch):
+    """The rewrite path MAPPING_VERSION exists to trigger.
+
+    Bumping the constant is how a change to the Batch-to-Beer mapping reaches
+    Taps that were cached before it: the Batch itself is untouched, so nothing
+    else in the freshness check would ask for a rewrite. Until now that path had
+    no test at all, and a bump could have silently stopped refreshing anything.
+    """
+    _set_creds()
+    mock_network["batches"] = [_batch("b1", 2, "Steady Ale")]
+    assert brewfather.run_sync()["written"] == 1
+    assert brewfather.run_sync()["unchanged"] == 1  # settled: nothing to do
+
+    monkeypatch.setattr(mapping, "MAPPING_VERSION", mapping.MAPPING_VERSION + 1)
+
+    # The same unchanged Batch is rewritten exactly once...
+    bumped = brewfather.run_sync()
+    assert (bumped["written"], bumped["unchanged"]) == (1, 0)
+    assert taps.read(2, taps.Source.BREWFATHER).front_matter["map_rev"] == \
+        mapping.MAPPING_VERSION
+    # ...and then settles back to skipping, at the new version.
+    settled = brewfather.run_sync()
+    assert (settled["written"], settled["unchanged"]) == (0, 1)
+
+
+def test_a_tap_cached_at_an_older_mapping_version_is_rewritten(mock_network, write_tap):
+    # The same rule seen from the other side: a Tap file left on disk by an older
+    # build (everything current except `map_rev`) is refreshed on the next sync
+    # rather than kept forever because its Batch never changed.
+    _set_creds()
+    write_tap("bf", 2, name="Stale Mapping", batch_id="b1", source_rev=1000,
+              map_rev=mapping.MAPPING_VERSION - 1)
+    mock_network["batches"] = [_batch("b1", 2, "Current Mapping")]
+    result = brewfather.run_sync()
+    assert result["written"] == 1
+    data = taps.read(2, taps.Source.BREWFATHER).front_matter
+    assert data["name"] == "Current Mapping"
+    assert data["map_rev"] == mapping.MAPPING_VERSION
 
 
 def test_sync_writes_into_a_manual_occupied_slot_without_touching_the_manual_tap(
@@ -574,14 +445,14 @@ def test_sync_archives_undesired_bf_tap(mock_network, write_tap):
     assert list(paths.OLD_BEERS_DIR.glob("bf_tap_1_*.jpg"))
 
 
-def test_failed_sync_makes_no_destructive_changes(mock_network, write_tap, monkeypatch):
+def test_failed_sync_makes_no_destructive_changes(mock_network, write_tap):
     _set_creds()
     write_tap("bf", 1, name="Existing", abv=5, ebc=10)
 
-    def boom(client, statuses):
+    def down(request):
         raise httpx.ConnectError("network down")
 
-    monkeypatch.setattr(brewfather, "_list_batches", boom)
+    mock_network["respond"] = down
     result = brewfather.run_sync()
     assert result["ok"] is False
     assert taps.exists(1, taps.Source.BREWFATHER)
@@ -589,18 +460,18 @@ def test_failed_sync_makes_no_destructive_changes(mock_network, write_tap, monke
     assert status_store.load_status()["last_sync_error"]
 
 
-def test_rate_limit_429_is_reported_without_changes(mock_network, write_tap, monkeypatch):
+def test_rate_limit_429_is_reported_without_changes(mock_network, write_tap):
     _set_creds()
     write_tap("bf", 1, name="Existing", abv=5, ebc=10)
 
-    def boom(client, statuses):
-        resp = httpx.Response(429, headers={"Retry-After": "120"}, request=httpx.Request("GET", "http://x"))
-        raise httpx.HTTPStatusError("rate limited", request=resp.request, response=resp)
+    def limited(request):
+        return httpx.Response(429, headers={"Retry-After": "120"}, text="slow down")
 
-    monkeypatch.setattr(brewfather, "_list_batches", boom)
+    mock_network["respond"] = limited
     result = brewfather.run_sync()
     assert result["ok"] is False
     assert "rate limit" in result["message"].lower()
+    assert "120" in result["message"]              # Retry-After is passed on
     assert taps.exists(1, taps.Source.BREWFATHER)  # nothing destroyed
 
 
@@ -702,8 +573,7 @@ def test_sync_downloads_images_with_the_unauthenticated_client(mock_network):
     #
     # The assertion is deliberately made against the download seam (the first
     # argument `_download_image` receives) rather than against run_sync's
-    # internals, so it keeps holding if the Mapping half is ever split out of this
-    # module (issue #10) and the client is threaded through differently.
+    # internals, which is why it survived the Mapping split (issue #10) unchanged.
     _set_creds()
     mock_network["downloads"] = {"http://x/pic.webp": (b"img-bytes", ".webp")}
     mock_network["batches"] = [_batch(

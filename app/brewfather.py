@@ -1,26 +1,12 @@
-"""Brewfather API integration and the periodic sync job.
+"""The Brewfather Source: fetch Batches from the API, and the periodic sync job.
 
-Field mapping (verified against a live /v2/batches?complete=True payload):
-  name        <- recipe.name      (a batch's own name is Brewfather's generic
-                                    "Batch" / "Batch #12" default)
-  abv / ibu   <- measured* first, then recipe.*; 0 is treated as "not provided"
-                 (Brewfather returns 0, not null, for unset values)
-  colour      <- measuredEbc (EBC); else estimatedColor / color, which are SRM
-                 (verified via style colour bounds) -> converted to EBC
-  og / fg     <- measuredOg/Og, measuredFg/Fg, else recipe.og/fg; kept only when a
-                 plausible specific gravity (1.0 < sg < 1.2), else None
-  saturation  <- optional `saturation:NN` note token (NN% -> 0..1 fraction)
-  colour      <- optional `colour:#rrggbb` note token; an exact override that wins
-                 over the computed EBC colour
-  glass       <- optional `glass:nonicpint` note token (glassware silhouette)
-  description <- tasteNotes, else the recipe style name. The batch notes are NOT
-                 used for the body - they only carry the control tokens
-                 (tap:X / saturation:NN / colour:#hex / glass:type), which are all
-                 stripped from any text we do show.
-
-The helpers still try several field-name/unit variants defensively and log what
-they found. Bump MAPPING_VERSION when changing the mapping so already-cached
-files are refreshed on the next sync.
+This module owns the parts that are **not** pure - the API constants, the two
+HTTP clients, the paginated batch listing, the image download - plus the sync
+orchestration that ties fetching to the Tap file store. The transformation from
+a Batch to a Beer lives next door in `app/mapping.py` and imports nothing that
+opens a socket or touches disk, so "what Beer does this Batch map to?" can be
+asked without a network client (issue #10). Fetch hands over Batches; Mapping
+turns them into Beers; this module coordinates the two and files the result.
 
 Auth: HTTP Basic Auth, username = User ID, password = API key (env vars
 BREWFATHER_USER_ID / BREWFATHER_API_KEY take precedence over config.json).
@@ -31,10 +17,6 @@ Efficient fetch (rate limit is 500 calls/hour per key):
   N+1 (one detail call per batch) pattern, which would blow the hourly limit as
   Completed batches accumulate. Per sync we now make ceil(N/50) calls, and
   change-detection skips image downloads / file rewrites for unchanged batches.
-
-Tap assignment: parse the batch notes text for a `tap:X` token. A token is
-accepted from 1 to MAX_NUM_TAPS - a system bound, not the operator's tap count -
-and an out-of-range one is logged with the batch named.
 
 Desired-tap-map / archive: after a successful sync, any Brewfather-managed tap
 whose batch no longer maps to it is archived. Brewfather's claim is the *only*
@@ -52,18 +34,15 @@ and enumeration goes through the Tap file store addressed by Slot and Source
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 import httpx
 
+from . import mapping
 from . import tap_store as taps
 from .archive import archive_tap
 from .atomic import JOB_LOCK
-from .beer_glass import GLASS_KEYS
-from .colors import EBC_PER_SRM, parse_hex_color, parse_saturation
 from .config_store import (
-    MAX_NUM_TAPS,
     brewfather_credentials,
     load_config,
 )
@@ -103,30 +82,10 @@ HTTP_TIMEOUT = httpx.Timeout(20.0, connect=10.0)
 PAGE_SIZE = 50
 MAX_PAGES = 50  # safety cap: 50 pages x 50 = 2500 completed batches
 
-# Bumped whenever the field-extraction logic below changes in a way that should
-# refresh already-cached bf_tap files. `_is_unchanged` treats a stored map_rev
-# different from this as "changed", so the next sync rewrites every tap once with
-# the new mapping, then settles back to skipping genuinely unchanged batches.
-MAPPING_VERSION = 6
-
-# `tap:3`, `tap: 3`, `Tap:3`, etc.
-TAP_TOKEN_RE = re.compile(r"tap\s*:\s*(\d+)", re.IGNORECASE)
-
-# `saturation:60` (= 60% = 0.6) - an optional per-tap colour-saturation override
-# in the batch notes, parsed the same way as the tap token.
-SATURATION_TOKEN_RE = re.compile(r"saturation\s*:\s*([0-9]*\.?[0-9]+)", re.IGNORECASE)
-
-# `colour:#780606` / `color:#780606` - force an exact swatch/glass colour,
-# overriding the computed EBC colour.
-COLOR_TOKEN_RE = re.compile(r"colou?r\s*:\s*(#?[0-9a-fA-F]{6})", re.IGNORECASE)
-
-# `glass:nonicpint` - choose the glassware silhouette for this beer's placeholder.
-GLASS_TOKEN_RE = re.compile(r"glass\s*:\s*([a-zA-Z]+)", re.IGNORECASE)
-
-# A Brewfather batch's own `name` defaults to a generic "Batch" / "Batch #12";
-# the real beer name lives on the embedded recipe, so we skip these.
-GENERIC_BATCH_NAME_RE = re.compile(r"^\s*batch\s*#?\s*\d*\s*$", re.IGNORECASE)
-
+# Used only by `_download_image`, to name bytes whose URL carries no extension.
+# It sits on the fetch side with its one consumer rather than among the Mapping
+# constants, where it used to be filed and read as though it were part of the
+# Batch-to-Beer transformation.
 CONTENT_TYPE_EXT = {
     "image/jpeg": ".jpg",
     "image/jpg": ".jpg",
@@ -134,288 +93,6 @@ CONTENT_TYPE_EXT = {
     "image/webp": ".webp",
     "image/gif": ".gif",
 }
-
-
-# ---- low-level field extraction (defensive) ------------------------------
-
-def _first_number(obj: dict[str, Any], *keys: str) -> float | None:
-    """Return the first present *positive* numeric value among keys.
-
-    Callers list measured fields before estimated/recipe ones. Brewfather sends
-    0 (not null) for an unset ABV / IBU / colour, so any non-positive value is
-    treated as "not provided": callers then store None and the display hides
-    that stat (and the colour swatch) instead of showing a 0.
-    """
-    for key in keys:
-        if key not in obj or obj[key] in (None, ""):
-            continue
-        try:
-            num = float(obj[key])
-        except (TypeError, ValueError):
-            continue
-        if num > 0:
-            return num
-    return None
-
-
-def _extract_name(batch: dict[str, Any]) -> str:
-    recipe = batch.get("recipe") or {}
-    batch_name = (batch.get("name") or "").strip()
-    recipe_name = (recipe.get("name") or "").strip()
-    # A batch's own `name` is usually Brewfather's generic default ("Batch" /
-    # "Batch #12"); the real beer name lives on the embedded recipe. Use the
-    # batch name only when the user has renamed it to something specific,
-    # otherwise prefer the recipe (beer) name.
-    if batch_name and not GENERIC_BATCH_NAME_RE.match(batch_name):
-        return batch_name
-    if recipe_name:
-        return recipe_name
-    # Generic/blank batch name and no recipe name: build the most specific
-    # generic label we can from the batch number.
-    batch_no = batch.get("batchNo")
-    if batch_no not in (None, ""):
-        return f"Batch {batch_no}"
-    return batch_name or "Batch"
-
-
-def _extract_abv(batch: dict[str, Any]) -> float | None:
-    recipe = batch.get("recipe") or {}
-    # Prefer measured over estimated/recipe so the board shows reality.
-    return _first_number(batch, "measuredAbv", "abv") or _first_number(recipe, "abv")
-
-
-def _extract_ibu(batch: dict[str, Any]) -> float | None:
-    recipe = batch.get("recipe") or {}
-    return (
-        _first_number(batch, "measuredIbu", "estimatedIbu", "ibu")
-        or _first_number(recipe, "ibu")
-    )
-
-
-def _extract_ebc(batch: dict[str, Any]) -> float | None:
-    """Return colour as EBC (our internal storage unit).
-
-    A *measured EBC* reading (explicit unit) is used as-is. Everything else
-    Brewfather exposes for colour - estimatedColor, color, recipe.color - is in
-    SRM despite the generic name. This was verified against a live payload: an
-    English Porter's styleColorMin/Max come back as 20/30, which is the BJCP
-    *SRM* range (the EBC range would be ~39/59). So those are converted with
-    EBC = SRM * 1.97, otherwise every beer renders about half as dark as reality.
-    """
-    recipe = batch.get("recipe") or {}
-    # Measured EBC wins and is taken at face value.
-    ebc = _first_number(batch, "measuredEbc")
-    if ebc is not None:
-        return round(ebc, 1)
-    # All the estimated/recipe colour fields are SRM -> convert to EBC.
-    srm = (
-        _first_number(batch, "measuredSrm", "estimatedColor", "color", "srm")
-        or _first_number(recipe, "color", "srm")
-    )
-    if srm is not None:
-        return round(srm * EBC_PER_SRM, 1)
-    # Rare explicit recipe EBC field.
-    rebc = _first_number(recipe, "ebc")
-    return round(rebc, 1) if rebc is not None else None
-
-
-def _first_gravity(obj: dict[str, Any], *keys: str) -> float | None:
-    """First plausible specific-gravity value (1.0 < sg < 1.2) among keys.
-
-    Brewfather sends OG/FG as specific gravity (e.g. 1.052). An unset value comes
-    back as 0 or 1.0, and a Plato-stored field would be out of the SG range - both
-    are rejected so the display hides the stat rather than showing nonsense.
-    """
-    for key in keys:
-        if key not in obj or obj[key] in (None, ""):
-            continue
-        try:
-            num = float(obj[key])
-        except (TypeError, ValueError):
-            continue
-        if 1.0 < num < 1.2:
-            return round(num, 3)
-    return None
-
-
-def _extract_og(batch: dict[str, Any]) -> float | None:
-    recipe = batch.get("recipe") or {}
-    return _first_gravity(batch, "measuredOg", "og") or _first_gravity(recipe, "og")
-
-
-def _extract_fg(batch: dict[str, Any]) -> float | None:
-    recipe = batch.get("recipe") or {}
-    return _first_gravity(batch, "measuredFg", "fg") or _first_gravity(recipe, "fg")
-
-
-def _extract_notes_text(batch: dict[str, Any]) -> str:
-    """Concatenate every free-text notes field we might find a tap token in."""
-    parts: list[str] = []
-    for key in ("batchNotes", "notes", "note", "tasteNotes"):
-        val = batch.get(key)
-        if isinstance(val, str):
-            parts.append(val)
-        elif isinstance(val, list):
-            # Brewfather `notes` can be a list of {note: "..."} objects.
-            for item in val:
-                if isinstance(item, dict) and isinstance(item.get("note"), str):
-                    parts.append(item["note"])
-                elif isinstance(item, str):
-                    parts.append(item)
-    return "\n".join(parts)
-
-
-def _clean_description(text: str) -> str:
-    """Strip the control tokens (tap / saturation / colour / glass) and tidy whitespace."""
-    cleaned = TAP_TOKEN_RE.sub(" ", text)
-    cleaned = SATURATION_TOKEN_RE.sub(" ", cleaned)
-    cleaned = COLOR_TOKEN_RE.sub(" ", cleaned)
-    cleaned = GLASS_TOKEN_RE.sub(" ", cleaned)
-    cleaned = re.sub(r"[ \t]+", " ", cleaned)
-    cleaned = re.sub(r"\s*\n\s*", "\n", cleaned)
-    return cleaned.strip()
-
-
-def _extract_style(batch: dict[str, Any]) -> str:
-    """Recipe style name (e.g. "English Porter"), used as a description fallback."""
-    style = (batch.get("recipe") or {}).get("style")
-    if isinstance(style, dict):
-        return (style.get("name") or "").strip()
-    if isinstance(style, str):
-        return style.strip()
-    return ""
-
-
-def _extract_description(batch: dict[str, Any]) -> str:
-    """Card body text: Brewfather tasting notes, else the beer style.
-
-    The dedicated tasting-note field wins when present; otherwise we fall back to
-    the recipe's style name so the card isn't blank (most Brewfather batches have
-    no tasting notes). The batch notes are deliberately NOT used for the body --
-    they hold the `tap:X` control token, not display text - and any such token is
-    stripped from whatever text we do show.
-    """
-    for key in ("tasteNotes", "tastingNotes", "taste_notes", "tasting_notes"):
-        val = batch.get(key)
-        if isinstance(val, str) and val.strip():
-            cleaned = _clean_description(val)
-            if cleaned:
-                return cleaned
-    return _extract_style(batch)
-
-
-def _extract_image_url(batch: dict[str, Any]) -> str | None:
-    recipe = batch.get("recipe") or {}
-    for src in (batch, recipe):
-        for key in ("img_url", "imgUrl", "image", "imageUrl"):
-            val = src.get(key)
-            if isinstance(val, str) and val.startswith("http"):
-                return val
-    return None
-
-
-def _extract_updated_ms(batch: dict[str, Any]) -> int:
-    """A sortable recency value for conflict resolution (newest wins)."""
-    for key in ("_timestamp_ms", "updated", "completedDate", "brewDate", "_created"):
-        val = batch.get(key)
-        if isinstance(val, (int, float)):
-            return int(val)
-        if isinstance(val, dict) and isinstance(val.get("ms"), (int, float)):
-            return int(val["ms"])
-    return 0
-
-
-# Brewfather's batch lifecycle, most complete first. Only the first three can
-# reach a sync today (see the include_conditioning / include_fermenting
-# toggles); Brewing and Planning are listed anyway so this reads as the whole
-# lifecycle rather than an arbitrary subset if the toggles ever widen.
-STATUS_PRECEDENCE: tuple[str, ...] = (
-    "completed", "conditioning", "fermenting", "brewing", "planning",
-)
-
-
-def _status_rank(batch: dict[str, Any]) -> int:
-    """Sort key for Batch status - LOWER is more complete.
-
-    An unrecognised or missing status ranks last, which deliberately makes a
-    Batch the API did not label lose to one it did. It also means that if
-    Brewfather ever stops sending `status`, every Batch ranks the same and
-    conflict resolution falls back to recency - exactly the behaviour that
-    shipped before this rule existed.
-    """
-    try:
-        return STATUS_PRECEDENCE.index(_status_label(batch))
-    except ValueError:
-        return len(STATUS_PRECEDENCE)
-
-
-def _status_label(batch: dict[str, Any]) -> str:
-    """The Batch status, normalised for comparison and for the conflict log.
-
-    Missing, empty, and non-string statuses all collapse to "unknown" so the
-    logged conflict line never prints a bare '' or 'None' at the operator.
-    """
-    raw = batch.get("status")
-    label = str(raw).strip().lower() if isinstance(raw, str) else ""
-    return label or "unknown"
-
-
-def _find_tap_number(batch: dict[str, Any]) -> int | None:
-    """The Slot a batch claims via its `tap:X` note token, or None for no claim.
-
-    The accepted range is 1..MAX_NUM_TAPS, which is a *system* bound, not the
-    operator's configured tap count. Sync deliberately never consults the tap
-    count: that is a display setting, and letting it decide what gets written or
-    archived is what used to make lowering the tap count silently destroy Beer
-    data. The system bound still stops one fat-fingered token (`tap:9999`) from
-    minting files nothing can ever display.
-
-    An out-of-range token is logged with the batch named, because silence is how
-    a mistyped token stays mistyped - the operator otherwise has no way to find
-    out why a beer never appeared.
-    """
-    m = TAP_TOKEN_RE.search(_extract_notes_text(batch))
-    if not m:
-        return None
-    try:
-        n = int(m.group(1))
-    except ValueError:
-        return None
-    if 1 <= n <= MAX_NUM_TAPS:
-        return n
-    log.warning(
-        "ignoring out-of-range token 'tap:%d' on batch %r (valid range is 1-%d)",
-        n, _extract_name(batch), MAX_NUM_TAPS,
-    )
-    return None
-
-
-def _extract_saturation(batch: dict[str, Any]) -> float | None:
-    """Per-tap colour saturation from a `saturation:NN` batch-note token.
-
-    NN is a percentage (``60`` -> ``0.6``) or a fraction (``0.6``); see
-    parse_saturation. None when no token is present, so the display falls back
-    to its default saturation.
-    """
-    m = SATURATION_TOKEN_RE.search(_extract_notes_text(batch))
-    if not m:
-        return None
-    return parse_saturation(m.group(1))
-
-
-def _extract_color_override(batch: dict[str, Any]) -> str | None:
-    """Exact colour from a `colour:#rrggbb` batch-note token (overrides EBC colour)."""
-    m = COLOR_TOKEN_RE.search(_extract_notes_text(batch))
-    return parse_hex_color(m.group(1)) if m else None
-
-
-def _extract_glass(batch: dict[str, Any]) -> str | None:
-    """Glassware key from a `glass:nonicpint` token, or None for the global default."""
-    m = GLASS_TOKEN_RE.search(_extract_notes_text(batch))
-    if not m:
-        return None
-    key = m.group(1).lower()
-    return key if key in GLASS_KEYS else None
 
 
 # ---- HTTP --------------------------------------------------------------
@@ -533,68 +210,18 @@ def _download_image(img_client: httpx.Client, url: str) -> tuple[bytes, str] | N
 
 # ---- sync orchestration --------------------------------------------------
 
-def _build_desired_map(batches: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
-    """Map tap number -> chosen batch, resolving conflicts.
+def _store_image(img_client: httpx.Client, tap: int, batch: dict[str, Any]) -> str | None:
+    """Download this Batch's photo and file it; return the stored image name.
 
-    The most COMPLETE Batch wins, and recency only breaks a tie within one
-    status. A beer that is pouring should not be pushed off its Slot by the
-    next brew that happens to carry the same `tap:X` token while it is still
-    conditioning - and because a conditioning Batch is edited more often than a
-    finished one, plain recency reliably picked the wrong beer once the
-    Conditioning and Fermenting toggles made more than one status reachable.
+    The fetch-and-store half of writing a Tap, kept apart from deciding WHAT to
+    write (that is `mapping.front_matter`, which needs no client). A failed
+    download is not an erasure: the previously cached image is kept, and only a
+    Slot that never had one ends up with None (the placeholder).
     """
-    desired: dict[int, dict[str, Any]] = {}
-    for batch in batches:
-        tap = _find_tap_number(batch)
-        if tap is None:
-            continue
-        candidate = {
-            "batch": batch,
-            "updated_ms": _extract_updated_ms(batch),
-            "rank": _status_rank(batch),
-        }
-        existing = desired.get(tap)
-        if existing is None:
-            desired[tap] = candidate
-            continue
-        # Status first, then recency. `>=` on the tie keeps the previous
-        # newest-wins behaviour for two Batches sharing one status.
-        if candidate["rank"] != existing["rank"]:
-            winner = candidate if candidate["rank"] < existing["rank"] else existing
-            reason = "more complete status"
-        else:
-            winner = (
-                candidate
-                if candidate["updated_ms"] >= existing["updated_ms"]
-                else existing
-            )
-            reason = "more recent"
-        log.warning(
-            "tap:%d conflict between '%s' (%s) and '%s' (%s); keeping '%s' (%s)",
-            tap,
-            _extract_name(candidate["batch"]),
-            _status_label(candidate["batch"]),
-            _extract_name(existing["batch"]),
-            _status_label(existing["batch"]),
-            _extract_name(winner["batch"]),
-            reason,
-        )
-        desired[tap] = winner
-    return desired
-
-
-def _write_bf_tap(img_client: httpx.Client, tap: int, batch: dict[str, Any], rev: int) -> None:
-    """Write bf_tap_X.md (+ image) for one desired tap, recording the batch rev.
-
-    ``img_client`` is the unauthenticated image client used for the (off-host)
-    image download; the beer fields are already present in the batch object.
-    """
-    ebc = _extract_ebc(batch)
-    image_url = _extract_image_url(batch)
-
+    url = mapping.image_url(batch)
     image_name: str | None = None
-    if image_url:
-        downloaded = _download_image(img_client, image_url)
+    if url:
+        downloaded = _download_image(img_client, url)
         if downloaded is not None:
             data, ext = downloaded
             image_name = taps.save_image(tap, SYNC_SOURCE, data, ext)
@@ -602,47 +229,42 @@ def _write_bf_tap(img_client: httpx.Client, tap: int, batch: dict[str, Any], rev
         # Keep any previously cached image; otherwise leave null (placeholder).
         existing = taps.image_for(tap, SYNC_SOURCE)
         image_name = existing.name if existing else None
+    return image_name
 
-    front_matter = {
-        "name": _extract_name(batch),
-        "abv": _extract_abv(batch),
-        "ibu": _extract_ibu(batch),
-        "ebc": ebc,
-        "og": _extract_og(batch),
-        "fg": _extract_fg(batch),
-        "saturation": _extract_saturation(batch),
-        "color_override": _extract_color_override(batch),
-        "glass": _extract_glass(batch),
-        "source": "brewfather",
-        "batch_id": batch.get("_id") or batch.get("id"),
-        "source_rev": rev,            # batch revision, used to skip unchanged syncs
-        "map_rev": MAPPING_VERSION,   # extraction-logic version (forces one refresh)
-        "image": image_name,
-        "updated": iso_now(),
-    }
-    taps.write(tap, SYNC_SOURCE, front_matter, _extract_description(batch))
+
+def _write_bf_tap(img_client: httpx.Client, tap: int, batch: dict[str, Any], rev: int) -> None:
+    """Write the Brewfather Tap file (+ image) for one desired Slot.
+
+    ``img_client`` is the unauthenticated image client used for the (off-host)
+    image download. It is needed for the photo alone - every Beer field comes
+    from Mapping, which is handed the batch object and nothing else.
+    """
+    image_name = _store_image(img_client, tap, batch)
+    front_matter = mapping.front_matter(
+        batch, rev=rev, image=image_name, updated=iso_now(),
+    )
+    taps.write(tap, SYNC_SOURCE, front_matter, mapping.description(batch))
     log.info("wrote tap %d (%s) (name=%r image=%s)",
              tap, SYNC_SOURCE, front_matter["name"], image_name)
 
 
 def _is_unchanged(tap: int, batch: dict[str, Any], rev: int) -> bool:
-    """True if bf_tap_X already reflects this batch at this revision.
+    """True if the stored Brewfather Tap already reflects this batch at this revision.
 
     Lets the sync skip a re-write (and image re-download) when nothing changed,
     keeping API/bandwidth use minimal and avoiding needless display churn.
+
+    Two separable answers, deliberately: Mapping says whether the cached front
+    matter is this Batch at this revision under the current MAPPING_VERSION, and
+    whether the Batch offers a photo at all; the store says whether it actually
+    holds one. Neither half needs to know the other's business.
     """
     cached = taps.read(tap, SYNC_SOURCE)
     if cached is None:
         return False
-    existing = cached.front_matter
-    bid = batch.get("_id") or batch.get("id")
-    same_batch = str(existing.get("batch_id")) == str(bid)
-    same_rev = str(existing.get("source_rev")) == str(rev)
-    # A mapping-logic change (new MAPPING_VERSION) forces a one-time rewrite even
-    # when the batch itself is unchanged, so cached files pick up the new fields.
-    same_map = str(existing.get("map_rev")) == str(MAPPING_VERSION)
-    has_image_if_needed = (not _extract_image_url(batch)) or (cached.image is not None)
-    return same_batch and same_rev and same_map and has_image_if_needed
+    if not mapping.is_current(cached.front_matter, batch, rev):
+        return False
+    return (not mapping.wants_image(batch)) or (cached.image is not None)
 
 
 def run_sync() -> dict[str, Any]:
@@ -653,7 +275,7 @@ def run_sync() -> dict[str, Any]:
     cfg = load_config()
     # The configured tap count is deliberately NOT read here: it is a display
     # setting, and sync depends only on what Brewfather claims. See
-    # `_find_tap_number` and `_archive_undesired`.
+    # `mapping.slot_claim` and `_archive_undesired`.
     # Statuses to pull: always Completed, plus Conditioning when the operator
     # opts in (a beer on tap but still lagering / too green to mark Completed),
     # plus Fermenting for an upcoming Beer still in primary. The two opt-ins are
@@ -664,8 +286,8 @@ def run_sync() -> dict[str, Any]:
     # statuses on a normal sync interval stay comfortably inside it, but this is
     # the reason the status list is opt-in rather than "fetch everything".
     #
-    # The status decides which Batches are FETCHED, and (in `_build_desired_map`)
-    # which one wins a Slot two Batches both claim. It does not change EXTRACTION:
+    # The status decides which Batches are FETCHED, and (in `mapping.desired_map`)
+    # which one wins a Slot two Batches both claim. It does not change MAPPING:
     # a Fermenting Batch still needs a `tap:X` note token to claim a Slot, and
     # maps to a Tap field-for-field like any other Batch. That is why
     # MAPPING_VERSION is deliberately NOT bumped for any of this - selection
@@ -694,7 +316,7 @@ def run_sync() -> dict[str, Any]:
                 batches = _list_batches(client, statuses)
                 log.info("fetched %d batches (statuses=%s)", len(batches), statuses)
 
-                desired = _build_desired_map(batches)
+                desired = mapping.desired_map(batches)
                 log.info("desired Brewfather tap map: %s", sorted(desired.keys()))
 
                 written = 0

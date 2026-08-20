@@ -27,7 +27,7 @@ Fixes #
 - [ ] **No secrets in diff:** `.env`, `taplist_data/`, Brewfather keys are not
   committed (verify with `git status`)
 - [ ] **Docs updated** if the change affects user-facing behavior
-- [ ] **`MAPPING_VERSION` bumped** in `app/brewfather.py` if Brewfather
+- [ ] **`MAPPING_VERSION` bumped** in `app/mapping.py` if Brewfather
   extraction logic changed
 - [ ] **`CHANGELOG.md` updated** if this is user-facing. Add it under the
   `## Unreleased` heading at the top, creating that section if it is not there.
