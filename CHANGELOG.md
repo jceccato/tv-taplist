@@ -92,6 +92,17 @@ overrides were all sent to the TV, which then applied the rules itself. The
 board now applies them and sends the answer. The same settings produce the same
 board, and the admin is unchanged - the per-tap override is still yours to set.
 
+### Settings limits now match between the form and the box
+
+The number-of-taps field had a minimum but no maximum, so a value above the
+supported limit appeared to save and then snapped back to 200 when the page
+reloaded, with nothing explaining why. Every numeric Settings field now takes
+its limits from the server, so an out-of-range value is refused as you type and
+what the form accepts is what the box stores.
+
+Editing `config.json` by hand still clamps rather than refusing to start, which
+is deliberate - a file has no one to report an error to.
+
 ### Changed: the `/api/board` payload
 
 Only the built-in display consumes this, but the endpoint is public, so if you
