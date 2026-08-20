@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from app import config_store
-from app.board import build_board, resolve_tap
+from app.board import build_board, resolve_tap, resolve_visibility
 from app.colors import ebc_to_hex
 
 
@@ -157,7 +157,6 @@ def test_unknown_colour_sends_no_colour_at_all(write_tap):
     r = resolve_tap(1)
     assert r["color_hex"] is None
     assert r["text_color"] is None
-    assert r["color_known"] is False
     assert r["image_url"] == _glass_url()
 
 
@@ -170,15 +169,121 @@ def test_vacant_tap_carries_no_colour_fields(write_tap):
     assert "text_color" not in r
 
 
-def test_color_known_tracks_ebc_or_override(write_tap):
-    # The swatch shows when the colour is known: via EBC, or an override alone.
+def test_swatch_and_ebc_ask_different_emptiness_questions(write_tap):
+    """One operator toggle, two answers - the swatch is not the EBC Attribute.
+
+    The swatch asks whether *Colour* is known (an EBC or a Colour override); the
+    EBC Attribute asks whether *EBC* is present. A Beer with only an override is
+    the case that separates them, and it is why `hide_color_when_empty` cannot be
+    applied once and reused. See ADR-0004 and CONTEXT.md (Attribute).
+    """
     write_tap("custom", 1, name="Override only", color_override="#445566")  # no ebc
     write_tap("custom", 2, name="Ebc only", ebc=12)
     write_tap("custom", 3, name="Neither")
-    assert resolve_tap(1)["color_known"] is True
-    assert resolve_tap(2)["color_known"] is True
-    assert resolve_tap(3)["color_known"] is False
-    assert resolve_tap(5)["color_known"] is False   # vacant
+
+    override_only = resolve_tap(1)
+    assert override_only["swatch_visible"] is True
+    assert override_only["ebc_visible"] is False
+
+    both_visible = resolve_tap(2)
+    assert both_visible["swatch_visible"] is True
+    assert both_visible["ebc_visible"] is True
+
+    neither = resolve_tap(3)
+    assert neither["swatch_visible"] is False
+    assert neither["ebc_visible"] is False
+
+
+def test_vacant_tap_carries_no_visibility_answers():
+    # A Vacant Slot has no Beer and renders no stats block, so there is no
+    # Attribute to answer for. Sending six booleans anyway would be a claim
+    # rather than an answer.
+    r = resolve_tap(5)
+    assert r["vacant"] is True
+    for key in ("abv_visible", "ibu_visible", "ebc_visible", "og_visible",
+                "fg_visible", "swatch_visible"):
+        assert key not in r
+
+
+def test_board_payload_carries_no_visibility_inputs(write_tap):
+    """The raw toggles and the per-Tap tri-states stay off the wire.
+
+    Sending both the inputs and the answer would leave two implementations of
+    the chain in play, which is exactly the state this replaced. `color_known`
+    goes with them: the display has no reason to know *why* the swatch shows.
+    """
+    config_store.update_config(num_taps=2)
+    write_tap("custom", 1, name="Beer", abv=5, ebc=10, show_og=True)
+    board = build_board()
+
+    for flag in ("show_abv", "show_ibu", "show_color", "show_og", "show_fg",
+                 "hide_abv_when_empty", "hide_ibu_when_empty",
+                 "hide_color_when_empty", "hide_og_when_empty",
+                 "hide_fg_when_empty"):
+        assert flag not in board, flag
+    # The two settings that are not Visibility stay raw, on purpose.
+    assert board["show_source_badge"] is False
+    assert board["color_unit"] == "ebc"
+
+    for tap in board["taps"]:
+        assert "color_known" not in tap
+        assert "show_og" not in tap
+        assert "show_fg" not in tap
+
+
+# ---- Visibility, resolved (CONTEXT.md's three-step chain) ----------------
+
+def test_visibility_global_toggle_applies_without_an_override():
+    # Step 2: with no per-Tap override the global toggle decides.
+    assert resolve_visibility(5.0, True, False) is True
+    assert resolve_visibility(5.0, False, False) is False
+
+
+def test_visibility_per_tap_override_beats_the_global_toggle():
+    # Step 1: an explicit per-Tap value wins in both directions; only None and
+    # "" mean "inherit". A hand-edited front matter can produce either.
+    assert resolve_visibility(1.052, False, False, per_tap=True) is True
+    assert resolve_visibility(1.052, True, False, per_tap=False) is False
+    assert resolve_visibility(1.052, True, False, per_tap=None) is True
+    assert resolve_visibility(1.052, True, False, per_tap="") is True
+
+
+def test_visibility_empty_suppression_hides_an_enabled_attribute():
+    # Step 3, and only step 3: a missing value hides an *enabled* Attribute...
+    assert resolve_visibility(None, True, True) is False
+    assert resolve_visibility("", True, True) is False
+    # ...and does nothing when the operator asked to keep the empty stat.
+    assert resolve_visibility(None, True, False) is True
+
+
+def test_visibility_empty_suppression_cannot_reveal_a_disabled_attribute():
+    # Order matters: suppression refines an enabled Attribute, it is not a
+    # toggle of its own, so a present value can never override "switched off".
+    assert resolve_visibility(42, False, True) is False
+    assert resolve_visibility(42, False, False) is False
+
+
+def test_visibility_treats_zero_as_a_real_reading():
+    # 0 IBU is a fact about a lager, not an absent value - falsiness is the wrong
+    # emptiness test here and hiding it would lose real data.
+    assert resolve_visibility(0, True, True) is True
+    assert resolve_visibility(0.0, True, True) is True
+
+
+def test_per_tap_override_survives_into_the_resolved_answer(write_tap):
+    # The tri-state stays an editable value in the Tap file; what changed is that
+    # the board now applies it instead of forwarding it.
+    config_store.update_config(show_og=False, show_fg=True)
+    write_tap("custom", 1, name="Shown", og=1.052, fg=1.010, show_og=True, show_fg=False)
+    r = resolve_tap(1)
+    assert r["og_visible"] is True     # per-tap True beats the global False
+    assert r["fg_visible"] is False    # per-tap False beats the global True
+
+    # A Tap with no override inherits the globals.
+    write_tap("custom", 2, name="Plain", og=1.052, fg=1.010)
+    r2 = resolve_tap(2)
+    assert r2["og_visible"] is False
+    assert r2["fg_visible"] is True
 
 
 def test_glass_override_tags_placeholder_url(write_tap):
@@ -190,17 +295,19 @@ def test_glass_override_tags_placeholder_url(write_tap):
     assert resolve_tap(2, default_glass="teku")["image_url"] == _glass_url(ebc_to_hex(20), "teku")
 
 
-def test_og_fg_and_per_tap_show_flags(write_tap):
+def test_og_fg_values_and_their_resolved_visibility(write_tap):
     write_tap("custom", 1, name="Gravity Beer", abv=5, og=1.052, fg=1.010, show_og=True, show_fg=False)
     r = resolve_tap(1)
     assert r["og"] == 1.052
     assert r["fg"] == 1.010
-    assert r["show_og"] is True
-    assert r["show_fg"] is False
-    # A tap without per-tap flags reports None (inherit the global toggle).
+    assert r["og_visible"] is True
+    assert r["fg_visible"] is False
+    # A tap with no value and no override: the globals are off by default, so
+    # both stats resolve hidden.
     write_tap("custom", 2, name="Plain", abv=5)
     r2 = resolve_tap(2)
-    assert r2["show_og"] is None and r2["og"] is None
+    assert r2["og"] is None
+    assert r2["og_visible"] is False
 
 
 def test_board_carries_the_resolved_card_scales():

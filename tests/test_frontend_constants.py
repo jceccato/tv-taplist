@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 
 from app.colors import EBC_PER_SRM, UNKNOWN_SWATCH_HEX
-from app.config_store import TAP_PHOTO_PRESETS, TAP_TEXT_PRESETS
+from app.config_store import DEFAULT_CONFIG, TAP_PHOTO_PRESETS, TAP_TEXT_PRESETS
 from app.theme import THEME_KEYS
 
 _DISPLAY_JS = Path(__file__).resolve().parent.parent / "static" / "js" / "display.js"
@@ -37,6 +37,79 @@ def test_display_js_unknown_swatch_fallback_matches_server():
     found = set(re.findall(r't\.(?:color_hex|text_color)\s*\|\|\s*"(#[0-9a-f]{6})"',
                            _display_js()))
     assert UNKNOWN_SWATCH_HEX in found, (found, UNKNOWN_SWATCH_HEX)
+
+
+def _display_js_default_settings() -> dict[str, object]:
+    """Parse display.js's DEFAULT_SETTINGS into Python values."""
+    block = re.search(r"DEFAULT_SETTINGS\s*=\s*\{(.*?)\n  \};", _display_js(), re.DOTALL)
+    assert block, "DEFAULT_SETTINGS not found in display.js"
+    out: dict[str, object] = {}
+    for key, raw in re.findall(r"(\w+)\s*:\s*(true|false|\"[^\"]*\"|[0-9.]+)",
+                               block.group(1)):
+        if raw in ("true", "false"):
+            out[key] = raw == "true"
+        elif raw.startswith('"'):
+            out[key] = raw.strip('"')
+        else:
+            out[key] = float(raw) if "." in raw else int(raw)
+    assert out, "DEFAULT_SETTINGS parsed as empty - the literal shape changed"
+    return out
+
+
+def test_display_js_default_settings_match_the_server_defaults():
+    """The surviving settings mirror must not drift from the config schema.
+
+    display.js seeds `state.settings` before the first board arrives, and every
+    key in it is a hand-copy of a `DEFAULT_CONFIG` entry. The values are inert in
+    practice (the first board replaces the object wholesale), which is precisely
+    why drift here would go unnoticed until someone read the file and believed
+    it. Pin both the key's existence and its value.
+    """
+    for key, value in _display_js_default_settings().items():
+        assert key in DEFAULT_CONFIG, f"{key} is not a server setting"
+        assert DEFAULT_CONFIG[key] == value, (key, DEFAULT_CONFIG[key], value)
+
+
+def test_display_js_default_settings_carry_no_visibility_flags():
+    """Visibility must not creep back into the display's settings mirror.
+
+    The board resolves the whole chain (per-Tap override, global toggle, Empty
+    suppression) and sends six booleans per tap. A `show_abv` or a
+    `hide_ibu_when_empty` reappearing here is the first symptom of the chain
+    being reimplemented in JavaScript, where nothing tests it.
+    """
+    mirrored = set(_display_js_default_settings())
+    visibility = {"show_abv", "show_ibu", "show_color", "show_og", "show_fg",
+                  "hide_abv_when_empty", "hide_ibu_when_empty",
+                  "hide_color_when_empty", "hide_og_when_empty",
+                  "hide_fg_when_empty"}
+    assert mirrored & visibility == set(), mirrored & visibility
+    # The five that legitimately survive: the colour unit, the source badge and
+    # the three pagination/rotation values. Nothing else belongs here.
+    assert mirrored == {"color_unit", "show_source_badge", "paginate",
+                        "page_size", "rotation_seconds"}, mirrored
+
+
+def test_display_js_does_not_reimplement_the_visibility_chain():
+    """The display renders the answers; it never recomputes them.
+
+    A grep-shaped guard rather than a behavioural one, because this project has
+    no JS test harness. It pins the two failure modes that put the chain back in
+    the browser: reading a raw toggle off the board payload, or writing the
+    swatch's `Colour is known` special case out by hand again.
+    """
+    js = _display_js()
+    for flag in ("show_abv", "show_ibu", "show_color", "show_og", "show_fg",
+                 "hide_abv_when_empty", "hide_ibu_when_empty",
+                 "hide_color_when_empty", "hide_og_when_empty",
+                 "hide_fg_when_empty", "color_known"):
+        assert flag not in js, f"display.js still references {flag}"
+    for helper in ("statHidden", "effShow"):
+        assert helper not in js, f"display.js still defines/uses {helper}"
+    # Every stat's hidden state must be a plain read of a resolved boolean.
+    assert set(re.findall(r"t\.(\w+_visible)", js)) == {
+        "abv_visible", "ibu_visible", "ebc_visible", "og_visible", "fg_visible",
+        "swatch_visible"}
 
 
 def test_display_js_theme_vars_match_server_keys():
