@@ -439,12 +439,19 @@ def test_settings_does_not_overwrite_env_credentials(monkeypatch):
     assert config_store.load_config()["brewfather_api_key"] != "should-be-ignored"
 
 
-def test_board_includes_display_settings():
+def test_board_includes_display_settings(write_tap):
+    # The colour unit stays raw on the wire (it is a unit conversion, not
+    # Visibility). The Visibility toggles do not: the board applies them and
+    # sends the answer per tap, so a global "off" arrives as a false boolean on
+    # the card rather than as a flag the TV has to interpret.
     config_store.update_config(num_taps=1, color_unit="srm", show_ibu=False)
+    write_tap("custom", 1, name="Beer", abv=5, ibu=30, ebc=10)
     board = client.get("/api/board").json()
     assert board["color_unit"] == "srm"
-    assert board["show_ibu"] is False
-    assert "hide_color_when_empty" in board
+    assert "show_ibu" not in board
+    assert "hide_color_when_empty" not in board
+    assert board["taps"][0]["ibu_visible"] is False
+    assert board["taps"][0]["abv_visible"] is True
     assert board["venue_logo_url"] is None  # none uploaded
 
 
@@ -579,7 +586,6 @@ def test_unknown_colour_lets_each_surface_use_its_own_fallback(write_tap):
 
     # The board sends no colour at all rather than picking one of the two.
     assert tap["color_hex"] is None and tap["text_color"] is None
-    assert tap["color_known"] is False
     assert tap["image_url"] == "/img/beer-glass"
 
     # The Placeholder draws its amber; the swatch (here via the admin preview,

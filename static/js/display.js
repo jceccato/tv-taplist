@@ -15,7 +15,13 @@
      and no override): the grey this file falls back to is the swatch's own
      declared fallback, not a copy of a server value - the placeholder glass
      declares a different one (amber) on purpose. See ADR-0004. Only the colour
-     *stat* number (EBC<->SRM) is derived here, from this conversion factor. */
+     *stat* number (EBC<->SRM) is derived here, from this conversion factor.
+   - Visibility is resolved server-side too (app/board.py resolve_visibility) and
+     delivered per tap as six booleans - abv_visible, ibu_visible, ebc_visible,
+     og_visible, fg_visible, swatch_visible. This file renders what it is told
+     and must NOT re-derive them: the per-Tap override, the global toggle and
+     Empty suppression are one documented chain (CONTEXT.md, Visibility) and it
+     lives in exactly one place. The raw toggles are no longer on the wire. */
 
 (() => {
   "use strict";
@@ -42,14 +48,16 @@
   const venueHeader = document.getElementById("venue-header");
   const venueLogo = document.getElementById("venue-logo");
 
-  // Default display settings until the first board arrives.
+  // Default display settings until the first board arrives. Every key here is a
+  // hand-copy of a server default (config_store.DEFAULT_CONFIG) - there is no
+  // build step to share them - so tests/test_frontend_constants.py pins the
+  // values and fails if either side drifts. The Visibility toggles used to live
+  // here too; they left when the board started sending resolved answers, and the
+  // same guard fails if one reappears.
   const DEFAULT_SETTINGS = {
     color_unit: "ebc",
-    show_abv: true, show_ibu: true, show_color: true, show_og: false, show_fg: false,
-    hide_abv_when_empty: true, hide_ibu_when_empty: true, hide_color_when_empty: true,
-    hide_og_when_empty: true, hide_fg_when_empty: true,
     show_source_badge: false,
-    paginate: false, page_size: MAX_CARDS_PER_PAGE, rotation_seconds: 30,
+    paginate: false, page_size: 6, rotation_seconds: 30,
   };
 
   // ---- state ----
@@ -97,18 +105,6 @@
     return v === null || v === undefined || v === "";
   }
 
-  // A stat is hidden if globally disabled, or empty-and-configured-to-hide.
-  function statHidden(value, show, hideWhenEmpty) {
-    if (!show) return true;
-    return isEmpty(value) && hideWhenEmpty;
-  }
-
-  // Effective per-tap visibility: a tri-state override (true/false) wins over the
-  // global toggle; null/undefined inherits it.
-  function effShow(perTap, globalShow) {
-    return (perTap === true || perTap === false) ? perTap : globalShow;
-  }
-
   function colorLabel() {
     return state.settings.color_unit === "srm" ? "SRM" : "EBC";
   }
@@ -119,13 +115,14 @@
   }
 
   // Signature of the global display settings; a change forces a full re-render so
-  // every card picks up the new unit / visibility rules immediately. (Rotation
-  // and theme are applied separately and are deliberately excluded.)
+  // every card picks up the new unit immediately. (Rotation and theme are applied
+  // separately and are deliberately excluded.) The Visibility toggles are not
+  // here any more and do not need to be: a toggle flip now changes the resolved
+  // booleans on every tap, which tapSignature catches, and the diff path updates
+  // the cards in place instead of rebuilding the grid.
   function settingsSignature(s) {
     return [
-      s.color_unit, s.show_abv, s.show_ibu, s.show_color, s.show_og, s.show_fg,
-      s.hide_abv_when_empty, s.hide_ibu_when_empty, s.hide_color_when_empty,
-      s.hide_og_when_empty, s.hide_fg_when_empty, s.show_source_badge,
+      s.color_unit, s.show_source_badge,
       s.paginate, s.page_size,
       // A scale change resizes every font, which invalidates the marquee
       // overflow measurements, so it has to force a full re-render rather than
@@ -138,10 +135,14 @@
     return (board.taps || []).filter((t) => !t.hidden);
   }
 
+  // The six resolved Visibility booleans are part of the signature, not just the
+  // values: a global toggle no longer reaches this file at all, so a flip is only
+  // observable as a change in the answers the board sends.
   function tapSignature(t) {
     return [
-      t.vacant ? 1 : 0, t.name, t.abv, t.ibu, t.ebc, t.og, t.fg, t.color_hex, t.color_known,
-      t.show_og, t.show_fg, t.description, t.image_url, t.source,
+      t.vacant ? 1 : 0, t.name, t.abv, t.ibu, t.ebc, t.og, t.fg, t.color_hex,
+      t.abv_visible, t.ibu_visible, t.ebc_visible, t.og_visible, t.fg_visible,
+      t.swatch_visible, t.description, t.image_url, t.source,
     ].join("|");
   }
 
@@ -265,30 +266,29 @@
     }
     if (t.vacant) return; // nothing else to update on a vacant card
 
-    const s = state.settings;
     if (changed("name")) { setText(card, ".name .scroller", t.name); measureMarquee(card.querySelector(".name")); }
     if (changed("description")) { setText(card, ".desc .scroller", t.description || ""); measureMarquee(card.querySelector(".desc")); }
-    if (changed("abv")) {
+    if (changed("abv") || changed("abv_visible")) {
       setText(card, '[data-stat="abv"] .v', fmtNum(t.abv, "%"));
-      setHidden(card, '[data-stat="abv"]', statHidden(t.abv, s.show_abv, s.hide_abv_when_empty));
+      setHidden(card, '[data-stat="abv"]', !t.abv_visible);
     }
-    if (changed("ibu")) {
+    if (changed("ibu") || changed("ibu_visible")) {
       setText(card, '[data-stat="ibu"] .v', fmtNum(t.ibu));
-      setHidden(card, '[data-stat="ibu"]', statHidden(t.ibu, s.show_ibu, s.hide_ibu_when_empty));
+      setHidden(card, '[data-stat="ibu"]', !t.ibu_visible);
     }
-    if (changed("og") || changed("show_og")) {
+    if (changed("og") || changed("og_visible")) {
       setText(card, '[data-stat="og"] .v', gravity(t.og));
-      setHidden(card, '[data-stat="og"]', statHidden(t.og, effShow(t.show_og, s.show_og), s.hide_og_when_empty));
+      setHidden(card, '[data-stat="og"]', !t.og_visible);
     }
-    if (changed("fg") || changed("show_fg")) {
+    if (changed("fg") || changed("fg_visible")) {
       setText(card, '[data-stat="fg"] .v', gravity(t.fg));
-      setHidden(card, '[data-stat="fg"]', statHidden(t.fg, effShow(t.show_fg, s.show_fg), s.hide_fg_when_empty));
+      setHidden(card, '[data-stat="fg"]', !t.fg_visible);
     }
-    if (changed("ebc")) {
+    if (changed("ebc") || changed("ebc_visible")) {
       setText(card, '[data-stat="color"] .v', colorValue(t.ebc));
-      setHidden(card, '[data-stat="color"]', statHidden(t.ebc, s.show_color, s.hide_color_when_empty));
+      setHidden(card, '[data-stat="color"]', !t.ebc_visible);
     }
-    if (changed("ebc") || changed("color_hex") || changed("color_known")) updateSwatch(card, t);
+    if (changed("color_hex") || changed("swatch_visible")) updateSwatch(card, t);
     if (changed("source")) setText(card, ".source-badge", sourceLabel(t.source));
     if (changed("image_url")) {
       const img = card.querySelector(".thumb");
@@ -313,33 +313,28 @@
     // in app/colors.py - tests/test_frontend_constants.py fails if it drifts.
     const hex = t.color_hex || "#cccccc";
     const txt = t.text_color || "#f5f5f5";
-    // The swatch tracks whether a colour is *known* (EBC or override); the colour
-    // STAT number tracks EBC specifically, so an override-only beer shows a swatch
-    // but no EBC number.
-    const swatchHidden = !s.show_color || (!t.color_known && s.hide_color_when_empty);
-    const abvHidden = statHidden(t.abv, s.show_abv, s.hide_abv_when_empty);
-    const ibuHidden = statHidden(t.ibu, s.show_ibu, s.hide_ibu_when_empty);
-    const ogHidden = statHidden(t.og, effShow(t.show_og, s.show_og), s.hide_og_when_empty);
-    const fgHidden = statHidden(t.fg, effShow(t.show_fg, s.show_fg), s.hide_fg_when_empty);
-    const colorHidden = statHidden(t.ebc, s.show_color, s.hide_color_when_empty);
-    const hAttr = (h) => (h ? " hidden" : "");
+    // Visibility arrives resolved, so this is a read, not a rule. The swatch and
+    // the colour STAT are two separate answers off one operator toggle - an
+    // override-only beer shows a swatch and no EBC number - and the board is
+    // where that divergence is decided.
+    const hAttr = (visible) => (visible ? "" : " hidden");
     const badge = s.show_source_badge
       ? `<span class="source-badge">${sourceLabel(t.source)}</span>` : "";
     return `
       <div class="card-head">
         <div class="tap-num">${t.tap}</div>
         <h2 class="name"><span class="scroller">${esc(t.name || "Tap " + t.tap)}</span></h2>
-        <div class="swatch" style="background:${hex};color:${txt}"${hAttr(swatchHidden)}></div>
+        <div class="swatch" style="background:${hex};color:${txt}"${hAttr(t.swatch_visible)}></div>
       </div>
       <p class="desc"><span class="scroller">${esc(t.description || "")}</span></p>
       <div class="card-foot">
         <img class="thumb" alt="" src="${esc(t.image_url || "/img/placeholder")}">
         <div class="stats">
-          <div class="stat" data-stat="abv"${hAttr(abvHidden)}><span class="v">${fmtNum(t.abv, "%")}</span><span class="k">ABV</span></div>
-          <div class="stat" data-stat="ibu"${hAttr(ibuHidden)}><span class="v">${fmtNum(t.ibu)}</span><span class="k">IBU</span></div>
-          <div class="stat" data-stat="og"${hAttr(ogHidden)}><span class="v">${gravity(t.og)}</span><span class="k">OG</span></div>
-          <div class="stat" data-stat="fg"${hAttr(fgHidden)}><span class="v">${gravity(t.fg)}</span><span class="k">FG</span></div>
-          <div class="stat" data-stat="color"${hAttr(colorHidden)}><span class="v">${colorValue(t.ebc)}</span><span class="k">${colorLabel()}</span></div>
+          <div class="stat" data-stat="abv"${hAttr(t.abv_visible)}><span class="v">${fmtNum(t.abv, "%")}</span><span class="k">ABV</span></div>
+          <div class="stat" data-stat="ibu"${hAttr(t.ibu_visible)}><span class="v">${fmtNum(t.ibu)}</span><span class="k">IBU</span></div>
+          <div class="stat" data-stat="og"${hAttr(t.og_visible)}><span class="v">${gravity(t.og)}</span><span class="k">OG</span></div>
+          <div class="stat" data-stat="fg"${hAttr(t.fg_visible)}><span class="v">${gravity(t.fg)}</span><span class="k">FG</span></div>
+          <div class="stat" data-stat="color"${hAttr(t.ebc_visible)}><span class="v">${colorValue(t.ebc)}</span><span class="k">${colorLabel()}</span></div>
         </div>
       </div>
       ${badge}`;
@@ -357,11 +352,12 @@
   function updateSwatch(card, t) {
     const sw = card.querySelector(".swatch");
     if (!sw) return;
-    const s = state.settings;
-    // Same declared Unknown fallback as filledInner - see the note there.
+    // Same declared Unknown fallback as filledInner - see the note there. The
+    // hidden state is the board's resolved answer, so the swatch rule exists in
+    // one place rather than being written out here a second time.
     sw.style.background = t.color_hex || "#cccccc";
     sw.style.color = t.text_color || "#f5f5f5";
-    sw.hidden = !s.show_color || (!t.color_known && s.hide_color_when_empty);
+    sw.hidden = !t.swatch_visible;
   }
 
   function bindImage(card, t) {
@@ -642,18 +638,10 @@
     applyTheme(board.theme);
     applyCardScales(board);
 
+    // Only the settings this file still has a use for. Visibility is not among
+    // them: it reaches us per tap, already resolved.
     state.settings = {
       color_unit: board.color_unit || "ebc",
-      show_abv: board.show_abv !== false,
-      show_ibu: board.show_ibu !== false,
-      show_color: board.show_color !== false,
-      show_og: board.show_og === true,
-      show_fg: board.show_fg === true,
-      hide_abv_when_empty: board.hide_abv_when_empty !== false,
-      hide_ibu_when_empty: board.hide_ibu_when_empty !== false,
-      hide_color_when_empty: board.hide_color_when_empty !== false,
-      hide_og_when_empty: board.hide_og_when_empty !== false,
-      hide_fg_when_empty: board.hide_fg_when_empty !== false,
       show_source_badge: board.show_source_badge === true,
       tap_image_scale: Number(board.tap_image_scale) || 1,
       tap_text_scale: Number(board.tap_text_scale) || 1,
