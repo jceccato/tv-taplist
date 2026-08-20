@@ -1,7 +1,11 @@
 """Colour resolution, the ebc2hex polynomial, saturation, and the contrast rule."""
+import pytest
+
 from app.colors import (
     DEFAULT_SATURATION,
+    EBC_PER_SRM,
     UNKNOWN_SWATCH_HEX,
+    display_color_to_ebc,
     ebc_to_hex,
     parse_hex_color,
     parse_saturation,
@@ -115,3 +119,40 @@ def test_resolve_color_coerces_defensively():
     assert resolve_color(ebc=40, color_override="nope").color_hex == ebc_to_hex(40)
     assert resolve_color(ebc="not-a-number") is None
     assert resolve_color(ebc="not-a-number", color_override="#abc").color_hex == "#aabbcc"
+
+
+# ---- the display unit -> stored EBC conversion -----------------------------
+
+def test_display_color_to_ebc_passes_ebc_through():
+    """EBC is the stored form, so entering EBC is a no-op beyond tidying."""
+    assert display_color_to_ebc(20, "ebc") == 20
+    assert display_color_to_ebc(9.5, "ebc") == 9.5
+
+
+def test_display_color_to_ebc_converts_srm():
+    assert display_color_to_ebc(10, "srm") == pytest.approx(10 * EBC_PER_SRM, abs=0.05)
+
+
+def test_display_color_to_ebc_tidies_the_number_for_a_hand_edited_file():
+    """Integral values store as ints and the rest round to a tenth.
+
+    The result is written into a Tap file an operator may open in a text editor
+    (ADR-0001), so `19.700000000000003` would be noise to read past - and a
+    tenth of an EBC is far below the colour model's resolution anyway.
+    """
+    assert display_color_to_ebc(20.0, "ebc") == 20
+    assert isinstance(display_color_to_ebc(20.0, "ebc"), int)
+    assert display_color_to_ebc(10, "srm") == 19.7
+
+
+def test_display_color_to_ebc_treats_blank_and_junk_as_unknown():
+    # Unknown is a real answer; a Beer need not have a Colour at all.
+    assert display_color_to_ebc(None, "ebc") is None
+    assert display_color_to_ebc("", "srm") is None
+    assert display_color_to_ebc("not-a-number", "ebc") is None
+
+
+def test_display_color_to_ebc_treats_an_unknown_unit_as_ebc():
+    """Only "srm" converts; anything else is the stored unit, as config coerces."""
+    assert display_color_to_ebc(10, "bogus") == 10
+    assert display_color_to_ebc(10, "SRM") == pytest.approx(19.7, abs=0.05)

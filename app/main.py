@@ -25,6 +25,7 @@ import logging
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.responses import (
@@ -35,32 +36,26 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, ConfigDict
 
-from . import auth, tap_store as taps
-from .archive import archive_tap
+from . import admin_ops, auth, tap_store as taps
 from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
-from .beer_glass import GLASS_KEYS, GLASS_TYPES, beer_glass_svg
+from .beer_glass import GLASS_TYPES, beer_glass_svg
 from .board import build_board
 from .brewfather import run_sync
 from .colors import (
     UNKNOWN_SWATCH_HEX,
+    display_color_to_ebc,
     ebc_to_srm,
-    parse_hex_color,
     parse_saturation,
     resolve_color,
-    srm_to_ebc,
     text_color_for,
 )
 from .config_store import (
-    MAX_TAP_IMAGE_SCALE,
-    MAX_TAP_TEXT_SCALE,
-    MAX_VENUE_LOGO_VH,
-    MIN_TAP_IMAGE_SCALE,
-    MIN_TAP_TEXT_SCALE,
+    SETTINGS_BOUNDS,
+    apply_settings,
     brewfather_credentials,
     load_config,
-    resolve_tap_photo_preset,
-    resolve_tap_text_preset,
     update_config,
 )
 from .theme import DEFAULT_THEME, THEME_FIELD_LABELS, THEME_KEYS, THEMES
@@ -183,16 +178,15 @@ async def api_preview_color(ebc: str = "", sat: str = "", hex: str = ""):
     two against each other rather than a comment claiming they agree).
 
     What genuinely belongs here is the display unit: ``ebc`` arrives in the
-    admin's unit, so SRM is converted to EBC before resolution, matching
-    `_color_to_ebc` in save_override. ``sat`` is a percentage handled by
-    parse_saturation.
+    admin's unit, and `colors.display_color_to_ebc` is the one conversion the
+    override save uses too, so the preview cannot show a colour the save would
+    then store differently. ``sat`` is a percentage handled by parse_saturation.
 
     Unknown draws the swatch's grey, because the fallback belongs to the surface
     and the surface this endpoint feeds is a swatch (ADR-0004).
     """
-    ebc_val = _optional_number(ebc)
-    if ebc_val is not None and load_config().get("color_unit") == "srm":
-        ebc_val = srm_to_ebc(ebc_val)
+    ebc_val = display_color_to_ebc(_optional_number(ebc),
+                                   load_config().get("color_unit", "ebc"))
     color = resolve_color(ebc_val, parse_saturation(sat), hex)
     if color is None:
         return {"color_hex": UNKNOWN_SWATCH_HEX,
@@ -370,13 +364,12 @@ async def admin_page(request: Request):
             "bf": brewfather_credentials(),
             "color_label": "SRM" if cfg.get("color_unit") == "srm" else "EBC",
             "venue_logo_url": "/img/venue-logo" if venue_logo_path() else None,
-            "max_logo_vh": MAX_VENUE_LOGO_VH,
-            # Card-sizing slider bounds, taken from the server clamps so the two
-            # can never drift into an input that posts a value config rejects.
-            "min_image_scale": MIN_TAP_IMAGE_SCALE,
-            "max_image_scale": MAX_TAP_IMAGE_SCALE,
-            "min_text_scale": MIN_TAP_TEXT_SCALE,
-            "max_text_scale": MAX_TAP_TEXT_SCALE,
+            # Every numeric Settings input takes its min/max from here, so the
+            # browser refuses at the point of typing exactly what the store
+            # would otherwise clamp silently after the save. One table, one set
+            # of numbers - no bound is hand-copied into the template.
+            "bounds": {name: {"min": lo, "max": hi}
+                       for name, (lo, hi) in SETTINGS_BOUNDS.items()},
             # Theme + glassware pickers.
             "themes": THEMES,
             "theme_fields": THEME_FIELD_LABELS,
@@ -499,106 +492,115 @@ def _build_admin_tap_rows(cfg: dict) -> list[dict]:
 
 # ---- admin: settings -----------------------------------------------------
 
+class SettingsForm(BaseModel):
+    """The Settings the Admin form submits, declared exactly once.
+
+    This replaces a signature that listed every field as a typed `Form()`
+    parameter and a body that then named all of them again to build the update
+    dict - two lists that had to be kept in step by hand. The model is now the
+    single list, and `test_api.py` asserts it matches the Settings schema, so a
+    field added to one side and not the other fails the suite instead of quietly
+    never saving.
+
+    The types are load-bearing, not decoration. The Admin client posts every
+    checkbox explicitly as the string ``"true"`` or ``"false"`` (an unchecked box
+    is otherwise simply absent, which would leave a toggle stuck on), and
+    ``bool("false")`` is **True** in Python - so handing the raw form strings to
+    the store would save every unchecked box as checked. Pydantic parses the
+    string boolean properly, and non-numeric input still raises FastAPI's own
+    422 exactly as the typed parameters did.
+
+    Defaults are the *form's* defaults, deliberately not the schema's: a missing
+    checkbox means off, whatever `DEFAULT_CONFIG` says the field starts as. The
+    three fields with no default are required, as they were before.
+
+    `theme_custom` is absent because the palette arrives as separate
+    ``theme_<key>`` fields, which the route unprefixes below.
+    """
+
+    # Extra form fields (the theme_<key> colours, the CSRF-free odds and ends a
+    # browser sends) are ignored rather than rejected: this model describes the
+    # Settings in the post, not the whole post.
+    model_config = ConfigDict(extra="ignore")
+
+    brewfather_user_id: str = ""
+    brewfather_api_key: str = ""
+    include_conditioning: bool = False
+    include_fermenting: bool = False
+    num_taps: int
+    hide_vacant_taps: bool = False
+    announcement_text: str = ""
+    max_archive_age_days: int
+    max_archive_storage_mb: int
+    color_unit: str = "ebc"
+    show_abv: bool = False
+    show_ibu: bool = False
+    show_color: bool = False
+    show_og: bool = False
+    show_fg: bool = False
+    hide_abv_when_empty: bool = False
+    hide_ibu_when_empty: bool = False
+    hide_color_when_empty: bool = False
+    hide_og_when_empty: bool = False
+    hide_fg_when_empty: bool = False
+    show_source_badge: bool = False
+    theme: str = "default"
+    glass_type: str = "default"
+    tap_photo_preset: str = "default"
+    tap_text_preset: str = "default"
+    tap_image_scale: float = 1.0
+    tap_text_scale: float = 1.0
+    paginate: bool = False
+    page_size: int = 6
+    rotation_seconds: int = 30
+    venue_logo_height_vh: int = 0
+
+
+# Settings that exist in the schema but are deliberately not on the Settings
+# form, each for its own reason. Named so the field-set guard below can be exact
+# about the difference instead of tolerating any mismatch.
+SETTINGS_NOT_ON_THE_FORM = frozenset({
+    # Arrives as separate theme_<key> colour fields; assembled by the route.
+    "theme_custom",
+    # Written by the venue-logo upload route, not typed by anyone.
+    "venue_logo",
+    # No control on the Settings tab: an air-gapped deploy turns the update
+    # check off by editing config.json. It must stay off this model as well as
+    # off the form - a field here that the form never posts would take the
+    # model's default on every Save and quietly switch the check back on.
+    "update_check_enabled",
+})
+
+
 @app.post("/admin/settings")
 async def save_settings(
     request: Request,
+    settings: Annotated[SettingsForm, Form()],
     _: None = Depends(auth.require_admin),
-    brewfather_user_id: str = Form(""),
-    brewfather_api_key: str = Form(""),
-    include_conditioning: bool = Form(False),
-    include_fermenting: bool = Form(False),
-    num_taps: int = Form(...),
-    hide_vacant_taps: bool = Form(False),
-    announcement_text: str = Form(""),
-    max_archive_age_days: int = Form(...),
-    max_archive_storage_mb: int = Form(...),
-    color_unit: str = Form("ebc"),
-    show_abv: bool = Form(False),
-    show_ibu: bool = Form(False),
-    show_color: bool = Form(False),
-    show_og: bool = Form(False),
-    show_fg: bool = Form(False),
-    hide_abv_when_empty: bool = Form(False),
-    hide_ibu_when_empty: bool = Form(False),
-    hide_color_when_empty: bool = Form(False),
-    hide_og_when_empty: bool = Form(False),
-    hide_fg_when_empty: bool = Form(False),
-    show_source_badge: bool = Form(False),
-    theme: str = Form("default"),
-    glass_type: str = Form("default"),
-    tap_photo_preset: str = Form("default"),
-    tap_text_preset: str = Form("default"),
-    tap_image_scale: float = Form(1.0),
-    tap_text_scale: float = Form(1.0),
-    paginate: bool = Form(False),
-    page_size: int = Form(6),
-    rotation_seconds: int = Form(30),
-    venue_logo_height_vh: int = Form(0),
 ):
-    if num_taps < 0:
-        raise HTTPException(status_code=422, detail="Number of taps must be >= 0")
-    if max_archive_age_days < 0 or max_archive_storage_mb < 0:
-        raise HTTPException(status_code=422, detail="Cleanup limits must be >= 0")
+    """Persist the Settings form. Parse, hand to the store, answer.
 
-    # Custom theme colours arrive as theme_<key> fields; any invalid/blank colour
-    # falls back to the default palette (final clamping happens in config_store).
+    No range check lives here on purpose. The route used to refuse a negative
+    tap count and negative cleanup limits with a 422 while the store silently
+    clamped the same values, and the ceiling on the tap count was enforced in
+    the store alone - so an operator could save 5000 taps, get a success, and
+    watch the field snap to the bound on reload with no explanation. Clamping in
+    `config_store` is now the single enforcement point and the form's inputs
+    carry the same bounds, so the browser stops the value being typed. Do not
+    restore the checks; see CONTEXT.md's Known hazards for why rejection here
+    would gain nothing the clamp does not already guarantee.
+    """
+    # The custom palette arrives as theme_<key> fields, which are not Settings
+    # names. Unprefix them and let the store validate each colour - a blank or
+    # malformed one falls back to the default palette in `coerce_custom_theme`.
     form = await request.form()
-    theme_custom = {
-        key: parse_hex_color(form.get(f"theme_{key}")) or DEFAULT_THEME[key]
-        for key in THEME_KEYS
-    }
+    theme_custom = {key: form.get(f"theme_{key}") for key in THEME_KEYS}
 
-    # A named card-sizing preset owns its scale, so resolve here and let the
-    # posted slider value go: the browser may have been showing stale numbers
-    # (or none at all, for a scripted post), and the stored config must never
-    # say "small" beside Default's scale. Only "custom" keeps what was posted.
-    # The two axes resolve independently - picking a photo preset must not touch
-    # the text scale. Range clamping stays in config_store, as for every setting.
-    photo_preset, image_scale = resolve_tap_photo_preset(tap_photo_preset, tap_image_scale)
-    text_preset, text_scale = resolve_tap_text_preset(tap_text_preset, tap_text_scale)
-
-    updates = {
-        "include_conditioning": include_conditioning,
-        "include_fermenting": include_fermenting,
-        "num_taps": num_taps,
-        "hide_vacant_taps": hide_vacant_taps,
-        "announcement_text": announcement_text,
-        "max_archive_age_days": max_archive_age_days,
-        "max_archive_storage_mb": max_archive_storage_mb,
-        "color_unit": "srm" if color_unit.lower() == "srm" else "ebc",
-        "show_abv": show_abv,
-        "show_ibu": show_ibu,
-        "show_color": show_color,
-        "show_og": show_og,
-        "show_fg": show_fg,
-        "hide_abv_when_empty": hide_abv_when_empty,
-        "hide_ibu_when_empty": hide_ibu_when_empty,
-        "hide_color_when_empty": hide_color_when_empty,
-        "hide_og_when_empty": hide_og_when_empty,
-        "hide_fg_when_empty": hide_fg_when_empty,
-        "show_source_badge": show_source_badge,
-        "theme": theme,
-        "theme_custom": theme_custom,
-        "glass_type": glass_type,
-        "tap_photo_preset": photo_preset,
-        "tap_text_preset": text_preset,
-        "tap_image_scale": image_scale,
-        "tap_text_scale": text_scale,
-        "paginate": paginate,
-        "page_size": page_size,
-        "rotation_seconds": rotation_seconds,
-        "venue_logo_height_vh": max(0, min(MAX_VENUE_LOGO_VH, venue_logo_height_vh)),
-    }
-    # Only persist Brewfather credentials that are NOT managed via env vars, so
-    # an env-set key is never written to config.json.
-    creds = brewfather_credentials()
-    if not creds["user_from_env"]:
-        updates["brewfather_user_id"] = brewfather_user_id.strip()
-    if not creds["key_from_env"]:
-        updates["brewfather_api_key"] = brewfather_api_key.strip()
-
-    update_config(**updates)
-    log.info("admin saved settings (num_taps=%d color_unit=%s)", num_taps, updates["color_unit"])
+    saved = apply_settings(**settings.model_dump(), theme_custom=theme_custom)
+    # Log what was *saved*, not what was posted: the two differ whenever a bound
+    # clamped, and the log is the only trace of that an operator can consult.
+    log.info("admin saved settings (num_taps=%d color_unit=%s)",
+             saved["num_taps"], saved["color_unit"])
     return {"ok": True}
 
 
@@ -663,15 +665,15 @@ async def venue_logo(
 
 # ---- admin: manual overrides ---------------------------------------------
 
-def _save_uploaded_image(upload: UploadFile, tap: int) -> str | None:
-    """Save an uploaded image as the Manual Tap's photo, return its filename.
+def _validated_upload(upload: UploadFile | None) -> tuple[bytes, str] | None:
+    """Vet an uploaded beer photo and return its bytes plus extension.
 
-    The HTTP concerns stay here: the extension allow-list and the size cap are
-    both checked *before* anything on disk changes, so a rejected upload never
-    deletes the beer's existing image. The store is then handed bytes we vouch
-    for; it owns the filename and the sweep that removes a previously stored
-    image with a different extension (the md-plus-image pair is one unit there,
-    so that sweep cannot be present on one write path and absent from another).
+    Both HTTP concerns - the extension allow-list and the size cap - are settled
+    here, and nothing on disk has changed by the time this returns, so a
+    rejected upload never deletes the beer's existing image. The domain
+    operation is then handed bytes the route vouches for; the store owns the
+    filename and the sweep that removes a previously stored image with a
+    different extension.
     """
     if upload is None or not upload.filename:
         return None
@@ -680,16 +682,12 @@ def _save_uploaded_image(upload: UploadFile, tap: int) -> str | None:
         ext = ".jpg"
     if ext not in taps.IMAGE_EXTS:
         raise HTTPException(status_code=422, detail=f"Unsupported image type: {ext}")
-    # Read + size-check before touching the filesystem, so a rejected upload never
-    # deletes the beer's existing image.
-    data = _read_upload_capped(upload)
-    return taps.save_image(tap, taps.Source.MANUAL, data, ext)
+    return _read_upload_capped(upload), ext
 
 
 @app.post("/admin/override/{tap}")
 async def save_override(
     tap: int,
-    request: Request,
     _: None = Depends(auth.require_admin),
     enabled: bool = Form(False),
     name: str = Form(""),
@@ -706,74 +704,40 @@ async def save_override(
     description: str = Form(""),
     image: UploadFile | None = None,
 ):
+    """Save or clear a Slot's Manual override; `admin_ops` decides what that means.
+
+    The route's whole job is HTTP: vet the upload, translate the form's
+    tri-state selects, and turn a domain rejection into a 422. Which files move,
+    what the front matter says, and the Brewfather Tap left warm underneath all
+    live in `admin_ops` so they can be asserted without a request.
+    """
     if tap < 1:
         raise HTTPException(status_code=422, detail="Invalid tap number")
 
-    def _num(v: str):
-        v = (v or "").strip()
-        if v == "":
-            return None
-        try:
-            f = float(v)
-            return int(f) if f.is_integer() else f
-        except ValueError:
-            raise HTTPException(status_code=422, detail=f"'{v}' is not a number")
+    if not enabled:
+        admin_ops.clear_override(tap)
+        return {"ok": True, "override": False}
 
-    unit = load_config().get("color_unit", "ebc")
+    # Vetted before the domain call so a bad extension or an oversized file is
+    # refused with nothing written; the domain operation then rejects any bad
+    # value before it writes either, so neither can orphan the other.
+    upload = _validated_upload(image)
+    try:
+        front_matter = admin_ops.save_override(
+            tap,
+            name=name, abv=abv, ibu=ibu, og=og, fg=fg,
+            color=color, saturation=saturation, color_override=color_override,
+            glass=glass,
+            show_og=_tri_from_form(show_og), show_fg=_tri_from_form(show_fg),
+            description=description, image=upload,
+            unit=load_config().get("color_unit", "ebc"),
+        )
+    except admin_ops.OverrideRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    def _color_to_ebc(v: str):
-        """Parse the colour input (in the chosen unit) and store it as EBC."""
-        num = _num(v)
-        if num is None:
-            return None
-        ebc = srm_to_ebc(num) if unit == "srm" else float(num)
-        return int(ebc) if float(ebc).is_integer() else round(ebc, 1)
-
-    with JOB_LOCK:
-        if not enabled:
-            # Release the slot back to Brewfather control: archive custom files.
-            archived = archive_tap(tap, taps.Source.MANUAL)
-            log.info("override cleared for tap %d (archived=%s)", tap, archived)
-            return {"ok": True, "override": False}
-
-        # Enabling/saving an override. Parse EVERY field that can reject the
-        # request (the numeric fields raise 422) BEFORE any filesystem side effect,
-        # so a bad value never leaves an orphaned image with no md file.
-        glass_key = glass.strip()
-        front_matter = {
-            "name": name.strip() or f"Tap {tap}",
-            "abv": _num(abv),
-            "ibu": _num(ibu),
-            "ebc": _color_to_ebc(color),
-            "og": _num(og),
-            "fg": _num(fg),
-            "saturation": parse_saturation(saturation),
-            "color_override": parse_hex_color(color_override),
-            "glass": glass_key if glass_key in GLASS_KEYS else None,
-            "show_og": _tri_from_form(show_og),
-            "show_fg": _tri_from_form(show_fg),
-            "source": "custom",
-            "updated": iso_now(),
-        }
-
-        # Now the side effects: save the image (also validated before it writes),
-        # keep any prior image if none was uploaded, then write the Manual Tap.
-        image_name = _save_uploaded_image(image, tap) if image is not None else None
-        if image_name is None:
-            existing = taps.image_for(tap, taps.Source.MANUAL)
-            image_name = existing.name if existing else None
-        front_matter["image"] = image_name
-        taps.write(tap, taps.Source.MANUAL, front_matter, description)
-
-        # The Brewfather Tap for this Slot is deliberately left alone. It stays
-        # warm underneath: nothing displays it while this Manual Tap stands
-        # (resolve picks Manual first), sync keeps it current, and clearing the
-        # override above reveals it instantly instead of leaving the Slot Vacant
-        # until the next sync cycle. Overriding a Slot for one night is not a
-        # destructive act. Archiving the *Manual* Tap on clear remains the only
-        # way to drop Manual precedence.
-        log.info("override saved for tap %d (name=%r image=%s)", tap, front_matter["name"], image_name)
-        return {"ok": True, "override": True, "image_url": f"/img/{image_name}" if image_name else None}
+    image_name = front_matter["image"]
+    return {"ok": True, "override": True,
+            "image_url": f"/img/{image_name}" if image_name else None}
 
 
 # ---- admin: manual sync trigger ------------------------------------------

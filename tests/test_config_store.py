@@ -200,3 +200,95 @@ def test_resolve_custom_keeps_the_submitted_scale():
     # the operator's number to some preset's.
     assert config_store.resolve_tap_photo_preset("bogus", 0.4) == ("custom", 0.4)
     assert config_store.resolve_tap_text_preset("bogus", 1.8) == ("custom", 1.8)
+
+
+# ---- the single enforcement point -----------------------------------------
+
+def test_every_numeric_bound_clamps_rather_than_raising():
+    """Out of range in either direction is saved at the bound, silently.
+
+    The store is the one place a Settings bound is applied. It clamps rather
+    than refusing because config.json is hand-editable (ADR-0001) and a file has
+    nobody to report an error to - a raise here would stop the box booting over
+    a typo. The Admin form carries the same numbers as input attributes so an
+    operator is stopped while typing instead. See CONTEXT.md, Known hazards.
+    """
+    for field, (lo, hi) in config_store.SETTINGS_BOUNDS.items():
+        below = config_store.update_config(**{field: lo - 1000})
+        assert below[field] == lo, f"{field} below its minimum"
+        if hi is not None:
+            above = config_store.update_config(**{field: hi + 1000})
+            assert above[field] == hi, f"{field} above its maximum"
+
+
+def test_the_cleanup_limits_have_no_ceiling():
+    """A venue may keep its archive forever; only the floor is a bound."""
+    for field in ("max_archive_age_days", "max_archive_storage_mb"):
+        assert config_store.SETTINGS_BOUNDS[field][1] is None
+        assert config_store.update_config(**{field: 10_000_000})[field] == 10_000_000
+
+
+def test_update_config_returns_what_was_saved_not_what_was_passed():
+    saved = config_store.update_config(num_taps=5000)
+    assert saved["num_taps"] == config_store.MAX_NUM_TAPS
+    assert saved == config_store.load_config()
+
+
+# ---- env-managed credentials never reach disk ------------------------------
+
+def test_update_config_never_persists_an_env_managed_credential(monkeypatch):
+    """The write seam drops a credential the environment owns.
+
+    Keeping the API key off disk is the whole point of the env vars, so the rule
+    lives here rather than in the Admin route that happens to be its only caller
+    today - any future writer inherits it. Asserted against config.json itself.
+    """
+    monkeypatch.setenv("BREWFATHER_API_KEY", "env-key")
+    monkeypatch.delenv("BREWFATHER_USER_ID", raising=False)
+
+    config_store.update_config(brewfather_user_id="typed-user",
+                               brewfather_api_key="typed-key")
+
+    on_disk = _read_raw()
+    assert on_disk["brewfather_api_key"] == ""            # never written
+    assert on_disk["brewfather_user_id"] == "typed-user"  # not env-managed
+    # The effective credential still resolves, from the environment.
+    creds = config_store.brewfather_credentials()
+    assert creds["api_key"] == "env-key" and creds["key_from_env"] is True
+
+
+def test_dropping_an_env_credential_leaves_a_previously_saved_one_alone(monkeypatch):
+    """Dropping the key is not the same as blanking it.
+
+    The Admin form shows a read-only "managed via environment" field and posts
+    an empty value back; that must not erase a key an operator saved before the
+    env var existed, because unsetting the env var would then leave them with
+    nothing.
+    """
+    config_store.update_config(brewfather_api_key="saved-on-disk")
+    monkeypatch.setenv("BREWFATHER_API_KEY", "env-key")
+    config_store.update_config(brewfather_api_key="")
+    assert _read_raw()["brewfather_api_key"] == "saved-on-disk"
+
+
+def test_credentials_are_stripped_on_the_way_in():
+    config_store.update_config(brewfather_api_key="  k  ", brewfather_user_id="\tu\n")
+    on_disk = _read_raw()
+    assert on_disk["brewfather_api_key"] == "k"
+    assert on_disk["brewfather_user_id"] == "u"
+
+
+# ---- the Settings domain operation -----------------------------------------
+
+def test_apply_settings_resolves_the_presets_and_returns_the_saved_config():
+    saved = config_store.apply_settings(
+        num_taps=4, tap_photo_preset="small", tap_image_scale=2.5,
+        tap_text_preset="custom", tap_text_scale=1.8)
+    # A named preset owns its number; Custom keeps what was submitted.
+    assert saved["tap_photo_preset"] == "small" and saved["tap_image_scale"] == 0.6
+    assert saved["tap_text_preset"] == "custom" and saved["tap_text_scale"] == 1.8
+    assert saved["num_taps"] == 4
+
+
+def test_apply_settings_clamps_and_does_not_raise():
+    assert config_store.apply_settings(num_taps=-5)["num_taps"] == 0

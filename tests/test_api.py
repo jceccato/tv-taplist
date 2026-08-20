@@ -1,4 +1,5 @@
 """HTTP surface: display, board API, image serving, admin auth + mutations."""
+import json
 import re
 
 import pytest
@@ -195,11 +196,157 @@ def test_admin_page_offers_both_sync_status_checkboxes():
     assert 'name="include_fermenting"' in body
 
 
-def test_save_settings_rejects_negative_taps():
+def test_save_settings_clamps_out_of_range_values_instead_of_rejecting():
+    """A value outside a Settings bound is clamped and saved; nothing raises.
+
+    Posted directly, bypassing the form's input attributes - which is the only
+    way to get here, and exactly the case the clamp exists for. The route used
+    to refuse a negative tap count with a 422 while the store clamped the same
+    value, and the ceiling was enforced in the store alone, so 5000 taps saved
+    "successfully" and then snapped to the bound with no explanation. There is
+    one enforcement point now. See CONTEXT.md's Known hazards.
+    """
     c = _login(TestClient(app))
     r = c.post("/admin/settings", data={
-        "num_taps": "-1", "max_archive_age_days": "1", "max_archive_storage_mb": "1"})
+        "num_taps": "5000", "max_archive_age_days": "-5",
+        "max_archive_storage_mb": "-1", "page_size": "99",
+        "rotation_seconds": "1", "venue_logo_height_vh": "90"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    cfg = config_store.load_config()
+    assert cfg["num_taps"] == config_store.MAX_NUM_TAPS
+    assert cfg["max_archive_age_days"] == 0
+    assert cfg["max_archive_storage_mb"] == 0
+    assert cfg["page_size"] == config_store.MAX_PAGE_SIZE
+    assert cfg["rotation_seconds"] == config_store.MIN_ROTATION_SECONDS
+    assert cfg["venue_logo_height_vh"] == config_store.MAX_VENUE_LOGO_VH
+
+
+def test_save_settings_still_rejects_a_non_numeric_field():
+    """Deleting the range checks did not delete the type checks.
+
+    FastAPI's own parsing error for "not a number" is a different thing from a
+    bound and stays exactly as it was.
+    """
+    c = _login(TestClient(app))
+    r = c.post("/admin/settings", data={
+        "num_taps": "lots", "max_archive_age_days": "1", "max_archive_storage_mb": "1"})
     assert r.status_code == 422
+
+
+def test_settings_form_declares_every_settings_field_once():
+    """The declared Settings field list must match the Settings schema.
+
+    The route used to name every field twice - once as a typed form parameter
+    and again building the update dict - so a new setting could be added to one
+    list and not the other and would then simply never save. `SettingsForm` is
+    the single list, and this is what makes it a guard rather than a promise:
+    a field added to `DEFAULT_CONFIG` alone (or to the form alone) fails here.
+    """
+    declared = set(main.SettingsForm.model_fields)
+    schema = set(config_store.DEFAULT_CONFIG)
+    # Nothing is on the form that is not a Setting...
+    assert declared <= schema
+    # ...and nothing is a Setting without either being on the form or being
+    # listed, with its reason, as deliberately absent from it.
+    assert declared | main.SETTINGS_NOT_ON_THE_FORM == schema
+    assert not (declared & main.SETTINGS_NOT_ON_THE_FORM)
+
+
+def test_every_unchecked_settings_checkbox_saves_as_false():
+    """Every boolean Setting posted as the string "false" is stored as False.
+
+    The highest-risk regression in this area, and not hypothetical: the Admin
+    client normalises each checkbox to the literal string "true"/"false" before
+    posting (an unchecked box is otherwise absent, which would leave a toggle
+    stuck on), and `bool("false")` is **True** in Python. Any route that handed
+    the raw form strings to the store would save every unchecked box as checked.
+    Asserted against config.json itself, not the in-memory config, so a coercion
+    that happened to fix it on read would not hide the bug.
+    """
+    flags = [name for name, field in main.SettingsForm.model_fields.items()
+             if field.annotation is bool]
+    assert len(flags) >= 10, "expected the display toggles to be booleans"
+
+    c = _login(TestClient(app))
+    # Start from every flag ON, so "false" has to do real work to turn it off.
+    config_store.update_config(**{flag: True for flag in flags})
+    data = {"num_taps": "1", "max_archive_age_days": "1", "max_archive_storage_mb": "1"}
+    data.update({flag: "false" for flag in flags})
+    r = c.post("/admin/settings", data=data)
+    assert r.status_code == 200
+
+    on_disk = json.loads(paths.CONFIG_PATH.read_text(encoding="utf-8"))
+    for flag in flags:
+        assert on_disk[flag] is False, f"{flag} saved as {on_disk[flag]!r}"
+
+
+def test_every_checked_settings_checkbox_saves_as_true():
+    """The other half of the round trip, so "always false" cannot pass the pair."""
+    flags = [name for name, field in main.SettingsForm.model_fields.items()
+             if field.annotation is bool]
+    c = _login(TestClient(app))
+    config_store.update_config(**{flag: False for flag in flags})
+    data = {"num_taps": "1", "max_archive_age_days": "1", "max_archive_storage_mb": "1"}
+    data.update({flag: "true" for flag in flags})
+    assert c.post("/admin/settings", data=data).status_code == 200
+
+    on_disk = json.loads(paths.CONFIG_PATH.read_text(encoding="utf-8"))
+    for flag in flags:
+        assert on_disk[flag] is True, f"{flag} saved as {on_disk[flag]!r}"
+
+
+def test_save_settings_does_not_disturb_a_setting_that_has_no_form_control():
+    """A Setting with no control on the form survives a Save untouched.
+
+    `update_check_enabled` is operator intent with no checkbox (an air-gapped
+    box turns it off by editing config.json). It must stay off `SettingsForm`
+    as well as off the form: a field declared there but never posted would take
+    the model's default on every Save and quietly switch the check back on.
+    """
+    config_store.update_config(update_check_enabled=False)
+    c = _login(TestClient(app))
+    r = c.post("/admin/settings", data={
+        "num_taps": "3", "max_archive_age_days": "1", "max_archive_storage_mb": "1"})
+    assert r.status_code == 200
+    assert config_store.load_config()["update_check_enabled"] is False
+
+
+def _input_attrs(html: str, name: str) -> dict[str, str]:
+    """The attributes of the single <input> carrying this name."""
+    tag = re.search(r'<input[^>]*\bname="%s"[^>]*>' % re.escape(name), html)
+    assert tag, f"no input named {name} in the admin page"
+    return dict(re.findall(r'(\w+)="([^"]*)"', tag.group(0)))
+
+
+def test_every_numeric_settings_input_carries_the_server_bound():
+    """Each numeric Settings input renders min/max from SETTINGS_BOUNDS.
+
+    The operator-facing half of the clamp-everywhere decision: the store no
+    longer has a route double-checking it, so the browser has to refuse the
+    value while it is being typed. Hand-copying a bound into the template is
+    what let the tap count ship with a minimum and no maximum at all.
+    """
+    c = _login(TestClient(app))
+    body = c.get("/admin").text
+    for field, (lo, hi) in config_store.SETTINGS_BOUNDS.items():
+        attrs = _input_attrs(body, field)
+        assert attrs.get("min") == str(lo), f"{field} min"
+        if hi is None:
+            assert "max" not in attrs, f"{field} should have no ceiling"
+        else:
+            assert attrs.get("max") == str(hi), f"{field} max"
+
+
+def test_the_tap_count_input_has_a_maximum():
+    """Named on its own because this is the bound an operator could exceed.
+
+    Every other numeric Settings input already had a matching pair; the tap
+    count had a minimum and nothing above it, so 5000 could be typed, submitted
+    and "saved" before snapping back to 200 on the next page load.
+    """
+    c = _login(TestClient(app))
+    attrs = _input_attrs(c.get("/admin").text, "num_taps")
+    assert attrs["max"] == str(config_store.MAX_NUM_TAPS)
 
 
 def test_override_save_then_clear_with_image():
@@ -504,6 +651,30 @@ def test_preview_color_converts_srm_unit():
     r = client.get("/api/preview-color", params={"ebc": "10"})
     # 10 SRM -> ~19.7 EBC, matching _color_to_ebc in save_override.
     assert r.json()["color_hex"] == ebc_to_hex(10 * 1.97)
+
+
+@pytest.mark.parametrize("unit", ["ebc", "srm"])
+@pytest.mark.parametrize("typed", ["12", "9.5", "40"])
+def test_preview_and_override_agree_on_the_stored_ebc(unit, typed):
+    """What the preview shows is what the save stores, in either display unit.
+
+    Both go through `colors.display_color_to_ebc`, which is the point: the
+    conversion used to be a closure inside the override route with the preview
+    endpoint repeating it inline, so the swatch an operator was looking at and
+    the EBC that landed in the Tap file could drift apart with nothing to catch
+    it. Asserted against the *stored* number, so a rounding difference fails.
+    """
+    from app.colors import ebc_to_hex
+
+    config_store.update_config(color_unit=unit)
+    c = _login(TestClient(app))
+    r = c.post("/admin/override/1",
+               data={"enabled": "true", "name": "Same Beer", "color": typed})
+    assert r.status_code == 200
+    stored = taps.read(1, taps.Source.MANUAL).front_matter["ebc"]
+
+    preview = client.get("/api/preview-color", params={"ebc": typed}).json()
+    assert preview["color_hex"] == ebc_to_hex(stored)
 
 
 def test_preview_color_blank_is_the_swatch_fallback():

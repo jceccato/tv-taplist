@@ -66,6 +66,34 @@ def srm_to_ebc(srm: float | int | None) -> float | None:
         return None
 
 
+def display_color_to_ebc(value: float | int | None, unit: str) -> float | int | None:
+    """Convert a Colour typed in the operator's display unit into stored EBC.
+
+    EBC is the only stored form of a Beer's Colour; SRM is a display unit that
+    exists at the Admin form and nowhere else (see CONTEXT.md's Colour entry).
+    This function is where that sentence is enforced, so the override save and
+    the Admin's live preview cannot drift into converting differently - they
+    call this, rather than each repeating the multiply.
+
+    Rounded on the way in because the number is about to be written into a
+    hand-editable Tap file: `19.700000000000003` in front matter is noise an
+    operator would have to read past, and a tenth of an EBC is far below the
+    colour model's resolution. `None` passes through - Unknown is a real answer.
+    """
+    if value is None or value == "":
+        return None
+    if str(unit).lower() == "srm":
+        ebc = srm_to_ebc(value)
+    else:
+        try:
+            ebc = float(value)
+        except (TypeError, ValueError):
+            ebc = None
+    if ebc is None:
+        return None
+    return int(ebc) if ebc.is_integer() else round(ebc, 1)
+
+
 def parse_saturation(value: Any, default: float | None = None) -> float | None:
     """Normalise a saturation value to a 0..1 fraction (or `default` if blank).
 
