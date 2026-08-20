@@ -42,11 +42,80 @@ whatever the runner defaults to.
 This changes nothing about running the box. It changes what it takes for a
 change to reach it.
 
+### The admin warns when your data is not actually being saved
+
+Nothing used to check that the mapped data directory was real. An operator whose
+data was not persisting found out when their manual beers were gone - and only
+the manual ones, because Brewfather taps rebuild on the next sync.
+
+Two checks now run at startup. The first notices that no host directory is
+mapped to `/data`, which means settings, the Brewfather key and manual beers are
+written inside the container and vanish the next time it is recreated, including
+on the next update. The second notices that the mapped directory is empty, or is
+a different directory from the one the container last used - what a deleted host
+folder, or storage that was not mounted before Docker started, looks like.
+
+Either one puts a banner on `/admin` and the same message in the container log.
+Nothing appears on the TV, and the box never refuses to start: a durability
+warning should not become an outage on an appliance whose whole point is serving
+through failures. `DEMO_MODE` suppresses both banners, since a demo box is meant
+to be disposable.
+
+A small `.data_dir_id` file now sits in the data directory. It holds a random
+identifier and nothing else, and it is how the second check tells a container
+recreate apart from a wipe. Leave it alone - deleting it looks like a wipe and
+costs you one warning.
+
+**The image no longer declares `/data` as a Docker volume.** This is what makes
+the first check reliable: an unmapped data directory is now plainly unmapped
+rather than silently receiving a throwaway volume that accepts every write and
+survives nothing. An operator who mapped a host directory as documented does
+nothing. An operator who did not was already losing data on every container
+recreate; this does not make that worse, it makes it visible.
+
+### A beer with no colour data no longer looks broken
+
+A beer with neither a colour nor an EBC reading used to render a grey swatch
+beside an amber glass on the same card, because the colour was worked out
+separately in four places and they did not agree. Colour is now resolved once,
+so the swatch and the placeholder glass always match when the beer has a colour,
+and each falls back to its own sensible default when it does not.
+
+A colour override combined with a saturation now behaves as documented: the
+override is used exactly as written and is never muted. Saturation was only ever
+meant to tame the computed colour.
+
+### The display is told what to show, not how to work it out
+
+The five show/hide settings, their "hide when empty" partners and the per-tap
+overrides were all sent to the TV, which then applied the rules itself. The
+board now applies them and sends the answer. The same settings produce the same
+board, and the admin is unchanged - the per-tap override is still yours to set.
+
+### Changed: the `/api/board` payload
+
+Only the built-in display consumes this, but the endpoint is public, so if you
+read it directly:
+
+- The five `show_*` and five `hide_*_when_empty` flags are gone from the top
+  level, and each tap now carries `abv_visible`, `ibu_visible`, `ebc_visible`,
+  `og_visible`, `fg_visible` and `swatch_visible` instead of `color_known` and
+  its per-tap `show_og` / `show_fg` values.
+- `color_hex` and `text_color` are `null` for a beer with no colour data, where
+  they previously carried a grey, and are omitted on vacant taps.
+- The no-photo glass image is now `/img/beer-glass?hex=<rrggbb>`; the `ebc` and
+  `sat` parameters on that route are gone.
+
+`color_unit` and `show_source_badge` are unchanged.
+
 ### Also
 
 - **Documentation fix:** the versioning guide contained two contradictory
   answers about whether this project keeps a changelog, the wrong one nearer
   the end. It now has one.
+- **Internal:** the Brewfather integration is split into a fetch half and a
+  mapping half. Nothing changes for the operator - beers map to taps by exactly
+  the same rules, cached tap files are not rewritten, and no setting moves.
 
 ---
 

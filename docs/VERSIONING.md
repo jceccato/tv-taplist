@@ -55,7 +55,7 @@ the env var but never the number.
 
 ## Internal version: `MAPPING_VERSION`
 
-`app/brewfather.py` defines `MAPPING_VERSION`, an integer (currently **6**).
+`app/mapping.py` defines `MAPPING_VERSION`, an integer (currently **6**).
 This is **not** a Semver component -- it is an internal counter that tracks
 changes to the Brewfather extraction logic.
 
