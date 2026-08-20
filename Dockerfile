@@ -38,7 +38,20 @@ COPY templates ./templates
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-VOLUME ["/data"]
+# Container-local state, outside the data directory: the appliance's memory of
+# which data directory it last saw (see app/persistence.py). Chowned here for
+# the default user and again in entrypoint.sh once PUID/PGID are known.
+# NOT under /tmp, which some hardened setups mount as tmpfs.
+RUN mkdir -p /var/lib/taplist && chown appuser:appgroup /var/lib/taplist
+
+# NO `VOLUME ["/data"]` here, deliberately - do not add one back.
+# With the directive, an unmapped data directory silently receives an anonymous
+# volume: writable, accepting every write, surviving nothing, and impossible to
+# tell apart from a named volume at runtime (both ext4, same device). Without
+# it, an unmapped data directory has no mountinfo entry at all, which is what
+# lets the app detect the misconfiguration and warn the operator instead of
+# quietly losing their manual beers. tests/test_persistence.py fails if this
+# comes back.
 EXPOSE 8080
 LABEL tv-taplist-version=${TVTAPLIST_VERSION}
 

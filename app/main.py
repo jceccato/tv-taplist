@@ -66,6 +66,7 @@ from .theme import DEFAULT_THEME, THEME_FIELD_LABELS, THEME_KEYS, THEMES
 from .update_check import (check_for_updates, current_version,
                            is_update_available, update_state)
 from .demo import maybe_seed_demo
+from . import persistence
 from .paths import (
     DATA_DIR,
     STATIC_DIR,
@@ -91,6 +92,10 @@ log = logging.getLogger("taplist.app")
 async def lifespan(app: FastAPI):
     """Startup/shutdown: bootstrap data, seed demo, run an initial sync, schedule jobs."""
     ensure_dirs()
+    # Durability checks run here - after the tree exists, and *before* demo
+    # seeding, so a demo seed can never be mistaken for operator data that
+    # survived. The verdict is computed once and read by the admin page.
+    persistence.run_startup_checks()
     load_config()  # first-run bootstrap of config.json
     # One-time carry of the Status fields out of a pre-split config.json. Runs
     # before the scheduler so no job can write status.json ahead of it, which is
@@ -369,6 +374,9 @@ async def admin_page(request: Request):
             "glass_types": GLASS_TYPES,
             # Banner when the admin is open with no login (demo mode, no password).
             "demo_open": auth.demo_admin_open(),
+            # Data-durability banner, decided once at startup: "not_mapped",
+            # "data_replaced", or None for the healthy case.
+            "persistence_warning": persistence.admin_banner(),
             # Update check status for the admin status panel.
             "update_current_version": current_version(),
         },

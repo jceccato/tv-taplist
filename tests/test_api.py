@@ -517,6 +517,56 @@ def test_no_demo_no_password_admin_denied(monkeypatch):
     assert r.headers["location"] == "/admin/login"
 
 
+# ---- data-durability banner (issue #28) --------------------------------
+# The verdict is a boot fact stashed in app.persistence, so these drive the
+# admin page by setting it directly rather than faking a container.
+
+@pytest.fixture
+def boot_verdict(monkeypatch):
+    """Pin the startup persistence verdict for one test."""
+    from app import persistence
+
+    def _set(value):
+        monkeypatch.setattr(persistence, "_verdict", value)
+    yield _set
+
+
+def test_admin_is_silent_when_the_data_dir_persists(boot_verdict):
+    from app import persistence
+
+    boot_verdict(persistence.VERDICT_OK)
+    html = _login(TestClient(app)).get("/admin").text
+    assert "Data is not being saved" not in html
+    assert "The data directory changed" not in html
+
+
+def test_admin_warns_when_the_data_dir_is_not_mapped(boot_verdict):
+    from app import persistence
+
+    boot_verdict(persistence.VERDICT_NOT_MAPPED)
+    html = _login(TestClient(app)).get("/admin").text
+    assert "Data is not being saved" in html
+    assert "The data directory changed" not in html  # only ever one banner
+
+
+def test_admin_warns_when_the_data_dir_was_replaced(boot_verdict):
+    from app import persistence
+
+    boot_verdict(persistence.VERDICT_DATA_REPLACED)
+    html = _login(TestClient(app)).get("/admin").text
+    assert "The data directory changed" in html
+
+
+def test_demo_mode_hides_the_durability_banner(monkeypatch, boot_verdict):
+    from app import persistence
+
+    boot_verdict(persistence.VERDICT_NOT_MAPPED)
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)
+    html = TestClient(app).get("/admin").text
+    assert "Data is not being saved" not in html
+
+
 # ---- review-fix regressions -------------------------------------------
 
 def test_display_assets_are_cache_busted():
