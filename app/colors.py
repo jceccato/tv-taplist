@@ -1,19 +1,27 @@
-"""EBC/SRM -> hex beer-colour mapping, server-side twin of the JS ebcToHex().
+"""Colour resolution plus the EBC/SRM -> hex mapping it computes with.
 
-Colour is produced by the ebc2hex polynomial model
+`resolve_color` is the **only** place Colour precedence is expressed: a Colour
+override, then the EBC-derived colour, then _Unknown_. It answers with a
+resolved colour or with Unknown and stops there - it never substitutes a
+fallback, because the colour drawn for Unknown belongs to the surface doing the
+drawing (a grey swatch reads as "no data"; a grey pour reads as a broken image).
+See ADR-0004.
+
+The computed colour comes from the ebc2hex polynomial model
 (github.com/moussaclarke/ebc2hexjs): the EBC is clamped to the model's 0..80
 range, converted to SRM, and each RGB channel is fitted with its own curve. An
 optional `saturation` (0..1) then blends the colour towards its luminance grey,
 so a per-beer override can mute a too-vivid swatch.
 
-The display (static/js/display.js) no longer recomputes colour: the board API
-sends the computed `color_hex` / `text_color` for every tap, so the swatch, the
-glass placeholder and the API all agree and there is a single implementation to
-keep correct.
+The display (static/js/display.js) never recomputes colour: the board API sends
+the resolved `color_hex` / `text_color` for every tap, and the placeholder-glass
+URL carries the resolved colour too, so the swatch, the glass placeholder and
+the admin preview cannot disagree about a *known* Colour.
 """
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 EBC_PER_SRM = 1.97  # stat-unit conversion: EBC = SRM * 1.97; SRM = EBC / 1.97
@@ -28,6 +36,14 @@ _EBC_MAX = 80.0
 # 1.0 keeps the model's full colour; lower values mute it towards grey. Used
 # when a beer has no per-tap saturation override.
 DEFAULT_SATURATION = 1.0
+
+# What a *swatch* draws when Colour is Unknown. This is the swatch surface's
+# declared fallback, not a resolved Colour: `resolve_color` answers Unknown and
+# each surface decides what that looks like. The glassware Placeholder declares
+# a different one (`beer_glass._DEFAULT_HEX`, an amber) on purpose - ADR-0004.
+# static/js/display.js mirrors this literal for the swatch it paints, guarded by
+# tests/test_frontend_constants.py.
+UNKNOWN_SWATCH_HEX = "#cccccc"
 
 
 def ebc_to_srm(ebc: float | int | None) -> float | None:
@@ -101,13 +117,20 @@ def ebc_to_hex(ebc: float | int | None,
 
     `saturation` is a 0..1 fraction (None -> DEFAULT_SATURATION); below 1 it
     mutes the colour towards grey via `_desaturate`.
+
+    This is the *computed* branch of Colour, not resolution: it always returns a
+    colour, so a caller that needs to know whether the beer has one at all must
+    ask `resolve_color` instead. The no-EBC grey here is the swatch's fallback
+    (`UNKNOWN_SWATCH_HEX`) because this function predates resolution and the
+    swatch was its only caller with nothing to draw; nothing in the app reaches
+    it with a missing EBC any more.
     """
     if ebc is None:
-        return "#cccccc"
+        return UNKNOWN_SWATCH_HEX
     try:
         ebc_f = float(ebc)
     except (TypeError, ValueError):
-        return "#cccccc"
+        return UNKNOWN_SWATCH_HEX
 
     srm = max(0.0, min(_EBC_MAX, ebc_f)) * _EBC_TO_SRM
     # Per-channel fits from the ebc2hex model (red capped high, blue floored low,
@@ -144,3 +167,51 @@ def text_color_for(hex_color: str) -> str:
         return "#111111"
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return "#f5f5f5" if relative_luminance(r, g, b) < 0.4 else "#161616"
+
+
+@dataclass(frozen=True)
+class ResolvedColor:
+    """A Colour that resolved: the hex and the text colour legible on it.
+
+    The pair travels together so no caller can pick one up without the other and
+    re-derive the contrast rule for itself.
+    """
+
+    color_hex: str
+    text_color: str
+
+
+def resolve_color(ebc: Any = None,
+                  saturation: float | None = None,
+                  color_override: Any = None) -> ResolvedColor | None:
+    """Resolve a Beer's Colour: override, then EBC, then Unknown (None).
+
+    The single expression of Colour's Value precedence - the board, the
+    placeholder-glass URL and the admin's live preview all read this answer
+    rather than repeating the chain, which is how a *known* Colour is guaranteed
+    to be byte-identical on the swatch and the Placeholder.
+
+    `None` means **Unknown**, a real answer rather than an error: the Beer has
+    neither an EBC nor a Colour override. No fallback colour is substituted here
+    on purpose - the surface doing the drawing declares its own (ADR-0004).
+
+    `saturation` mutes the *computed* colour only. A Colour override is an exact
+    instruction, so an override plus a saturation yields the override untouched;
+    otherwise there would be no way to ask for exactly one colour.
+
+    Inputs are coerced defensively because they arrive from front matter and
+    query strings: a malformed override falls through to the EBC branch (an
+    unparseable hex is not an instruction), and an EBC that is not a number is
+    the same as no EBC at all.
+    """
+    override = parse_hex_color(color_override)
+    if override:
+        return ResolvedColor(override, text_color_for(override))
+    if ebc is None or ebc == "":
+        return None
+    try:
+        ebc_f = float(ebc)
+    except (TypeError, ValueError):
+        return None
+    computed = ebc_to_hex(ebc_f, saturation)
+    return ResolvedColor(computed, text_color_for(computed))

@@ -1,10 +1,12 @@
-"""EBC->hex colour (the ebc2hex polynomial), saturation, and the contrast rule."""
+"""Colour resolution, the ebc2hex polynomial, saturation, and the contrast rule."""
 from app.colors import (
     DEFAULT_SATURATION,
+    UNKNOWN_SWATCH_HEX,
     ebc_to_hex,
     parse_hex_color,
     parse_saturation,
     relative_luminance,
+    resolve_color,
     text_color_for,
 )
 
@@ -15,8 +17,8 @@ def _rgb(hex_color: str) -> tuple[int, int, int]:
 
 
 def test_ebc_none_and_invalid_return_neutral():
-    assert ebc_to_hex(None) == "#cccccc"
-    assert ebc_to_hex("not-a-number") == "#cccccc"
+    assert ebc_to_hex(None) == UNKNOWN_SWATCH_HEX == "#cccccc"
+    assert ebc_to_hex("not-a-number") == UNKNOWN_SWATCH_HEX
 
 
 def test_low_ebc_is_pale_high_ebc_is_near_black():
@@ -71,3 +73,45 @@ def test_parse_hex_color_normalises_and_rejects():
     assert parse_hex_color("#12345") is None                # wrong length
     assert parse_hex_color(None) is None
     assert parse_hex_color(123456) is None                  # not a string
+
+
+# ---- Colour resolution: override, then EBC, then Unknown ------------------
+
+def test_resolve_color_override_wins_over_ebc():
+    r = resolve_color(ebc=40, color_override="#780606")
+    assert r is not None
+    assert r.color_hex == "#780606"
+    assert r.color_hex != ebc_to_hex(40)
+    # The contrast rule travels with the colour, so no caller re-derives it.
+    assert r.text_color == text_color_for("#780606")
+
+
+def test_resolve_color_override_is_never_muted_by_saturation():
+    # A Colour override is an exact instruction: saturation applies to the
+    # *computed* branch only, or there would be no way to ask for one colour.
+    assert resolve_color(ebc=40, saturation=0.3,
+                         color_override="#780606").color_hex == "#780606"
+    assert resolve_color(saturation=0.0,
+                         color_override="#780606").color_hex == "#780606"
+
+
+def test_resolve_color_computes_from_ebc_with_saturation():
+    assert resolve_color(ebc=40).color_hex == ebc_to_hex(40)
+    assert resolve_color(ebc=40, saturation=0.3).color_hex == ebc_to_hex(40, 0.3)
+
+
+def test_resolve_color_answers_unknown_rather_than_a_fallback():
+    # Unknown is a real answer with no colour attached: the surface drawing it
+    # declares its own fallback (ADR-0004), so resolution must not pick one.
+    assert resolve_color() is None
+    assert resolve_color(ebc=None, saturation=0.5, color_override=None) is None
+    assert resolve_color(ebc="") is None
+
+
+def test_resolve_color_coerces_defensively():
+    # Front matter and query strings arrive as strings, and a malformed override
+    # is not an instruction - it falls through to the EBC branch.
+    assert resolve_color(ebc="40").color_hex == ebc_to_hex(40)
+    assert resolve_color(ebc=40, color_override="nope").color_hex == ebc_to_hex(40)
+    assert resolve_color(ebc="not-a-number") is None
+    assert resolve_color(ebc="not-a-number", color_override="#abc").color_hex == "#aabbcc"
