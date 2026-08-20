@@ -110,6 +110,29 @@ MAX_TAP_IMAGE_SCALE = 1.0
 MIN_TAP_TEXT_SCALE = 0.5
 MAX_TAP_TEXT_SCALE = 2.0
 
+# Every numeric Settings bound, in one table: (minimum, maximum), with `None`
+# for a maximum that is deliberately open (the cleanup limits have no ceiling -
+# a venue may keep its archive forever).
+#
+# There is one table because there is one enforcement point. `_coerce` clamps
+# from these entries, and the Admin form's inputs take their `min`/`max`
+# attributes from the same entries, so the browser refuses at the point of
+# typing exactly the value the store would otherwise clamp silently after a
+# save. Nothing else in the app may restate a bound: a route checking one of
+# these itself is how the two layers came to disagree about the tap count - the
+# route rejected a negative, the store clamped it, and the ceiling was enforced
+# in only one of the two. See CONTEXT.md, Known hazards.
+SETTINGS_BOUNDS: dict[str, tuple[float, float | None]] = {
+    "num_taps": (0, MAX_NUM_TAPS),
+    "max_archive_age_days": (0, None),
+    "max_archive_storage_mb": (0, None),
+    "page_size": (1, MAX_PAGE_SIZE),
+    "rotation_seconds": (MIN_ROTATION_SECONDS, MAX_ROTATION_SECONDS),
+    "venue_logo_height_vh": (0, MAX_VENUE_LOGO_VH),
+    "tap_image_scale": (MIN_TAP_IMAGE_SCALE, MAX_TAP_IMAGE_SCALE),
+    "tap_text_scale": (MIN_TAP_TEXT_SCALE, MAX_TAP_TEXT_SCALE),
+}
+
 # The fixed scale behind each named preset, one map per axis. "custom" is absent
 # on purpose: it means "leave the operator's own number alone", so it has nothing
 # to resolve. These maps are the single definition - the admin form posts a preset
@@ -132,14 +155,19 @@ TAP_PHOTO_PRESET_KEYS = (*TAP_PHOTO_PRESETS.keys(), "custom")
 TAP_TEXT_PRESET_KEYS = (*TAP_TEXT_PRESETS.keys(), "custom")
 
 
-def _coerce_int(value: Any, lo: int, hi: int, default: int) -> int:
+def _clamp(value: float, lo: float, hi: float | None) -> float:
+    """Clamp to a bounds-table entry, where `None` means no maximum."""
+    return max(lo, value if hi is None else min(hi, value))
+
+
+def _coerce_int(value: Any, lo: int, hi: int | None, default: int) -> int:
     try:
-        return max(lo, min(hi, int(value)))
+        return int(_clamp(int(value), lo, hi))
     except (TypeError, ValueError):
         return default
 
 
-def _coerce_float(value: Any, lo: float, hi: float, default: float) -> float:
+def _coerce_float(value: Any, lo: float, hi: float | None, default: float) -> float:
     """Clamp a float setting, falling back to `default` for junk or NaN.
 
     NaN is checked explicitly because it survives float() and then loses every
@@ -152,7 +180,7 @@ def _coerce_float(value: Any, lo: float, hi: float, default: float) -> float:
         return default
     if f != f:  # NaN
         return default
-    return max(lo, min(hi, f))
+    return _clamp(f, lo, hi)
 
 
 def _resolve_preset(presets: dict[str, float], preset: str, scale: Any) -> tuple[str, Any]:
@@ -198,24 +226,24 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     merged = dict(DEFAULT_CONFIG)
     merged.update({k: v for k, v in cfg.items() if k in DEFAULT_CONFIG})
 
-    # Type coercion guards against hand-edited config files.
-    try:
-        merged["num_taps"] = max(0, min(MAX_NUM_TAPS, int(merged["num_taps"])))
-    except (TypeError, ValueError):
-        merged["num_taps"] = 0
-    try:
-        merged["max_archive_age_days"] = max(0, int(merged["max_archive_age_days"]))
-    except (TypeError, ValueError):
-        merged["max_archive_age_days"] = DEFAULT_CONFIG["max_archive_age_days"]
-    try:
-        merged["max_archive_storage_mb"] = max(0, int(merged["max_archive_storage_mb"]))
-    except (TypeError, ValueError):
-        merged["max_archive_storage_mb"] = DEFAULT_CONFIG["max_archive_storage_mb"]
+    # Every numeric Settings bound is applied here, from SETTINGS_BOUNDS, and
+    # nowhere else. Out of range is clamped rather than refused: a hand-edited
+    # config.json (ADR-0001 makes it editable) has nobody to report an error to
+    # and must never stop the box booting, so clamping is the only safe
+    # disposition. The Admin form carries the same numbers as input attributes
+    # so an operator is stopped while typing instead. See CONTEXT.md.
+    for key in ("num_taps", "max_archive_age_days", "max_archive_storage_mb",
+                "page_size", "rotation_seconds", "venue_logo_height_vh"):
+        lo, hi = SETTINGS_BOUNDS[key]
+        merged[key] = _coerce_int(merged[key], lo, hi, DEFAULT_CONFIG[key])
 
     merged["hide_vacant_taps"] = bool(merged["hide_vacant_taps"])
     merged["announcement_text"] = str(merged["announcement_text"] or "")
-    merged["brewfather_user_id"] = str(merged["brewfather_user_id"] or "")
-    merged["brewfather_api_key"] = str(merged["brewfather_api_key"] or "")
+    # Credentials are stripped here rather than at the Admin route: a key pasted
+    # with a trailing newline is just as likely to reach a hand-edited file, and
+    # the whitespace would go out on every Brewfather request.
+    merged["brewfather_user_id"] = str(merged["brewfather_user_id"] or "").strip()
+    merged["brewfather_api_key"] = str(merged["brewfather_api_key"] or "").strip()
     merged["include_conditioning"] = bool(merged["include_conditioning"])
     merged["include_fermenting"] = bool(merged["include_fermenting"])
     merged["update_check_enabled"] = bool(merged["update_check_enabled"])
@@ -235,12 +263,9 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     # Card sizing. Each scale is coerced independently of its preset: the scales
     # are what the board actually sends, and a config hand-edited to an unknown
     # preset name should still render at whatever scale it asks for.
-    merged["tap_image_scale"] = _coerce_float(
-        merged["tap_image_scale"], MIN_TAP_IMAGE_SCALE, MAX_TAP_IMAGE_SCALE,
-        DEFAULT_CONFIG["tap_image_scale"])
-    merged["tap_text_scale"] = _coerce_float(
-        merged["tap_text_scale"], MIN_TAP_TEXT_SCALE, MAX_TAP_TEXT_SCALE,
-        DEFAULT_CONFIG["tap_text_scale"])
+    for key in ("tap_image_scale", "tap_text_scale"):
+        lo, hi = SETTINGS_BOUNDS[key]
+        merged[key] = _coerce_float(merged[key], lo, hi, DEFAULT_CONFIG[key])
     # A config written before the axes were split has no preset key of its own
     # (the superseded `tap_size_preset` drove both, and is dropped by the merge
     # above because it is no longer in DEFAULT_CONFIG). Derive each picker from
@@ -257,19 +282,37 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
         preset = str(merged[key] or "").strip().lower()
         merged[key] = preset if preset in valid else DEFAULT_CONFIG[key]
 
-    # Pagination / carousel.
+    # Pagination / carousel. The two numbers are clamped with the rest above.
     merged["paginate"] = bool(merged["paginate"])
-    merged["page_size"] = _coerce_int(merged["page_size"], 1, MAX_PAGE_SIZE, DEFAULT_CONFIG["page_size"])
-    merged["rotation_seconds"] = _coerce_int(
-        merged["rotation_seconds"], MIN_ROTATION_SECONDS, MAX_ROTATION_SECONDS,
-        DEFAULT_CONFIG["rotation_seconds"])
 
     merged["venue_logo"] = (str(merged["venue_logo"]) if merged["venue_logo"] else None)
-    try:
-        merged["venue_logo_height_vh"] = max(0, min(MAX_VENUE_LOGO_VH, int(merged["venue_logo_height_vh"])))
-    except (TypeError, ValueError):
-        merged["venue_logo_height_vh"] = 0
     return merged
+
+
+# Each Brewfather credential and the environment variable that can manage it.
+# Used twice below: to resolve the effective credential, and to make sure a
+# credential the environment owns is never written to disk.
+_CREDENTIAL_ENV_VARS: dict[str, str] = {
+    "brewfather_user_id": "BREWFATHER_USER_ID",
+    "brewfather_api_key": "BREWFATHER_API_KEY",
+}
+
+
+def _drop_env_managed_credentials(changes: dict[str, Any]) -> dict[str, Any]:
+    """Strip credentials the environment owns out of a pending write.
+
+    Keeping the API key off disk is the whole point of the env vars, so the rule
+    lives at the write seam rather than in the Admin route that happens to be
+    the only caller submitting credentials today. Any future writer inherits it
+    instead of having to remember it. Dropping the key leaves whatever is
+    already on disk alone, which is what the Admin form's read-only "managed via
+    environment" field means when it posts an empty value back.
+    """
+    kept = dict(changes)
+    for key, env_var in _CREDENTIAL_ENV_VARS.items():
+        if key in kept and os.environ.get(env_var, "").strip():
+            kept.pop(key)
+    return kept
 
 
 def brewfather_credentials() -> dict[str, Any]:
@@ -281,8 +324,8 @@ def brewfather_credentials() -> dict[str, Any]:
     are locked to the environment.
     """
     cfg = load_config()
-    env_user = os.environ.get("BREWFATHER_USER_ID", "").strip()
-    env_key = os.environ.get("BREWFATHER_API_KEY", "").strip()
+    env_user = os.environ.get(_CREDENTIAL_ENV_VARS["brewfather_user_id"], "").strip()
+    env_key = os.environ.get(_CREDENTIAL_ENV_VARS["brewfather_api_key"], "").strip()
     return {
         "user_id": env_user or cfg.get("brewfather_user_id", "").strip(),
         "api_key": env_key or cfg.get("brewfather_api_key", "").strip(),
@@ -399,11 +442,41 @@ def update_config(**changes: Any) -> dict[str, Any]:
     Refuses to write when the existing config can't be read (raises
     ConfigUnreadable), so a transient read failure can never clobber the
     operator's saved settings with defaults.
+
+    Every bound is applied here on the way out, by `_coerce`, and out-of-range
+    values are clamped rather than refused - so callers must read the returned
+    dict rather than assume what they passed is what was saved.
     """
     cfg = _read_existing_config()      # raises ConfigUnreadable on a bad read
     if cfg is None:
         cfg = dict(DEFAULT_CONFIG)     # genuine first run
-    cfg.update(changes)
+    cfg.update(_drop_env_managed_credentials(changes))
     clean = _coerce(cfg)               # normalise/clamp before persisting...
     save_config(clean)
     return clean                       # ...and return exactly what was saved
+
+
+def apply_settings(**fields: Any) -> dict[str, Any]:
+    """Persist one operator Settings submission; return the Settings as saved.
+
+    The domain operation behind the Admin's Save button. The route's whole job
+    is to parse the form and hand the values here, so what a save *means* is not
+    spread across an HTTP handler: a named card-sizing preset owns its number
+    (whatever the sliders posted is discarded, so the stored Settings can never
+    say "small" beside Default's scale), and everything else goes to
+    `update_config`, which clamps every bound, drops env-managed credentials and
+    writes atomically.
+
+    Deliberately validates nothing itself. An out-of-range value is clamped; the
+    Admin form's inputs are what stop an operator entering one. See CONTEXT.md.
+    """
+    fields = dict(fields)
+    # The two axes resolve independently - picking a photo preset must not move
+    # the text scale - and each is resolved only when the caller submitted it.
+    if "tap_photo_preset" in fields:
+        fields["tap_photo_preset"], fields["tap_image_scale"] = resolve_tap_photo_preset(
+            fields["tap_photo_preset"], fields.get("tap_image_scale"))
+    if "tap_text_preset" in fields:
+        fields["tap_text_preset"], fields["tap_text_scale"] = resolve_tap_text_preset(
+            fields["tap_text_preset"], fields.get("tap_text_scale"))
+    return update_config(**fields)

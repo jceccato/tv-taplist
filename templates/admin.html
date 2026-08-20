@@ -1,3 +1,11 @@
+{#- Every numeric Settings input renders its limits through this macro, from the
+    server's SETTINGS_BOUNDS table. No bound is typed into this template: the
+    store clamps from the same entries, so the browser refuses at the point of
+    typing exactly the value that would otherwise be silently clamped after a
+    save. A setting with no ceiling (the cleanup limits) omits the attribute. -#}
+{% macro bounds_for(field) -%}
+min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ bounds[field].max }}"{% endif %}
+{%- endmacro -%}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -133,7 +141,7 @@
           <fieldset>
             <legend>Taps &amp; Display</legend>
             <label for="num_taps">Number of taps</label>
-            <input id="num_taps" name="num_taps" type="number" min="0" step="1" value="{{ cfg.num_taps }}" required>
+            <input id="num_taps" name="num_taps" type="number" {{ bounds_for('num_taps') }} step="1" value="{{ cfg.num_taps }}" required>
 
             <label class="checkbox">
               <input type="checkbox" name="hide_vacant_taps" {{ 'checked' if cfg.hide_vacant_taps else '' }}>
@@ -165,14 +173,14 @@
             <label for="tap_image_scale">Photo scale <span class="range-val" data-range-val-for="tap_image_scale">{{ '%.2f'|format(cfg.tap_image_scale) }}</span></label>
             <div class="slider-row">
               <input type="range" id="tap_image_scale" name="tap_image_scale"
-                     min="{{ min_image_scale }}" max="{{ max_image_scale }}" step="0.05"
+                     {{ bounds_for('tap_image_scale') }} step="0.05"
                      value="{{ cfg.tap_image_scale }}">
             </div>
 
             <label for="tap_text_scale">Text scale <span class="range-val" data-range-val-for="tap_text_scale">{{ '%.2f'|format(cfg.tap_text_scale) }}</span></label>
             <div class="slider-row">
               <input type="range" id="tap_text_scale" name="tap_text_scale"
-                     min="{{ min_text_scale }}" max="{{ max_text_scale }}" step="0.05"
+                     {{ bounds_for('tap_text_scale') }} step="0.05"
                      value="{{ cfg.tap_text_scale }}">
             </div>
             <p class="hint">Scales the beer photo and the card text on the display, for screens the defaults do not suit. The two are independent: picking a preset sets its own slider, and moving a slider switches that preset to Custom. Photo scale only shrinks - the photo already fills the space the card text leaves it, so there is nothing above Default to give it. A larger text preset takes room from the photo, by design. Card padding and the colour swatch are unaffected, and the text keeps its pixel floor, so no scale can make the board illegible.</p>
@@ -221,11 +229,11 @@
             <div class="field-row">
               <div class="field">
                 <label for="page_size">Taps per page</label>
-                <input id="page_size" name="page_size" type="number" min="1" max="8" step="1" value="{{ cfg.page_size }}">
+                <input id="page_size" name="page_size" type="number" {{ bounds_for('page_size') }} step="1" value="{{ cfg.page_size }}">
               </div>
               <div class="field">
                 <label for="rotation_seconds">Page rotation (seconds)</label>
-                <input id="rotation_seconds" name="rotation_seconds" type="number" min="3" max="600" step="1" value="{{ cfg.rotation_seconds }}">
+                <input id="rotation_seconds" name="rotation_seconds" type="number" {{ bounds_for('rotation_seconds') }} step="1" value="{{ cfg.rotation_seconds }}">
               </div>
             </div>
             <p class="hint">When off, the board fills each page with up to 8 taps. Rotation also applies without pagination when there is more than one page. On the display you can click a page dot or press Enter/Space to change pages.</p>
@@ -234,9 +242,9 @@
           <fieldset>
             <legend>Archive cleanup</legend>
             <label for="max_age">Max archive age (days)</label>
-            <input id="max_age" name="max_archive_age_days" type="number" min="0" step="1" value="{{ cfg.max_archive_age_days }}" required>
+            <input id="max_age" name="max_archive_age_days" type="number" {{ bounds_for('max_archive_age_days') }} step="1" value="{{ cfg.max_archive_age_days }}" required>
             <label for="max_size">Max archive storage limit (MB)</label>
-            <input id="max_size" name="max_archive_storage_mb" type="number" min="0" step="1" value="{{ cfg.max_archive_storage_mb }}" required>
+            <input id="max_size" name="max_archive_storage_mb" type="number" {{ bounds_for('max_archive_storage_mb') }} step="1" value="{{ cfg.max_archive_storage_mb }}" required>
           </fieldset>
 
           <button class="btn primary" type="submit">Save settings</button>
@@ -251,11 +259,11 @@
         <h2>Venue logo</h2>
         <label for="logo_h">Logo height (% of screen height)</label>
         <div class="slider-row">
-          <input type="range" id="logo_h_range" min="0" max="{{ max_logo_vh }}" step="1" value="{{ cfg.venue_logo_height_vh }}">
-          <input type="number" id="logo_h" name="venue_logo_height_vh" form="settings-form" min="0" max="{{ max_logo_vh }}" step="1" value="{{ cfg.venue_logo_height_vh }}">
+          <input type="range" id="logo_h_range" {{ bounds_for('venue_logo_height_vh') }} step="1" value="{{ cfg.venue_logo_height_vh }}">
+          <input type="number" id="logo_h" name="venue_logo_height_vh" form="settings-form" {{ bounds_for('venue_logo_height_vh') }} step="1" value="{{ cfg.venue_logo_height_vh }}">
           <span class="muted">%</span>
         </div>
-        <p class="hint">0 hides the logo. Max {{ max_logo_vh }}% (a third of the screen). Saved with the settings.</p>
+        <p class="hint">0 hides the logo. Max {{ bounds.venue_logo_height_vh.max }}% (a third of the screen). Saved with the settings.</p>
 
         <hr class="panel-sep">
         <h3>Venue logo image</h3>
