@@ -80,8 +80,12 @@ and keeps filenames private - see ADR-0003.
 ### Colour
 
 **Colour**:
-The resolved colour of a Beer, painted on both the swatch and the glassware
-placeholder so the two always agree.
+The resolved colour of a Beer - or _Unknown_, when the Beer has neither an EBC
+nor a Colour override. Resolution answers with one or the other and stops there:
+the colour shown for Unknown belongs to the surface rendering it, because a
+swatch and a Placeholder want different ones (a grey swatch reads as "no data";
+a grey pour reads as a broken image). Both surfaces read the same resolution, so
+a *known* Colour always agrees between them. See ADR-0004.
 _Avoid_: color hex, swatch colour, beer colour
 
 **EBC**:
@@ -94,17 +98,28 @@ A manual hex that replaces the EBC-derived Colour wholesale, set per Beer.
 _Avoid_: custom colour, color_override (in prose)
 
 **Saturation**:
-A muting factor applied after Colour is resolved. Not part of resolution.
+A muting factor applied to the *computed* Colour only. A Colour override is an
+exact instruction and is never muted, so an override plus a Saturation yields the
+override untouched - otherwise there would be no way to ask for exactly one
+colour. Not part of resolution.
 
 **Value precedence**:
 The rule deciding an attribute's value: override, then computed, then default.
-Distinct from Source precedence, which picks the whole Tap.
+Distinct from Source precedence, which picks the whole Tap. Colour is the
+exception: it resolves to override, then computed, then _Unknown_ - the default
+is the renderer's choice, not the model's.
 
 ### Presentation
 
 **Attribute**:
 A displayable measured property of a Beer - ABV, IBU, EBC, OG, FG. Has a value,
 a unit, and a Visibility.
+
+The colour swatch is **not** an Attribute - it is Presentation of Colour. The two
+are gated by one operator toggle but ask different Empty questions: the swatch
+asks whether Colour is *known* (EBC or override), the EBC Attribute asks whether
+*EBC* is present. That is why a beer with only a Colour override shows a swatch
+and no EBC number. They resolve to two separate answers.
 _Avoid_: stat, field, metric
 
 **Visibility**:
@@ -190,3 +205,14 @@ stores for consistency will break one of them.
 **Whether a field is Settings or Status is decided by who authored it**, not by
 its name prefix. `update_check_enabled` is operator intent and stays in
 Settings; the three `update_*` fields recording what the check found are Status.
+
+**Settings bounds are enforced by clamping, not by rejection - deliberately.**
+An out-of-range value is clamped to the bound and saved; nothing raises. This
+looks like missing validation and is not. Settings arrive from two places, and
+only one of them can be told anything: a hand-edited `config.json` (ADR-0001
+makes it editable) has no one to report to and must never stop the box booting,
+so clamping is the only safe disposition there. The operator-facing limits live
+on the Admin form's inputs, taken from the same constants the clamp uses, so the
+browser refuses the value at the point of typing rather than after a round trip.
+A reader who adds server-side rejection duplicates the form's job and gains
+nothing the clamp does not already guarantee.
