@@ -1,9 +1,16 @@
 """HTTP surface: display, board API, image serving, admin auth + mutations."""
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app import config_store, main, paths, status_store, tap_store as taps
 from app.main import _safe_tap_image, app
+
+
+def _base_stop(svg: str) -> str:
+    """The liquid's base colour in a beer-glass SVG (the gradient's 55% stop)."""
+    return re.search(r'offset="55%" stop-color="(#[0-9a-fA-F]{6})"', svg).group(1)
 
 # Plain TestClient (no context manager) so the lifespan scheduler/initial-sync
 # threads are not started during unit tests.
@@ -46,27 +53,38 @@ def test_image_missing_falls_back_to_placeholder():
 
 
 def test_beer_glass_route_tints_by_colour():
-    import re
-
     from app.beer_glass import _hex_to_rgb
+    from app.colors import ebc_to_hex
 
-    pale = client.get("/img/beer-glass", params={"ebc": 8})
-    dark = client.get("/img/beer-glass", params={"ebc": 80})
+    # The route is handed a *resolved* colour, not an EBC: the board resolves
+    # once and puts the answer in the URL.
+    pale = client.get("/img/beer-glass", params={"hex": ebc_to_hex(8).lstrip("#")})
+    dark = client.get("/img/beer-glass", params={"hex": ebc_to_hex(80).lstrip("#")})
     assert pale.status_code == 200 and "svg" in pale.headers["content-type"]
     assert dark.status_code == 200
 
-    def base_stop(svg: str) -> str:
-        return re.search(r'offset="55%" stop-color="(#[0-9a-fA-F]{6})"', svg).group(1)
-
     # A dark beer's liquid must be markedly darker than a pale one's.
-    assert sum(_hex_to_rgb(base_stop(dark.text))) < sum(_hex_to_rgb(base_stop(pale.text)))
+    assert sum(_hex_to_rgb(_base_stop(dark.text))) < sum(_hex_to_rgb(_base_stop(pale.text)))
+
+
+def test_beer_glass_route_no_longer_derives_colour_from_ebc():
+    # EBC and saturation are inputs to resolution, which has already happened by
+    # the time this URL is built. A stale cached URL still carrying them renders
+    # the Unknown amber rather than re-running the precedence chain here.
+    from app.beer_glass import _DEFAULT_HEX
+
+    r = client.get("/img/beer-glass", params={"ebc": 80, "sat": 30})
+    assert r.status_code == 200
+    assert _base_stop(r.text).lower() == _DEFAULT_HEX
 
 
 def test_board_uses_colour_glass_when_no_photo(write_tap):
+    from app.colors import ebc_to_hex
+
     config_store.update_config(num_taps=1)
     write_tap("custom", 1, name="Glassy", abv=5, ebc=20)
     board = client.get("/api/board").json()
-    assert board["taps"][0]["image_url"] == "/img/beer-glass?ebc=20"
+    assert board["taps"][0]["image_url"] == "/img/beer-glass?hex=" + ebc_to_hex(20).lstrip("#")
 
 
 def test_safe_tap_image_rejects_traversal():
@@ -283,7 +301,9 @@ def test_manual_tap_without_photo_shows_placeholder_not_the_brewfather_one(write
     row = main._build_admin_tap_rows(config_store.load_config())[0]
     assert row["override"] is True
     assert row["image_url"] is None
-    assert client.get("/api/board").json()["taps"][0]["image_url"] == "/img/beer-glass?ebc=12"
+    from app.colors import ebc_to_hex
+    assert (client.get("/api/board").json()["taps"][0]["image_url"]
+            == "/img/beer-glass?hex=" + ebc_to_hex(12).lstrip("#"))
 
     # And what the operator actually sees: the row renders no thumbnail at all,
     # certainly not the Brewfather beer's.
@@ -377,7 +397,7 @@ def test_board_includes_theme_and_pagination():
 
 
 def test_beer_glass_route_accepts_glass_and_hex():
-    # Explicit hex override is honoured regardless of EBC.
+    # The resolved colour and the silhouette are the route's only two inputs.
     r = client.get("/img/beer-glass", params={"hex": "780606", "glass": "tulip"})
     assert r.status_code == 200 and "svg" in r.headers["content-type"]
     assert "#780606" in r.text
@@ -486,9 +506,87 @@ def test_preview_color_converts_srm_unit():
     assert r.json()["color_hex"] == ebc_to_hex(10 * 1.97)
 
 
-def test_preview_color_blank_is_grey():
+def test_preview_color_blank_is_the_swatch_fallback():
+    # Unknown Colour. The preview paints a swatch, so it draws the swatch's
+    # declared fallback - the grey - rather than the Placeholder's amber.
+    from app.colors import UNKNOWN_SWATCH_HEX, text_color_for
     r = client.get("/api/preview-color")
-    assert r.json()["color_hex"] == "#cccccc"  # ebc_to_hex(None)
+    assert r.json()["color_hex"] == UNKNOWN_SWATCH_HEX == "#cccccc"
+    assert r.json()["text_color"] == text_color_for(UNKNOWN_SWATCH_HEX)
+
+
+@pytest.mark.parametrize("fields", [
+    {"ebc": 20},                                        # EBC only
+    {"color_override": "#780606"},                      # override only
+    {"ebc": 20, "color_override": "#780606"},           # both: the override wins
+    {"ebc": 4, "saturation": 0.3},                       # a muted computed colour
+    {"ebc": 79},                                         # a near-black stout
+])
+def test_preview_endpoint_returns_what_the_board_would_resolve(write_tap, fields):
+    """The admin preview and the board must agree, asserted rather than claimed.
+
+    Both delegate to colors.resolve_color, so this fails the moment either grows
+    a precedence chain of its own - which is what the prose comment the endpoint
+    used to carry could not do.
+    """
+    from app.board import resolve_tap
+
+    write_tap("custom", 1, name="Same Beer", **fields)
+    board = resolve_tap(1)
+    r = client.get("/api/preview-color", params={
+        "ebc": str(fields.get("ebc", "")),
+        # The endpoint takes saturation as a percentage, front matter as a fraction.
+        "sat": str(fields["saturation"] * 100) if "saturation" in fields else "",
+        "hex": fields.get("color_override", ""),
+    })
+    assert r.json()["color_hex"] == board["color_hex"]
+    assert r.json()["text_color"] == board["text_color"]
+
+
+@pytest.mark.parametrize("fields", [
+    {"ebc": 20},                                        # EBC only
+    {"color_override": "#780606"},                      # override only
+    {"ebc": 20, "color_override": "#780606"},           # both: the override wins
+    {"ebc": 4, "saturation": 0.3},                       # a muted computed colour
+    {"ebc": 79},                                         # a near-black stout
+])
+def test_swatch_and_placeholder_agree_on_a_known_colour(write_tap, fields):
+    """A *known* Colour is byte-identical on the swatch and in the pour.
+
+    This is the guarantee resolving once buys, and it is checked end to end: the
+    board's color_hex is the swatch, and the SVG actually served from the
+    image_url it built is the Placeholder.
+    """
+    config_store.update_config(num_taps=1)
+    write_tap("custom", 1, name="Same Beer", **fields)
+    tap = client.get("/api/board").json()["taps"][0]
+    svg = client.get(tap["image_url"])
+    assert svg.status_code == 200
+    assert _base_stop(svg.text).lower() == tap["color_hex"]
+
+
+def test_unknown_colour_lets_each_surface_use_its_own_fallback(write_tap):
+    """Unknown is not a shared colour: the swatch greys, the Placeholder ambers.
+
+    Deliberate, and the one case where the two surfaces differ - see ADR-0004.
+    """
+    from app.beer_glass import _DEFAULT_HEX
+    from app.colors import UNKNOWN_SWATCH_HEX
+
+    config_store.update_config(num_taps=1)
+    write_tap("custom", 1, name="Colourless")           # no EBC, no override
+    tap = client.get("/api/board").json()["taps"][0]
+
+    # The board sends no colour at all rather than picking one of the two.
+    assert tap["color_hex"] is None and tap["text_color"] is None
+    assert tap["color_known"] is False
+    assert tap["image_url"] == "/img/beer-glass"
+
+    # The Placeholder draws its amber; the swatch (here via the admin preview,
+    # which paints the same surface as display.js) draws its grey.
+    assert _base_stop(client.get(tap["image_url"]).text).lower() == _DEFAULT_HEX
+    assert client.get("/api/preview-color").json()["color_hex"] == UNKNOWN_SWATCH_HEX
+    assert _DEFAULT_HEX != UNKNOWN_SWATCH_HEX
 
 
 # ---- passwordless demo admin (Feature 6) -------------------------------

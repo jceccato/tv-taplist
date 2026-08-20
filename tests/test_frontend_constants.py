@@ -8,7 +8,7 @@ mirrored constant changes on only one side.
 import re
 from pathlib import Path
 
-from app.colors import EBC_PER_SRM
+from app.colors import EBC_PER_SRM, UNKNOWN_SWATCH_HEX
 from app.config_store import TAP_PHOTO_PRESETS, TAP_TEXT_PRESETS
 from app.theme import THEME_KEYS
 
@@ -23,6 +23,20 @@ def test_display_js_ebc_per_srm_matches_server():
     m = re.search(r"EBC_PER_SRM\s*=\s*([0-9.]+)", _display_js())
     assert m, "EBC_PER_SRM not found in display.js"
     assert float(m.group(1)) == EBC_PER_SRM
+
+
+def test_display_js_unknown_swatch_fallback_matches_server():
+    """The swatch's Unknown fallback is declared on both sides of the wire.
+
+    The board sends a null colour when Colour is Unknown, so display.js supplies
+    the grey itself. That is the swatch surface declaring its own fallback
+    (ADR-0004), not a stale copy of a server value - but it is still the same
+    grey `/api/preview-color` paints in the admin, and the two must not drift
+    apart into a board that looks different from its own preview.
+    """
+    found = set(re.findall(r't\.(?:color_hex|text_color)\s*\|\|\s*"(#[0-9a-f]{6})"',
+                           _display_js()))
+    assert UNKNOWN_SWATCH_HEX in found, (found, UNKNOWN_SWATCH_HEX)
 
 
 def test_display_js_theme_vars_match_server_keys():

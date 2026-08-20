@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from .beer_glass import DEFAULT_GLASS, normalize_glass
-from .colors import ebc_to_hex, parse_hex_color, parse_saturation, text_color_for
+from .colors import ResolvedColor, parse_saturation, resolve_color
 from .config_store import load_config
 from .paths import venue_logo_path
 from .tap_store import resolve as resolve_tap_file
@@ -44,9 +44,8 @@ def _num(value: Any) -> float | int | None:
     return int(f) if f.is_integer() else f
 
 
-def _image_url_for(image: Path | None, ebc: float | int | None = None,
-                   saturation: float | None = None, glass: str | None = None,
-                   color_override: str | None = None) -> str:
+def _image_url_for(image: Path | None, color: ResolvedColor | None = None,
+                   glass: str | None = None) -> str:
     """Local image URL for a tap's photo, if it has one.
 
     The store hands out a Path and knows nothing about web routes, so building
@@ -54,21 +53,19 @@ def _image_url_for(image: Path | None, ebc: float | int | None = None,
     only - never borrowed from the other Source, so a Manual Tap with no photo
     shows the placeholder rather than the Brewfather beer's picture.
 
-    With no photo: a beer glass tinted to the beer's colour (so the placeholder
-    pour matches the SRM/EBC or the exact colour override), falling back to a
-    neutral amber glass when the colour is unknown. The per-tap saturation and
-    glassware are forwarded so the placeholder matches the swatch.
+    With no photo: a beer glass tinted to the beer's Colour. The URL carries the
+    **resolved** colour rather than the EBC and saturation that produced it, so
+    the renderer tints what it is told instead of running the precedence chain a
+    second time. Unknown is expressed by sending no colour at all, which is what
+    selects the renderer's amber (ADR-0004). This URL is built here and nowhere
+    else - no template references it - so its shape is free to change.
     """
     if image is not None:
         # Served by the /img/<filename> route which reads from /data/taps.
         return f"/img/{image.name}"
     params: list[str] = []
-    if color_override:
-        params.append("hex=" + color_override.lstrip("#"))
-    elif ebc is not None:
-        params.append(f"ebc={ebc}")
-        if saturation is not None:
-            params.append(f"sat={saturation}")
+    if color is not None:
+        params.append("hex=" + color.color_hex.lstrip("#"))
     g = normalize_glass(glass)
     if g != DEFAULT_GLASS:
         params.append(f"glass={g}")
@@ -99,8 +96,10 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS) -> dict[str, Any]:
             "ebc": None,
             "og": None,
             "fg": None,
-            "color_hex": "#222222",
-            "text_color": "#f5f5f5",
+            # No colour fields: a Vacant card has no Beer, so there is nothing to
+            # resolve. The display styles those cards from a CSS custom property
+            # and never read the near-black hex that used to be sent here; it only
+            # fed the change-detection signature.
             "color_known": False,
             "description": "",
             "image_url": None,
@@ -110,10 +109,11 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS) -> dict[str, Any]:
 
     data = tap_file.front_matter
     ebc = _num(data.get("ebc"))
-    saturation = parse_saturation(data.get("saturation"))
-    color_override = parse_hex_color(data.get("color_override"))
-    # An exact colour override wins over the computed EBC colour, everywhere.
-    color_hex = color_override or ebc_to_hex(ebc, saturation)
+    # Colour precedence lives in colors.resolve_color, not here. It answers with
+    # a colour or with Unknown (None); the board forwards that answer to both
+    # surfaces rather than each of them re-deriving it.
+    color = resolve_color(ebc, parse_saturation(data.get("saturation")),
+                          data.get("color_override"))
     glass = normalize_glass(data.get("glass") or default_glass)
     return {
         "tap": tap,
@@ -128,15 +128,18 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS) -> dict[str, Any]:
         "ebc": ebc,
         "og": _num(data.get("og")),
         "fg": _num(data.get("fg")),
-        "color_hex": color_hex,
-        "text_color": text_color_for(color_hex),
+        # Null when Colour is Unknown. The display's `|| grey` is then the
+        # swatch's own declared fallback rather than a copy of a server value.
+        "color_hex": color.color_hex if color else None,
+        "text_color": color.text_color if color else None,
         # The swatch shows whenever the colour is known - from an EBC value OR an
-        # explicit override - even if the EBC *stat* itself is hidden/empty.
-        "color_known": ebc is not None or color_override is not None,
+        # explicit override - even if the EBC *stat* itself is hidden/empty. That
+        # is exactly "resolution did not answer Unknown".
+        "color_known": color is not None,
         # The description is the markdown body, a named field on the TapFile
         # rather than a synthesised front-matter key.
         "description": (tap_file.body or "").strip(),
-        "image_url": _image_url_for(tap_file.image, ebc, saturation, glass, color_override),
+        "image_url": _image_url_for(tap_file.image, color, glass),
         # Per-tap stat-visibility overrides (None -> follow the global toggle).
         "show_og": _tri(data.get("show_og")),
         "show_fg": _tri(data.get("show_fg")),

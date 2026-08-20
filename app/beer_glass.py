@@ -1,18 +1,24 @@
-"""Generate a beer-glass SVG tinted to match a beer's colour.
+"""Generate a beer-glass SVG tinted to an already-resolved beer Colour.
 
 Used as the image for taps that have no uploaded photo, so the placeholder beer
-in the glass matches the beer's SRM/EBC colour instead of a fixed gold. The base
-liquid colour reuses the same EBC->hex mapping as the colour swatch (or a per-beer
-hex override), so the two always agree.
+in the glass matches the beer's Colour instead of a fixed gold. This module
+resolves nothing: it is handed the colour `colors.resolve_color` produced for
+the beer - the same value the swatch is painted with - which is what guarantees
+the two agree.
 
 Several glass silhouettes are available (`GLASS_TYPES`); the shape is chosen by
 the global default or a per-beer override, the tint by the beer's colour.
 """
 from __future__ import annotations
 
-from .colors import ebc_to_hex, parse_hex_color
+from .colors import parse_hex_color
 
-# Fallback liquid colour when a beer's colour is unknown (a neutral amber).
+# What this surface draws when Colour is Unknown: a neutral amber. Deliberately
+# NOT the swatch's grey - a Placeholder is an illustration of a glass of beer,
+# and a grey pour reads as a broken image rather than as "colour unknown", while
+# amber reads as "a beer", the most that can honestly be said. Resolution
+# answers Unknown and each surface declares its own fallback - see ADR-0004
+# before unifying this with colors.UNKNOWN_SWATCH_HEX.
 _DEFAULT_HEX = "#e8a020"
 
 # Selectable glassware, in admin display order: (key, label).
@@ -130,25 +136,19 @@ def _glass_body(glass: str, base: str, foam: str, bubble: str) -> str:
     )
 
 
-def beer_glass_svg(ebc: float | int | None = None,
-                   saturation: float | None = None,
-                   glass: str | None = None,
-                   hex_override: str | None = None) -> str:
-    """Return an SVG beer glass whose liquid matches the beer's colour.
+def beer_glass_svg(color: str | None = None, glass: str | None = None) -> str:
+    """Return an SVG beer glass whose liquid is tinted to a resolved Colour.
 
-    `hex_override` (a ``#rrggbb`` string) wins over the EBC mapping when present,
-    so a per-beer colour override is reflected in the placeholder pour. `glass`
-    selects the silhouette (see `GLASS_TYPES`).
+    `color` is the beer's **already-resolved** Colour as a hex string (with or
+    without the leading ``#``); `None` - or anything that will not parse as a
+    hex colour - means Unknown and selects this renderer's amber fallback. EBC
+    and saturation are deliberately absent: they are inputs to resolution, which
+    happens once in `colors.resolve_color` before this is ever called, so the
+    pour cannot drift from the swatch.
+
+    `glass` selects the silhouette (see `GLASS_TYPES`).
     """
-    override = parse_hex_color(hex_override)
-    if override:
-        base = override
-    elif ebc is not None:
-        base = ebc_to_hex(ebc, saturation)
-    else:
-        base = _DEFAULT_HEX
-    if not (isinstance(base, str) and base.startswith("#") and len(base) == 7):
-        base = _DEFAULT_HEX
+    base = parse_hex_color(color) or _DEFAULT_HEX
 
     top = _mix(base, "#ffffff", 0.30)     # lighter towards the top of the pour
     bottom = _mix(base, "#000000", 0.28)  # darker at the base

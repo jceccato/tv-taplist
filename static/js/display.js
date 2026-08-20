@@ -9,10 +9,13 @@
      page) and the display settings are unchanged, we update only the cards whose
      data changed - no full grid re-render. Otherwise we rebuild, keeping the
      current page index.
-   - Colour is computed server-side (app/colors.py) and delivered per tap as
-     color_hex / text_color (honouring any per-beer override), so the swatch, the
-     glass placeholder and the API all agree. Only the colour *stat* number
-     (EBC<->SRM) is derived here, from this conversion factor. */
+   - Colour is resolved server-side (app/colors.py resolve_color) and delivered
+     per tap as color_hex / text_color, so the swatch, the glass placeholder and
+     the API all agree. Both are NULL when the beer's Colour is Unknown (no EBC
+     and no override): the grey this file falls back to is the swatch's own
+     declared fallback, not a copy of a server value - the placeholder glass
+     declares a different one (amber) on purpose. See ADR-0004. Only the colour
+     *stat* number (EBC<->SRM) is derived here, from this conversion factor. */
 
 (() => {
   "use strict";
@@ -305,6 +308,9 @@
 
   function filledInner(t) {
     const s = state.settings;
+    // The swatch's declared fallback for an Unknown Colour (the server sends
+    // null rather than inventing one). Keep it in step with UNKNOWN_SWATCH_HEX
+    // in app/colors.py - tests/test_frontend_constants.py fails if it drifts.
     const hex = t.color_hex || "#cccccc";
     const txt = t.text_color || "#f5f5f5";
     // The swatch tracks whether a colour is *known* (EBC or override); the colour
@@ -352,6 +358,7 @@
     const sw = card.querySelector(".swatch");
     if (!sw) return;
     const s = state.settings;
+    // Same declared Unknown fallback as filledInner - see the note there.
     sw.style.background = t.color_hex || "#cccccc";
     sw.style.color = t.text_color || "#f5f5f5";
     sw.hidden = !s.show_color || (!t.color_known && s.hide_color_when_empty);

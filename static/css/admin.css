@@ -193,6 +193,10 @@ input[type=color] {
 .color-preview { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.4rem; }
 .color-preview-swatch {
   flex: 0 0 auto; width: 48px; height: 34px; border-radius: 8px;
+  /* The swatch's Unknown-Colour grey (colors.UNKNOWN_SWATCH_HEX), painted
+     before /api/preview-color has answered and left in place when it answers
+     Unknown. The glassware placeholder declares a different fallback on
+     purpose - see ADR-0004. */
   border: 1px solid var(--border); background: #cccccc;
 }
 .token-block {

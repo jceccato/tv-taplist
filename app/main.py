@@ -43,10 +43,11 @@ from .beer_glass import GLASS_KEYS, GLASS_TYPES, beer_glass_svg
 from .board import build_board
 from .brewfather import run_sync
 from .colors import (
-    ebc_to_hex,
+    UNKNOWN_SWATCH_HEX,
     ebc_to_srm,
     parse_hex_color,
     parse_saturation,
+    resolve_color,
     srm_to_ebc,
     text_color_for,
 )
@@ -172,22 +173,26 @@ def _optional_number(value: str) -> float | None:
 async def api_preview_color(ebc: str = "", sat: str = "", hex: str = ""):
     """Compute a beer's swatch colour for the admin's live override preview.
 
-    The single source of truth is app/colors.py, and the precedence mirrors
-    board.resolve_tap exactly: an explicit ``hex`` override wins, otherwise the
-    EBC colour muted by saturation. ``ebc`` arrives in the admin's *display unit*
-    (SRM is converted to EBC first, matching `_color_to_ebc` in save_override);
-    ``sat`` is a percentage handled by parse_saturation. A blank/invalid colour
-    with no override yields the neutral grey ebc_to_hex(None) returns.
+    This is delegation, not a second implementation: `colors.resolve_color` owns
+    the precedence, so the preview cannot drift from the board (a test pins the
+    two against each other rather than a comment claiming they agree).
+
+    What genuinely belongs here is the display unit: ``ebc`` arrives in the
+    admin's unit, so SRM is converted to EBC before resolution, matching
+    `_color_to_ebc` in save_override. ``sat`` is a percentage handled by
+    parse_saturation.
+
+    Unknown draws the swatch's grey, because the fallback belongs to the surface
+    and the surface this endpoint feeds is a swatch (ADR-0004).
     """
-    override = parse_hex_color(hex)
-    if override:
-        color_hex = override
-    else:
-        ebc_val = _optional_number(ebc)
-        if ebc_val is not None and load_config().get("color_unit") == "srm":
-            ebc_val = srm_to_ebc(ebc_val)
-        color_hex = ebc_to_hex(ebc_val, parse_saturation(sat))
-    return {"color_hex": color_hex, "text_color": text_color_for(color_hex)}
+    ebc_val = _optional_number(ebc)
+    if ebc_val is not None and load_config().get("color_unit") == "srm":
+        ebc_val = srm_to_ebc(ebc_val)
+    color = resolve_color(ebc_val, parse_saturation(sat), hex)
+    if color is None:
+        return {"color_hex": UNKNOWN_SWATCH_HEX,
+                "text_color": text_color_for(UNKNOWN_SWATCH_HEX)}
+    return {"color_hex": color.color_hex, "text_color": color.text_color}
 
 
 @app.get("/healthz")
@@ -238,15 +243,20 @@ async def img_placeholder():
 
 
 @app.get("/img/beer-glass")
-async def img_beer_glass(ebc: float | None = None, sat: float | None = None,
-                         glass: str | None = None, hex: str | None = None):
-    """A beer-glass SVG tinted to the beer's colour (the no-photo placeholder).
+async def img_beer_glass(hex: str | None = None, glass: str | None = None):
+    """A beer-glass SVG tinted to a resolved Colour (the no-photo placeholder).
 
-    `glass` picks the silhouette; `hex` is an exact colour override (without the
-    leading #, since that is a URL fragment).
+    `hex` is the **already-resolved** colour, without the leading # because that
+    would start a URL fragment; omitting it means Unknown and gets the
+    renderer's amber. `glass` picks the silhouette.
+
+    Colour is never resolved here: the board resolves once and puts the answer
+    in the URL, so this route cannot disagree with the swatch. EBC and
+    saturation parameters are gone for that reason - an old cached URL still
+    carrying them simply renders the Unknown amber until it expires.
     """
     return Response(
-        beer_glass_svg(ebc, sat, glass, hex),
+        beer_glass_svg(hex, glass),
         media_type="image/svg+xml",
         headers=_img_headers(300),
     )
