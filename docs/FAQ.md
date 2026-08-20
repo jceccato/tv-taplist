@@ -380,6 +380,27 @@ in `taps/` with its image alongside. It's all
 plain text and standard image files - open any of it in a text editor or file
 browser to see exactly what the board is showing. Nothing is hidden in a database.
 
+### What if the data directory is not really saving anything?
+
+The appliance checks at startup and tells you in `/admin`, because the failure is
+otherwise invisible: writes succeed, the board renders, and the loss only shows
+up later as missing manual beers.
+
+- **"Data is not being saved"** means no host directory is mapped to `/data`, so
+  everything is written inside the container and goes when the container is
+  recreated. Map a host directory and restart. The banner has no dismiss button
+  on purpose: it describes something that is still true.
+- **"The data directory changed"** means the mapped directory is empty, or is a
+  different directory from the one this container last used - a host folder that
+  was deleted, or storage that was not mounted before Docker started. It appears
+  once, on the first boot that notices.
+
+The appliance keeps a small file called `.data_dir_id` in the data directory to
+tell those two situations apart. It holds a random identifier and nothing else.
+Leave it alone; deleting it looks exactly like a wipe and costs you a warning.
+
+`DEMO_MODE` suppresses both banners, since a demo box is meant to be disposable.
+
 ---
 
 ## Security

@@ -1,15 +1,21 @@
 """Filesystem layout for the appliance.
 
-All persistent state lives under DATA_DIR, which is the Docker volume mount
-point (/data by default). Everything here is derived from environment so the
-same image can run with a different data path in development.
+All persistent state lives under DATA_DIR, which is the mapped host directory
+(/data inside the container by default). Everything here is derived from
+environment so the same image can run with a different data path in development.
+
+This module is pure layout and holds no policy. Whether the directory is
+actually going to persist is a separate question, answered at startup by
+app/persistence.py.
 """
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-# Root of all persistent state. Mounted as a Docker volume in production.
+# Root of all persistent state. A mapped host directory in production; the
+# image declares no VOLUME, so an unmapped one is a plain container directory
+# and app/persistence.py says so out loud.
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data")).resolve()
 
 # Tap markdown + image pairs currently on display.

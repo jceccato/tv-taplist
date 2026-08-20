@@ -28,6 +28,27 @@
     </div>
     {% endif %}
 
+    {# At most one durability banner, decided at startup. Not dismissible:
+       "not mapped" is an ongoing condition, and the other fires only once. #}
+    {% if persistence_warning == "not_mapped" %}
+    <div class="alert warn" role="status">
+      <strong>Data is not being saved:</strong> no host directory is mapped to
+      the container's data directory, so settings, the Brewfather key and manual
+      beers live inside the container and disappear when it is recreated -
+      including on the next update. Map a host directory onto <code>/data</code>
+      and restart. Brewfather beers come back on the next sync; manual beers do
+      not.
+    </div>
+    {% elif persistence_warning == "data_replaced" %}
+    <div class="alert warn" role="status">
+      <strong>The data directory changed:</strong> it is empty, or it is a
+      different directory from the one this container last used. Anything saved
+      before now - settings and manual beers - is not here; Brewfather beers
+      rebuild on the next sync. Check that the mapped host directory is on
+      permanent storage and is available before the container starts.
+    </div>
+    {% endif %}
+
     <!-- ===== Status panel (always visible, above the tabs) ===== -->
     <section class="card-panel">
       <h2>Status</h2>

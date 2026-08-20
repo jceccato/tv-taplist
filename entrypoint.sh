@@ -25,6 +25,13 @@ mkdir -p "$DATA_DIR/taps" "$DATA_DIR/old_beers"
 # Best-effort: don't fail boot if a read-only or already-correct mount rejects chown.
 chown -R appuser:appgroup "$DATA_DIR" 2>/dev/null || true
 
+# Container-local state (the data-directory identity - see app/persistence.py).
+# The Dockerfile chowns it to uid 1000; retag it here too, or a box running with
+# a different PUID/PGID (Unraid's 99:100, for example) could not write it and
+# the persistence check would silently stop working.
+mkdir -p /var/lib/taplist
+chown -R appuser:appgroup /var/lib/taplist 2>/dev/null || true
+
 echo "[entrypoint] starting uvicorn as appuser ($PUID:$PGID), data=$DATA_DIR, port=$PORT, trusted_proxies=$FORWARDED_ALLOW_IPS"
 
 # --proxy-headers + --forwarded-allow-ips makes Uvicorn honour X-Forwarded-For
