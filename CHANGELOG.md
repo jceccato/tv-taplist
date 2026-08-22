@@ -29,7 +29,31 @@ Closed so far: [#9](https://github.com/jceccato/tv-taplist/issues/9),
 [#11](https://github.com/jceccato/tv-taplist/issues/11),
 [#13](https://github.com/jceccato/tv-taplist/issues/13),
 [#28](https://github.com/jceccato/tv-taplist/issues/28),
+[#29](https://github.com/jceccato/tv-taplist/issues/29),
 [#30](https://github.com/jceccato/tv-taplist/issues/30).
+
+### Take your whole board off the box, and put it back ([#29](https://github.com/jceccato/tv-taplist/issues/29))
+
+There was no way to get your data off the box or back onto it. A new **Snapshot**
+tab in the admin downloads the board as it stands - your settings, every tap file
+and photo from both sources, the archived beers, and your venue logo - as one zip
+that mirrors your data directory. Restoring is unpacking it: import it on the same
+tab, or unzip it straight into the data directory of a stopped container. The sync
+status and the `.data_dir_id` file are deliberately left out; both belong to the box
+rather than to the data.
+
+Your Brewfather key is **not** included unless you tick the box, and that box only
+appears when the key is stored in `config.json` rather than in an environment
+variable. A Snapshot is not encrypted, so one carrying your key should be treated
+exactly like the key itself.
+
+Importing asks one question first: will this box have a working Brewfather key when
+the import finishes? If it will, the Snapshot's Brewfather beers are skipped and the
+admin says why - the next sync would rewrite them within minutes anyway, so importing
+them would appear to work and then quietly undo itself. Your manual beers, the
+archive, the venue logo and every other setting are restored either way, and your
+box's own Brewfather key is never replaced by the Snapshot's. A file that is not a
+Snapshot is refused whole, with nothing on the box changed.
 
 ### Nothing publishes without a green suite ([#30](https://github.com/jceccato/tv-taplist/issues/30))
 
