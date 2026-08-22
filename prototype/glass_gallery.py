@@ -1,29 +1,29 @@
 """PROTOTYPE - THROWAWAY. Beer glass silhouette gallery for issue #6.
 
-Question this answers: **what should the five glass silhouettes look like**, and
-does drawing an actual glass vessel around the pour read better than refining
-the liquid outline alone?
+Round 2. Round 1 asked "liquid-only, or draw a translucent glass vessel around
+the pour?" - the maintainer looked and **rejected the vessel outright**, so all
+of that code is gone. The pour stays the silhouette, which is how
+`app/beer_glass.py` has always drawn it.
 
-Run it, open the HTML it writes:
+The question now: **which shape, per glass.** Three candidate silhouettes for
+each of the five glasses, and the bottom bar's arrows flip between them in
+place, beside what main draws today. Flipping one shape back and forth in the
+same spot is a sharper comparison than reading three of them side by side.
 
     python prototype/glass_gallery.py
 
-Rows are glass types, columns are the three candidates side by side:
+Shaker pint and conical schooner are redrawn from reference photos the
+maintainer supplied. The schooner reference is the Australian bell-shaped
+"conical" schooner - wide rim, a curve inward to a waist low down, then a slight
+flare onto a heavy base - NOT the straight cone the old code drew.
 
-    CURRENT   - whatever `app.beer_glass` draws today (imported, not copied)
-    A LIQUID  - refined liquid-only outline; no vessel, same drawing model
-    B VESSEL  - translucent glass vessel (wall, rim, base ring) + inset liquid
+Colour and theme background are still switchable (the smaller chips), because a
+shape that only reads on one background is a fail. Deep-linkable:
+`?variant=2&colour=stout&bg=light`.
 
-Each cell renders at three sizes because a shape that only works at 300px is a
-fail: 72px (a dense 8-up page), 140px (a typical card), 300px (full size).
-
-The floating bar cycles the scene - Colour (pale straw / mid amber / near-black
-stout / Unknown-amber fallback) and background (OLED black / default dark /
-daylight light). Left and right arrow keys work too.
-
-NOT production code: no tests, no error handling, coordinates hand-tuned by eye.
-The winning path data gets rewritten properly into `app/beer_glass.py`; this
-file stays on the prototype branch.
+NOT production code: no tests, coordinates hand-tuned by eye. The winning path
+data gets rewritten properly into `app/beer_glass.py`; this file stays on the
+prototype branch.
 """
 from __future__ import annotations
 
@@ -32,151 +32,200 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from app.beer_glass import (  # noqa: E402
-    _GLASS_FILL,
-    _GLASS_STROKE,
-    _bubbles,
-    _mix,
-    _stem,
-    beer_glass_svg,
-)
-
-# A heavier tint than the wall, for the thick base a shaker/schooner sits on.
-_BASE_FILL = "rgba(214,226,240,0.30)"
+from app.beer_glass import _bubbles, _mix, _stem, beer_glass_svg  # noqa: E402
 
 LIQUID = 'fill="url(#g)" stroke="rgba(255,255,255,0.16)" stroke-width="3"'
 
 
-def _vessel(d: str) -> str:
-    return f'<path d="{d}" fill="{_GLASS_FILL}" stroke="{_GLASS_STROKE}" stroke-width="2.5"/>'
-
-
-def _base_ring(d: str) -> str:
-    return f'<path d="{d}" fill="{_BASE_FILL}" stroke="{_GLASS_STROKE}" stroke-width="2"/>'
-
-
-def _foam(cx: int, cy: int, rx: int, ry: int, blobs, foam: str) -> str:
-    out = f'<ellipse cx="{cx}" cy="{cy}" rx="{rx}" ry="{ry}" fill="{foam}"/>'
+def _foam(cy: int, rx: int, ry: int, blobs, foam: str) -> str:
+    """The head: a surface ellipse plus three blobs mounding over the rim."""
+    out = f'<ellipse cx="150" cy="{cy}" rx="{rx}" ry="{ry}" fill="{foam}"/>'
     return out + "".join(
         f'<circle cx="{x}" cy="{y}" r="{r}" fill="{foam}"/>' for x, y, r in blobs
     )
 
 
-# --------------------------------------------------------------------------
-# Approach A - liquid only. Same drawing model as today: the pour IS the glass.
-# --------------------------------------------------------------------------
-def body_a(glass: str, foam: str, bubble: str) -> str:
-    if glass == "nonicpint":
-        return (
-            f'<path d="M106 68 L106 100 Q99 112 108 124 L116 228 q0 10 10 10 h48 '
-            f'q10 0 10 -10 L192 124 Q201 112 194 100 L194 68 Z" {LIQUID}/>'
-            + _foam(150, 68, 44, 13, [(126, 60, 11), (150, 55, 14), (174, 60, 11)], foam)
-            + _bubbles(bubble, [(130, 160, 5, 0.6), (162, 192, 4, 0.6), (144, 212, 6, 0.55)])
-        )
-    if glass == "schooner":
-        return (
-            f'<path d="M98 80 L124 228 q1 10 11 10 h30 q10 0 11 -10 L202 80 Z" {LIQUID}/>'
-            + _foam(150, 80, 52, 15, [(122, 71, 12), (150, 66, 15), (178, 71, 12)], foam)
-            + _bubbles(bubble, [(136, 150, 5, 0.6), (160, 182, 4, 0.6), (150, 206, 5, 0.55)])
-        )
-    if glass == "tulip":
-        return (
-            f'<path d="M110 86 C99 110 100 146 128 172 C136 180 138 190 138 200 '
-            f'L162 200 C162 190 164 180 172 172 C200 146 201 110 190 86 '
-            f'C166 96 134 96 110 86 Z" {LIQUID}/>'
-            + _foam(150, 88, 40, 12, [(130, 80, 10), (152, 76, 13), (172, 81, 9)], foam)
-            + _bubbles(bubble, [(138, 132, 5, 0.6), (158, 154, 4, 0.55)])
-            + _stem(200)
-        )
-    if glass == "teku":
-        return (
-            f'<path d="M116 80 Q126 122 134 164 L131 202 L169 202 L166 164 '
-            f'Q174 122 184 80 Z" {LIQUID}/>'
-            + _foam(150, 80, 34, 11, [(131, 73, 9), (152, 70, 12), (171, 74, 9)], foam)
-            + _bubbles(bubble, [(142, 118, 5, 0.6), (156, 152, 4, 0.55)])
-            + _stem(202)
-        )
-    # default: shaker pint - dead-straight sides, gentle taper, flat floor.
+def _pour(d: str) -> str:
+    return f'<path d="{d}" {LIQUID}/>'
+
+
+# ---------------------------------------------------------------------------
+# Candidates. Three per glass; each is (label, builder). Builders take the
+# already-tinted foam and bubble colours, exactly like the production module.
+# ---------------------------------------------------------------------------
+
+# --- Shaker pint: straight sides with a real taper, flat floor, wide rim. ---
+def shaker_1(foam: str, bubble: str) -> str:
+    """Faithful to the reference: strong taper, tall, tight base corners."""
     return (
-        f'<path d="M104 76 L113 226 q1 10 11 10 h52 q10 0 10 -10 L196 76 Z" {LIQUID}/>'
-        + _foam(150, 76, 46, 15, [(124, 67, 13), (150, 61, 16), (176, 67, 13)], foam)
-        + _bubbles(bubble, [(138, 140, 5, 0.7), (160, 176, 4, 0.6), (146, 204, 6, 0.6),
-                            (158, 118, 3, 0.7)])
+        _pour("M106 72 L120 226 q1 10 11 10 h38 q10 0 11 -10 L194 72 Z")
+        + _foam(72, 44, 15, [(124, 63, 13), (150, 57, 16), (176, 63, 13)], foam)
+        + _bubbles(bubble, [(138, 132, 5, 0.7), (160, 172, 4, 0.6), (146, 202, 6, 0.6),
+                            (158, 108, 3, 0.7)])
     )
 
 
-# --------------------------------------------------------------------------
-# Approach B - translucent vessel drawn behind an inset pour, with headspace.
-# --------------------------------------------------------------------------
-def body_b(glass: str, foam: str, bubble: str) -> str:
-    if glass == "nonicpint":
-        return (
-            _vessel("M98 58 L98 92 Q92 104 100 116 L110 242 q1 6 7 6 h66 q6 0 7 -6 "
-                    "L200 116 Q208 104 202 92 L202 58")
-            + _base_ring("M109 228 L110 242 q1 6 7 6 h66 q6 0 7 -6 L191 228 Z")
-            + f'<path d="M105 80 L105 94 Q100 104 107 114 L117 236 q1 6 7 6 h52 '
-              f'q6 0 7 -6 L193 114 Q200 104 195 94 L195 80 Z" {LIQUID}/>'
-            + _foam(150, 80, 44, 12, [(128, 72, 10), (150, 67, 13), (172, 72, 10)], foam)
-            + _bubbles(bubble, [(128, 160, 5, 0.6), (162, 196, 4, 0.6), (144, 218, 6, 0.55)])
-        )
-    if glass == "schooner":
-        return (
-            _vessel("M92 70 L122 242 q1 8 9 8 h38 q8 0 9 -8 L208 70")
-            + _base_ring("M120 230 L122 242 q1 8 9 8 h38 q8 0 9 -8 L180 230 Z")
-            + f'<path d="M103 92 L128 236 q1 6 7 6 h30 q6 0 7 -6 L197 92 Z" {LIQUID}/>'
-            + _foam(150, 92, 45, 13, [(124, 83, 12), (150, 78, 15), (176, 83, 12)], foam)
-            + _bubbles(bubble, [(136, 158, 5, 0.6), (160, 190, 4, 0.6), (150, 214, 5, 0.55)])
-        )
-    if glass == "tulip":
-        return (
-            _vessel("M104 78 C92 108 94 148 124 176 C132 184 134 192 134 200 L166 200 "
-                    "C166 192 168 184 176 176 C206 148 208 108 196 78")
-            + f'<path d="M104 98 C97 122 102 152 128 176 C135 183 137 191 137 199 '
-              f'L163 199 C163 191 165 183 172 176 C198 152 203 122 196 98 '
-              f'C168 108 132 108 104 98 Z" {LIQUID}/>'
-            + _foam(150, 100, 42, 12, [(130, 92, 10), (152, 88, 13), (172, 93, 9)], foam)
-            + _bubbles(bubble, [(138, 140, 5, 0.6), (158, 160, 4, 0.55)])
-            + _stem(200)
-        )
-    if glass == "teku":
-        return (
-            _vessel("M108 72 Q120 118 128 166 L124 204 L176 204 L172 166 Q180 118 192 72")
-            + f'<path d="M119 92 Q129 120 134 164 L131 200 L169 200 L166 164 '
-              f'Q171 120 181 92 Z" {LIQUID}/>'
-            + _foam(150, 92, 31, 10, [(132, 85, 9), (152, 82, 11), (169, 86, 8)], foam)
-            + _bubbles(bubble, [(142, 128, 5, 0.6), (156, 158, 4, 0.55)])
-            + _stem(204)
-        )
-    # default: shaker pint with the thick base ring it is known for.
+def shaker_2(foam: str, bubble: str) -> str:
+    """Softer taper, taller body - more pint-like, less mixing-tin."""
     return (
-        _vessel("M96 62 L106 240 q1 6 7 6 h74 q6 0 7 -6 L204 62")
-        + _base_ring("M105 226 L106 240 q1 6 7 6 h74 q6 0 7 -6 L195 226 Z")
-        + f'<path d="M104 84 L113 232 q1 7 8 7 h58 q7 0 8 -7 L196 84 Z" {LIQUID}/>'
-        + _foam(150, 84, 46, 13, [(126, 74, 11), (150, 69, 14), (174, 74, 11)], foam)
-        + _bubbles(bubble, [(138, 150, 5, 0.7), (162, 186, 4, 0.6), (146, 212, 6, 0.6),
-                            (158, 126, 3, 0.7)])
+        _pour("M108 66 L116 228 q1 12 12 12 h44 q11 0 12 -12 L192 66 Z")
+        + _foam(66, 42, 14, [(126, 58, 12), (150, 52, 15), (174, 58, 12)], foam)
+        + _bubbles(bubble, [(136, 128, 5, 0.7), (162, 170, 4, 0.6), (146, 204, 6, 0.6),
+                            (156, 100, 3, 0.7)])
     )
 
 
-def render(glass: str, approach: str, base: str) -> str:
-    """Full SVG for one candidate, mirroring the production wrapper exactly."""
-    if approach == "current":
-        return beer_glass_svg(base, glass)
-    top = _mix(base, "#ffffff", 0.30)
-    bottom = _mix(base, "#000000", 0.28)
-    foam = _mix(base, "#ffffff", 0.80)
-    bubble = _mix(base, "#ffffff", 0.55)
-    body = body_a(glass, foam, bubble) if approach == "a" else body_b(glass, foam, bubble)
+def shaker_3(foam: str, bubble: str) -> str:
+    """Very slightly concave sides - the optical curve thick glass really has."""
     return (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" '
-        'width="300" height="300" role="img" aria-label="Beer">'
-        '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'
-        f'<stop offset="0%" stop-color="{top}"/>'
-        f'<stop offset="55%" stop-color="{base}"/>'
-        f'<stop offset="100%" stop-color="{bottom}"/>'
-        '</linearGradient></defs>' + body + '</svg>'
+        _pour("M106 70 Q112 150 118 228 q1 10 11 10 h42 q10 0 11 -10 Q188 150 194 70 Z")
+        + _foam(70, 44, 15, [(124, 61, 13), (150, 55, 16), (176, 61, 13)], foam)
+        + _bubbles(bubble, [(138, 130, 5, 0.7), (160, 172, 4, 0.6), (147, 204, 6, 0.6),
+                            (158, 106, 3, 0.7)])
     )
 
+
+# --- Nonic pint: straight sides broken by the bulge near the top. ---
+def nonic_1(foam: str, bubble: str) -> str:
+    """Bulge a third from the top, slim taper below."""
+    return (
+        _pour("M106 68 L106 100 Q99 112 108 124 L116 228 q0 10 10 10 h48 "
+              "q10 0 10 -10 L192 124 Q201 112 194 100 L194 68 Z")
+        + _foam(68, 44, 13, [(126, 60, 11), (150, 55, 14), (174, 60, 11)], foam)
+        + _bubbles(bubble, [(130, 158, 5, 0.6), (162, 192, 4, 0.6), (144, 212, 6, 0.55)])
+    )
+
+
+def nonic_2(foam: str, bubble: str) -> str:
+    """Ring set higher and softer; longer body below it."""
+    return (
+        _pour("M107 66 L107 96 Q102 106 110 118 L118 228 q1 10 11 10 h42 "
+              "q10 0 11 -10 L190 118 Q198 106 193 96 L193 66 Z")
+        + _foam(66, 43, 13, [(126, 58, 11), (150, 53, 14), (174, 58, 11)], foam)
+        + _bubbles(bubble, [(132, 156, 5, 0.6), (162, 192, 4, 0.6), (144, 212, 6, 0.55)])
+    )
+
+
+def nonic_3(foam: str, bubble: str) -> str:
+    """Wider, more pronounced bulge - the shape you can actually grip."""
+    return (
+        _pour("M108 70 L108 102 Q98 114 110 126 L116 230 q1 8 9 8 h50 "
+              "q8 0 9 -8 L190 126 Q202 114 192 102 L192 70 Z")
+        + _foam(70, 42, 13, [(128, 62, 11), (150, 57, 14), (172, 62, 11)], foam)
+        + _bubbles(bubble, [(130, 160, 5, 0.6), (162, 194, 4, 0.6), (144, 214, 6, 0.55)])
+    )
+
+
+# --- Conical schooner: the Australian bell, per the reference photo. ---
+def schooner_1(foam: str, bubble: str) -> str:
+    """The reference bell: wide rim, curve in to a low waist, slight base flare."""
+    return (
+        _pour("M110 76 Q104 130 122 196 Q126 216 120 232 q3 8 11 8 h38 "
+              "q8 0 11 -8 Q174 216 178 196 Q196 130 190 76 Z")
+        + _foam(76, 40, 13, [(128, 67, 12), (150, 62, 15), (172, 67, 12)], foam)
+        + _bubbles(bubble, [(136, 140, 5, 0.6), (162, 180, 4, 0.6), (148, 208, 5, 0.55)])
+    )
+
+
+def schooner_2(foam: str, bubble: str) -> str:
+    """Deeper waist and a fuller shoulder - the bell pushed further."""
+    return (
+        _pour("M108 74 Q98 132 120 200 Q124 218 118 232 q3 8 11 8 h42 "
+              "q8 0 11 -8 Q176 218 180 200 Q202 132 192 74 Z")
+        + _foam(74, 41, 13, [(128, 65, 12), (150, 60, 15), (172, 65, 12)], foam)
+        + _bubbles(bubble, [(134, 142, 5, 0.6), (162, 184, 4, 0.6), (148, 210, 5, 0.55)])
+    )
+
+
+def schooner_3(foam: str, bubble: str) -> str:
+    """The straight cone, flare moderated - what the old shape was reaching for."""
+    return (
+        _pour("M98 80 L124 228 q1 10 11 10 h30 q10 0 11 -10 L202 80 Z")
+        + _foam(80, 52, 15, [(122, 71, 12), (150, 66, 15), (178, 71, 12)], foam)
+        + _bubbles(bubble, [(136, 150, 5, 0.6), (160, 182, 4, 0.6), (150, 206, 5, 0.55)])
+    )
+
+
+# --- Tulip: bulbous bowl, pinched waist, flared lip, on a stem. ---
+def tulip_1(foam: str, bubble: str) -> str:
+    """Rounded bowl, clear waist, modest lip flare."""
+    return (
+        _pour("M110 86 C99 110 100 146 128 172 C136 180 138 190 138 200 "
+              "L162 200 C162 190 164 180 172 172 C200 146 201 110 190 86 "
+              "C166 96 134 96 110 86 Z")
+        + _foam(88, 40, 12, [(130, 80, 10), (152, 76, 13), (172, 81, 9)], foam)
+        + _bubbles(bubble, [(138, 132, 5, 0.6), (158, 154, 4, 0.55)])
+        + _stem(200)
+    )
+
+
+def tulip_2(foam: str, bubble: str) -> str:
+    """Fuller, rounder bowl with a tighter pinch - the Belgian shape."""
+    return (
+        _pour("M112 84 C96 112 100 152 130 176 C138 184 140 192 140 200 "
+              "L160 200 C160 192 162 184 170 176 C200 152 204 112 188 84 "
+              "C166 94 134 94 112 84 Z")
+        + _foam(86, 38, 12, [(131, 78, 10), (152, 74, 13), (171, 79, 9)], foam)
+        + _bubbles(bubble, [(138, 136, 5, 0.6), (159, 158, 4, 0.55)])
+        + _stem(200)
+    )
+
+
+def tulip_3(foam: str, bubble: str) -> str:
+    """Taller and narrower - reads better where cards are short and wide."""
+    return (
+        _pour("M116 82 C104 110 108 150 132 176 C139 183 141 192 141 200 "
+              "L159 200 C159 192 161 183 168 176 C192 150 196 110 184 82 "
+              "C164 92 136 92 116 82 Z")
+        + _foam(84, 34, 11, [(133, 77, 9), (152, 73, 12), (169, 78, 9)], foam)
+        + _bubbles(bubble, [(140, 134, 5, 0.6), (158, 156, 4, 0.55)])
+        + _stem(200)
+    )
+
+
+# --- Teku: angular, long upper cone to a waist, small flare to the stem. ---
+def teku_1(foam: str, bubble: str) -> str:
+    """Long upper cone, soft waist, small flare."""
+    return (
+        _pour("M116 80 Q126 122 134 164 L131 202 L169 202 L166 164 Q174 122 184 80 Z")
+        + _foam(80, 34, 11, [(131, 73, 9), (152, 70, 12), (171, 74, 9)], foam)
+        + _bubbles(bubble, [(142, 118, 5, 0.6), (156, 152, 4, 0.55)])
+        + _stem(202)
+    )
+
+
+def teku_2(foam: str, bubble: str) -> str:
+    """Longer cone still, almost no flare - the severe version."""
+    return (
+        _pour("M114 78 Q126 124 136 168 L134 204 L166 204 L164 168 Q174 124 186 78 Z")
+        + _foam(78, 36, 11, [(130, 71, 9), (152, 68, 12), (172, 72, 9)], foam)
+        + _bubbles(bubble, [(142, 120, 5, 0.6), (157, 156, 4, 0.55)])
+        + _stem(204)
+    )
+
+
+def teku_3(foam: str, bubble: str) -> str:
+    """Dead-straight lines, no curve at all - maximum angularity."""
+    return (
+        _pour("M116 80 L136 166 L132 204 L168 204 L164 166 L184 80 Z")
+        + _foam(80, 34, 11, [(131, 73, 9), (152, 70, 12), (171, 74, 9)], foam)
+        + _bubbles(bubble, [(142, 118, 5, 0.6), (156, 154, 4, 0.55)])
+        + _stem(204)
+    )
+
+
+CANDIDATES = {
+    "default": [("1 - reference taper", shaker_1), ("2 - softer, taller", shaker_2),
+                ("3 - concave sides", shaker_3)],
+    "nonicpint": [("1 - bulge a third down", nonic_1), ("2 - higher, softer ring", nonic_2),
+                  ("3 - wider bulge", nonic_3)],
+    "schooner": [("1 - reference bell", schooner_1), ("2 - deeper waist", schooner_2),
+                 ("3 - moderated cone", schooner_3)],
+    "tulip": [("1 - rounded bowl", tulip_1), ("2 - fuller, tighter pinch", tulip_2),
+              ("3 - tall and narrow", tulip_3)],
+    "teku": [("1 - long cone, soft waist", teku_1), ("2 - severe, no flare", teku_2),
+             ("3 - dead-straight lines", teku_3)],
+}
 
 GLASSES = [
     ("default", "Shaker pint (default)"),
@@ -185,73 +234,95 @@ GLASSES = [
     ("tulip", "Tulip"),
     ("teku", "Teku"),
 ]
-COLUMNS = [("current", "Current (main)"), ("a", "A - liquid only"), ("b", "B - with vessel")]
-# Pale straw, mid amber, near-black stout, and the Unknown-amber fallback.
 COLOURS = [
-    ("straw", "Pale straw (EBC ~5)", "#f5d97a"),
     ("amber", "Mid amber (EBC ~25)", "#c3641a"),
+    ("straw", "Pale straw (EBC ~5)", "#f5d97a"),
     ("stout", "Near-black stout (EBC ~80)", "#1a0d06"),
-    ("unknown", "Unknown Colour - this surface's amber fallback", "#e8a020"),
+    ("unknown", "Unknown Colour (amber fallback)", "#e8a020"),
 ]
 BACKGROUNDS = [
-    ("oled", "OLED black", "#000000", "#e8ecf2"),
     ("dark", "Default dark", "#131a22", "#e8ecf2"),
+    ("oled", "OLED black", "#000000", "#e8ecf2"),
     ("light", "Daylight", "#f4f6f8", "#1a2230"),
 ]
 SIZES = [(64, "64px - dense 8-up"), (120, "120px - typical card"), (230, "230px - full")]
+VARIANTS = ["1", "2", "3"]
+
+
+def render(glass: str, variant: str, base: str, uid: str) -> str:
+    """Full SVG for one candidate, mirroring the production wrapper exactly."""
+    if variant == "current":
+        svg = beer_glass_svg(base, glass)
+    else:
+        top = _mix(base, "#ffffff", 0.30)
+        bottom = _mix(base, "#000000", 0.28)
+        foam = _mix(base, "#ffffff", 0.80)
+        bubble = _mix(base, "#ffffff", 0.55)
+        body = CANDIDATES[glass][int(variant) - 1][1](foam, bubble)
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" '
+            'width="300" height="300" role="img" aria-label="Beer">'
+            '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'
+            f'<stop offset="0%" stop-color="{top}"/>'
+            f'<stop offset="55%" stop-color="{base}"/>'
+            f'<stop offset="100%" stop-color="{bottom}"/>'
+            '</linearGradient></defs>' + body + '</svg>'
+        )
+    # Every SVG here ships a gradient with id="g". Inline in ONE document those
+    # ids collide and every pour borrows the first gradient on the page - which
+    # is why the stout first rendered straw. Production never hits this (each
+    # glass is its own /img response), so this rename is a harness fix.
+    return svg.replace('id="g"', f'id="{uid}"').replace("url(#g)", f"url(#{uid})")
 
 
 def build_html() -> str:
     scenes = []
-    for ck, clabel, chex in COLOURS:
-        rows = []
-        for gk, glabel in GLASSES:
-            cells = []
-            for ak, _alabel in COLUMNS:
-                # Every SVG on this page ships its own gradient with id="g". Inline
-                # in ONE document those ids collide and every pour borrows the first
-                # gradient on the page - which is why the stout first rendered straw.
-                # Production never hits this (each glass is its own /img response),
-                # so this rename is a harness fix, not a finding about the renderer.
-                uid = f"g-{ck}-{gk}-{ak}"
-                svg = render(gk, ak, chex).replace('id="g"', f'id="{uid}"')
-                svg = svg.replace("url(#g)", f"url(#{uid})")
-                sizes = "".join(
-                    f'<div class="s"><div class="box" style="width:{px}px;height:{px}px">{svg}</div>'
-                    f'<span>{note}</span></div>'
-                    for px, note in SIZES
+    for ck, _clabel, chex in COLOURS:
+        for v in VARIANTS:
+            rows = []
+            for gk, glabel in GLASSES:
+                cells = []
+                for col in ("current", v):
+                    uid = f"g-{ck}-{gk}-{col}-{v}"
+                    svg = render(gk, col, chex, uid)
+                    sizes = "".join(
+                        f'<div class="s"><div class="box" style="width:{px}px;'
+                        f'height:{px}px">{svg}</div><span>{note}</span></div>'
+                        for px, note in SIZES
+                    )
+                    cells.append(f'<td><div class="sizes">{sizes}</div></td>')
+                label = CANDIDATES[gk][int(v) - 1][0]
+                rows.append(
+                    f'<tr><th>{glabel}<br><span class="vlabel">{label}</span></th>'
+                    f'{"".join(cells)}</tr>'
                 )
-                cells.append(f'<td><div class="sizes">{sizes}</div></td>')
-            rows.append(f'<tr><th>{glabel}</th>{"".join(cells)}</tr>')
-        head = "".join(f"<th>{lbl}</th>" for _, lbl in COLUMNS)
-        scenes.append(
-            f'<section class="scene" data-colour="{ck}">'
-            f'<table><thead><tr><th>{clabel}</th>{head}</tr></thead>'
-            f'<tbody>{"".join(rows)}</tbody></table></section>'
-        )
-    bg_buttons = "".join(
-        f'<button data-bg="{k}">{lbl}</button>' for k, lbl, _, _ in BACKGROUNDS
-    )
+            scenes.append(
+                f'<section class="scene" data-colour="{ck}" data-variant="{v}">'
+                f'<table><thead><tr><th>Candidate set {v}</th><th>Current (main)</th>'
+                f'<th>Candidate {v}</th></tr></thead>'
+                f'<tbody>{"".join(rows)}</tbody></table></section>'
+            )
+    bg_buttons = "".join(f'<button data-bg="{k}">{lbl}</button>' for k, lbl, _, _ in BACKGROUNDS)
+    colour_buttons = "".join(f'<button data-colour="{k}">{k}</button>' for k, _, _ in COLOURS)
     bg_css = "".join(
         f'body[data-bg="{k}"]{{background:{bg};color:{fg}}}' for k, _, bg, fg in BACKGROUNDS
     )
-    colour_keys = ",".join(f'"{k}"' for k, _, _ in COLOURS)
-    colour_labels = ",".join(f'{k}:"{lbl}"' for k, lbl, _ in COLOURS)
+    variants_js = "[" + ",".join(f'"{v}"' for v in VARIANTS) + "]"
     return f"""<!doctype html>
 <meta charset="utf-8">
 <title>PROTOTYPE - beer glass silhouettes (issue #6)</title>
 <style>
-  body {{ margin:0; padding:24px 24px 110px; font:14px/1.4 system-ui,sans-serif;
+  body {{ margin:0; padding:24px 24px 120px; font:14px/1.4 system-ui,sans-serif;
          background:#131a22; color:#e8ecf2; }}
   {bg_css}
   h1 {{ font-size:16px; font-weight:600; margin:0 0 4px; }}
-  p.sub {{ margin:0 0 20px; opacity:.7; max-width:70ch; }}
+  p.sub {{ margin:0 0 20px; opacity:.7; max-width:78ch; }}
   .scene {{ display:none; }} .scene.on {{ display:block; }}
-  table {{ border-collapse:collapse; width:100%; }}
+  table {{ border-collapse:collapse; width:100%; table-layout:fixed; }}
   th, td {{ border:1px solid rgba(128,144,160,.35); padding:10px; vertical-align:top; }}
   thead th {{ text-align:left; font-weight:600; }}
-  tbody th {{ text-align:left; width:110px; font-weight:500; }}
-  table {{ table-layout:fixed; }}
+  tbody th {{ text-align:left; width:150px; font-weight:500; }}
+  .vlabel {{ font-weight:400; font-size:11px; opacity:.6; }}
   .sizes {{ display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; }}
   .s {{ display:flex; flex-direction:column; align-items:center; gap:6px; }}
   .s span {{ font-size:10px; opacity:.55; }}
@@ -264,41 +335,50 @@ def build_html() -> str:
                  padding:6px 10px; cursor:pointer; background:rgba(255,255,255,.22);
                  color:#fff; }}
   #bar button.on {{ background:#fff; color:#ff3d7f; }}
-  #state {{ min-width:300px; text-align:center; font-size:13px; }}
+  #state {{ min-width:150px; text-align:center; font-size:13px; }}
+  .sep {{ opacity:.55; }}
 </style>
 <body data-bg="dark">
 <h1>PROTOTYPE - beer glass silhouettes (issue #6)</h1>
-<p class="sub">Rows are glass types, columns are candidates. Left/right arrows (or the
-buttons) cycle the beer Colour; the background buttons switch theme. Nothing here is
-production code - the winner gets rewritten into <code>app/beer_glass.py</code>.</p>
+<p class="sub">The arrows flip between three candidate shapes per glass, in place, beside
+what main draws today - flipping the same spot back and forth is a sharper comparison than
+reading them side by side. The chips switch beer Colour and theme background. The vessel
+approach was rejected in round 1 and is gone. Nothing here is production code.</p>
 {"".join(scenes)}
 <div id="bar">
   <button id="prev">&#8592;</button>
   <span id="state"></span>
   <button id="next">&#8594;</button>
-  <span style="opacity:.6">|</span>
+  <span class="sep">|</span>
+  {colour_buttons}
+  <span class="sep">|</span>
   {bg_buttons}
 </div>
 <script>
-  const colours = [{colour_keys}];
-  const labels = {{{colour_labels}}};
+  const variants = {variants_js};
   const q = new URLSearchParams(location.search);
-  let i = Math.max(0, colours.indexOf(q.get('colour')));
+  let vi = Math.max(0, variants.indexOf(q.get('variant')));
+  let colour = q.get('colour') || 'amber';
   if (q.get('bg')) document.body.dataset.bg = q.get('bg');
   function draw() {{
-    history.replaceState(null, '', '?colour=' + colours[i] + '&bg=' + document.body.dataset.bg);
-    document.querySelectorAll('.scene').forEach(s =>
-      s.classList.toggle('on', s.dataset.colour === colours[i]));
+    document.querySelectorAll('.scene').forEach(s => s.classList.toggle(
+      'on', s.dataset.variant === variants[vi] && s.dataset.colour === colour));
     document.getElementById('state').textContent =
-      (i + 1) + '/' + colours.length + '  -  ' + labels[colours[i]]
-      + '  -  ' + document.body.dataset.bg;
+      'Candidate ' + variants[vi] + ' of ' + variants.length;
+    document.querySelectorAll('#bar button[data-colour]').forEach(
+      b => b.classList.toggle('on', b.dataset.colour === colour));
+    document.querySelectorAll('#bar button[data-bg]').forEach(
+      b => b.classList.toggle('on', b.dataset.bg === document.body.dataset.bg));
+    history.replaceState(null, '', '?variant=' + variants[vi] + '&colour=' + colour
+      + '&bg=' + document.body.dataset.bg);
   }}
-  document.getElementById('prev').onclick = () => {{ i = (i + colours.length - 1) % colours.length; draw(); }};
-  document.getElementById('next').onclick = () => {{ i = (i + 1) % colours.length; draw(); }};
+  document.getElementById('prev').onclick = () => {{ vi = (vi + variants.length - 1) % variants.length; draw(); }};
+  document.getElementById('next').onclick = () => {{ vi = (vi + 1) % variants.length; draw(); }};
+  document.querySelectorAll('#bar button[data-colour]').forEach(b => b.onclick = () => {{
+    colour = b.dataset.colour; draw();
+  }});
   document.querySelectorAll('#bar button[data-bg]').forEach(b => b.onclick = () => {{
-    document.body.dataset.bg = b.dataset.bg;
-    document.querySelectorAll('#bar button[data-bg]').forEach(x => x.classList.toggle('on', x === b));
-    draw();
+    document.body.dataset.bg = b.dataset.bg; draw();
   }});
   addEventListener('keydown', e => {{
     if (e.key === 'ArrowLeft') document.getElementById('prev').click();
