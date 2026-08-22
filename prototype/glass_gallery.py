@@ -54,177 +54,188 @@ def _pour(d: str) -> str:
 # already-tinted foam and bubble colours, exactly like the production module.
 # ---------------------------------------------------------------------------
 
-# --- Shaker pint: straight sides with a real taper, flat floor, wide rim. ---
+# --- Shaker pint: concave sides (round 2 pick), mouth widened. ---
 def shaker_1(foam: str, bubble: str) -> str:
-    """Faithful to the reference: strong taper, tall, tight base corners."""
+    """Wide mouth over the concave taper."""
     return (
-        _pour("M106 72 L120 226 q1 10 11 10 h38 q10 0 11 -10 L194 72 Z")
-        + _foam(72, 44, 15, [(124, 63, 13), (150, 57, 16), (176, 63, 13)], foam)
-        + _bubbles(bubble, [(138, 132, 5, 0.7), (160, 172, 4, 0.6), (146, 202, 6, 0.6),
-                            (158, 108, 3, 0.7)])
-    )
-
-
-def shaker_2(foam: str, bubble: str) -> str:
-    """Softer taper, taller body - more pint-like, less mixing-tin."""
-    return (
-        _pour("M108 66 L116 228 q1 12 12 12 h44 q11 0 12 -12 L192 66 Z")
-        + _foam(66, 42, 14, [(126, 58, 12), (150, 52, 15), (174, 58, 12)], foam)
-        + _bubbles(bubble, [(136, 128, 5, 0.7), (162, 170, 4, 0.6), (146, 204, 6, 0.6),
-                            (156, 100, 3, 0.7)])
-    )
-
-
-def shaker_3(foam: str, bubble: str) -> str:
-    """Very slightly concave sides - the optical curve thick glass really has."""
-    return (
-        _pour("M106 70 Q112 150 118 228 q1 10 11 10 h42 q10 0 11 -10 Q188 150 194 70 Z")
-        + _foam(70, 44, 15, [(124, 61, 13), (150, 55, 16), (176, 61, 13)], foam)
-        + _bubbles(bubble, [(138, 130, 5, 0.7), (160, 172, 4, 0.6), (147, 204, 6, 0.6),
+        _pour("M100 70 Q112 150 118 228 q1 10 11 10 h42 q10 0 11 -10 Q188 150 200 70 Z")
+        + _foam(70, 50, 16, [(122, 60, 14), (150, 54, 17), (178, 60, 14)], foam)
+        + _bubbles(bubble, [(138, 130, 5, 0.7), (162, 172, 4, 0.6), (147, 204, 6, 0.6),
                             (158, 106, 3, 0.7)])
     )
 
 
-# --- Nonic pint: straight sides broken by the bulge near the top. ---
-def nonic_1(foam: str, bubble: str) -> str:
-    """Bulge a third from the top, slim taper below."""
+def shaker_2(foam: str, bubble: str) -> str:
+    """Wider still - the mouth pushed as far as the shape takes."""
     return (
-        _pour("M106 68 L106 100 Q99 112 108 124 L116 228 q0 10 10 10 h48 "
-              "q10 0 10 -10 L192 124 Q201 112 194 100 L194 68 Z")
-        + _foam(68, 44, 13, [(126, 60, 11), (150, 55, 14), (174, 60, 11)], foam)
-        + _bubbles(bubble, [(130, 158, 5, 0.6), (162, 192, 4, 0.6), (144, 212, 6, 0.55)])
+        _pour("M96 70 Q110 150 118 228 q1 10 11 10 h42 q10 0 11 -10 Q190 150 204 70 Z")
+        + _foam(70, 54, 17, [(120, 60, 15), (150, 53, 18), (180, 60, 15)], foam)
+        + _bubbles(bubble, [(136, 130, 5, 0.7), (162, 172, 4, 0.6), (147, 204, 6, 0.6),
+                            (158, 104, 3, 0.7)])
+    )
+
+
+def shaker_3(foam: str, bubble: str) -> str:
+    """Wide mouth, but the sides nearly straight - less optical curve."""
+    return (
+        _pour("M100 70 Q116 148 118 228 q1 10 11 10 h42 q10 0 11 -10 Q184 148 200 70 Z")
+        + _foam(70, 50, 16, [(122, 60, 14), (150, 54, 17), (178, 60, 14)], foam)
+        + _bubbles(bubble, [(138, 132, 5, 0.7), (160, 174, 4, 0.6), (147, 204, 6, 0.6),
+                            (158, 108, 3, 0.7)])
+    )
+
+
+# --- Nonic pint: round 2 pick, stubbier (height pulled back toward width). ---
+def nonic_1(foam: str, bubble: str) -> str:
+    """Stubby: shorter body, wider barrel, bulge a third down."""
+    return (
+        _pour("M102 84 L102 112 Q95 124 104 136 L112 228 q0 10 10 10 h56 "
+              "q10 0 10 -10 L196 136 Q205 124 198 112 L198 84 Z")
+        + _foam(84, 48, 14, [(124, 75, 12), (150, 70, 15), (176, 75, 12)], foam)
+        + _bubbles(bubble, [(130, 166, 5, 0.6), (164, 196, 4, 0.6), (144, 214, 6, 0.55)])
     )
 
 
 def nonic_2(foam: str, bubble: str) -> str:
-    """Ring set higher and softer; longer body below it."""
+    """Halfway back to the taller original."""
     return (
-        _pour("M107 66 L107 96 Q102 106 110 118 L118 228 q1 10 11 10 h42 "
-              "q10 0 11 -10 L190 118 Q198 106 193 96 L193 66 Z")
-        + _foam(66, 43, 13, [(126, 58, 11), (150, 53, 14), (174, 58, 11)], foam)
-        + _bubbles(bubble, [(132, 156, 5, 0.6), (162, 192, 4, 0.6), (144, 212, 6, 0.55)])
+        _pour("M104 78 L104 108 Q97 120 106 132 L114 228 q0 10 10 10 h52 "
+              "q10 0 10 -10 L194 132 Q203 120 196 108 L196 78 Z")
+        + _foam(78, 46, 14, [(126, 69, 12), (150, 64, 15), (174, 69, 12)], foam)
+        + _bubbles(bubble, [(130, 162, 5, 0.6), (163, 194, 4, 0.6), (144, 213, 6, 0.55)])
     )
 
 
 def nonic_3(foam: str, bubble: str) -> str:
-    """Wider, more pronounced bulge - the shape you can actually grip."""
+    """Stubbiest - nearly as wide as it is tall."""
     return (
-        _pour("M108 70 L108 102 Q98 114 110 126 L116 230 q1 8 9 8 h50 "
-              "q8 0 9 -8 L190 126 Q202 114 192 102 L192 70 Z")
-        + _foam(70, 42, 13, [(128, 62, 11), (150, 57, 14), (172, 62, 11)], foam)
-        + _bubbles(bubble, [(130, 160, 5, 0.6), (162, 194, 4, 0.6), (144, 214, 6, 0.55)])
+        _pour("M100 90 L100 116 Q93 128 102 140 L110 228 q0 10 10 10 h60 "
+              "q10 0 10 -10 L198 140 Q207 128 200 116 L200 90 Z")
+        + _foam(90, 50, 15, [(122, 81, 13), (150, 75, 16), (178, 81, 13)], foam)
+        + _bubbles(bubble, [(130, 170, 5, 0.6), (165, 198, 4, 0.6), (144, 215, 6, 0.55)])
     )
 
 
-# --- Conical schooner: the Australian bell, per the reference photo. ---
+# --- Conical schooner: vertical rim, one smooth taper, NO flare at the base. ---
 def schooner_1(foam: str, bubble: str) -> str:
-    """The reference bell: wide rim, curve in to a low waist, slight base flare."""
+    """Rim dead vertical, then one continuous narrowing - waist mid-height."""
     return (
-        _pour("M110 76 Q104 130 122 196 Q126 216 120 232 q3 8 11 8 h38 "
-              "q8 0 11 -8 Q174 216 178 196 Q196 130 190 76 Z")
-        + _foam(76, 40, 13, [(128, 67, 12), (150, 62, 15), (172, 67, 12)], foam)
-        + _bubbles(bubble, [(136, 140, 5, 0.6), (162, 180, 4, 0.6), (148, 208, 5, 0.55)])
+        _pour("M108 76 L108 112 C108 150 120 190 126 232 q2 8 10 8 h28 "
+              "q8 0 10 -8 C180 190 192 150 192 112 L192 76 Z")
+        + _foam(76, 42, 13, [(128, 67, 12), (150, 62, 15), (172, 67, 12)], foam)
+        + _bubbles(bubble, [(136, 146, 5, 0.6), (162, 184, 4, 0.6), (148, 212, 5, 0.55)])
     )
 
 
 def schooner_2(foam: str, bubble: str) -> str:
-    """Deeper waist and a fuller shoulder - the bell pushed further."""
+    """Longer vertical rim, narrower foot - the taper carries lower."""
     return (
-        _pour("M108 74 Q98 132 120 200 Q124 218 118 232 q3 8 11 8 h42 "
-              "q8 0 11 -8 Q176 218 180 200 Q202 132 192 74 Z")
-        + _foam(74, 41, 13, [(128, 65, 12), (150, 60, 15), (172, 65, 12)], foam)
-        + _bubbles(bubble, [(134, 142, 5, 0.6), (162, 184, 4, 0.6), (148, 210, 5, 0.55)])
+        _pour("M108 74 L108 124 C108 158 122 196 130 232 q2 8 10 8 h20 "
+              "q8 0 10 -8 C178 196 192 158 192 124 L192 74 Z")
+        + _foam(74, 42, 13, [(128, 65, 12), (150, 60, 15), (172, 65, 12)], foam)
+        + _bubbles(bubble, [(138, 150, 5, 0.6), (162, 188, 4, 0.6), (150, 214, 5, 0.55)])
     )
 
 
 def schooner_3(foam: str, bubble: str) -> str:
-    """The straight cone, flare moderated - what the old shape was reaching for."""
+    """Waist set higher, gentler curve - closer to a soft cone."""
     return (
-        _pour("M98 80 L124 228 q1 10 11 10 h30 q10 0 11 -10 L202 80 Z")
-        + _foam(80, 52, 15, [(122, 71, 12), (150, 66, 15), (178, 71, 12)], foam)
-        + _bubbles(bubble, [(136, 150, 5, 0.6), (160, 182, 4, 0.6), (150, 206, 5, 0.55)])
+        _pour("M108 78 L108 104 C108 148 118 192 124 232 q2 8 10 8 h32 "
+              "q8 0 10 -8 C182 192 192 148 192 104 L192 78 Z")
+        + _foam(78, 42, 13, [(128, 69, 12), (150, 64, 15), (172, 69, 12)], foam)
+        + _bubbles(bubble, [(136, 144, 5, 0.6), (162, 182, 4, 0.6), (148, 210, 5, 0.55)])
     )
 
 
-# --- Tulip: bulbous bowl, pinched waist, flared lip, on a stem. ---
+# --- Tulip: round 2 pick, plus the straight rim collar from the reference. ---
 def tulip_1(foam: str, bubble: str) -> str:
-    """Rounded bowl, clear waist, modest lip flare."""
+    """Fuller bowl under a short, straight rim collar."""
     return (
-        _pour("M110 86 C99 110 100 146 128 172 C136 180 138 190 138 200 "
-              "L162 200 C162 190 164 180 172 172 C200 146 201 110 190 86 "
-              "C166 96 134 96 110 86 Z")
-        + _foam(88, 40, 12, [(130, 80, 10), (152, 76, 13), (172, 81, 9)], foam)
-        + _bubbles(bubble, [(138, 132, 5, 0.6), (158, 154, 4, 0.55)])
-        + _stem(200)
-    )
-
-
-def tulip_2(foam: str, bubble: str) -> str:
-    """Fuller, rounder bowl with a tighter pinch - the Belgian shape."""
-    return (
-        _pour("M112 84 C96 112 100 152 130 176 C138 184 140 192 140 200 "
-              "L160 200 C160 192 162 184 170 176 C200 152 204 112 188 84 "
-              "C166 94 134 94 112 84 Z")
-        + _foam(86, 38, 12, [(131, 78, 10), (152, 74, 13), (171, 79, 9)], foam)
-        + _bubbles(bubble, [(138, 136, 5, 0.6), (159, 158, 4, 0.55)])
-        + _stem(200)
-    )
-
-
-def tulip_3(foam: str, bubble: str) -> str:
-    """Taller and narrower - reads better where cards are short and wide."""
-    return (
-        _pour("M116 82 C104 110 108 150 132 176 C139 183 141 192 141 200 "
-              "L159 200 C159 192 161 183 168 176 C192 150 196 110 184 82 "
-              "C164 92 136 92 116 82 Z")
-        + _foam(84, 34, 11, [(133, 77, 9), (152, 73, 12), (169, 78, 9)], foam)
-        + _bubbles(bubble, [(140, 134, 5, 0.6), (158, 156, 4, 0.55)])
-        + _stem(200)
-    )
-
-
-# --- Teku: angular, long upper cone to a waist, small flare to the stem. ---
-def teku_1(foam: str, bubble: str) -> str:
-    """Long upper cone, soft waist, small flare."""
-    return (
-        _pour("M116 80 Q126 122 134 164 L131 202 L169 202 L166 164 Q174 122 184 80 Z")
-        + _foam(80, 34, 11, [(131, 73, 9), (152, 70, 12), (171, 74, 9)], foam)
-        + _bubbles(bubble, [(142, 118, 5, 0.6), (156, 152, 4, 0.55)])
+        _pour("M112 78 L112 96 C100 120 102 154 130 178 C138 186 140 194 140 202 "
+              "L160 202 C160 194 162 186 170 178 C198 154 200 120 188 96 "
+              "L188 78 Z")
+        + _foam(78, 38, 12, [(130, 70, 10), (152, 66, 13), (172, 71, 9)], foam)
+        + _bubbles(bubble, [(138, 140, 5, 0.6), (158, 162, 4, 0.55)])
         + _stem(202)
     )
 
 
-def teku_2(foam: str, bubble: str) -> str:
-    """Longer cone still, almost no flare - the severe version."""
+def tulip_2(foam: str, bubble: str) -> str:
+    """Taller collar - more of the straight rim showing above the bowl."""
     return (
-        _pour("M114 78 Q126 124 136 168 L134 204 L166 204 L164 168 Q174 124 186 78 Z")
-        + _foam(78, 36, 11, [(130, 71, 9), (152, 68, 12), (172, 72, 9)], foam)
-        + _bubbles(bubble, [(142, 120, 5, 0.6), (157, 156, 4, 0.55)])
-        + _stem(204)
+        _pour("M112 72 L112 98 C99 122 101 156 130 180 C138 188 140 195 140 202 "
+              "L160 202 C160 195 162 188 170 180 C199 156 201 122 188 98 "
+              "L188 72 Z")
+        + _foam(72, 38, 12, [(130, 64, 10), (152, 60, 13), (172, 65, 9)], foam)
+        + _bubbles(bubble, [(138, 142, 5, 0.6), (158, 164, 4, 0.55)])
+        + _stem(202)
+    )
+
+
+def tulip_3(foam: str, bubble: str) -> str:
+    """Collar with a slight outward lean, as most tulips actually have."""
+    return (
+        _pour("M108 76 L113 98 C100 122 102 156 130 180 C138 188 140 195 140 202 "
+              "L160 202 C160 195 162 188 170 180 C198 156 200 122 187 98 "
+              "L192 76 Z")
+        + _foam(76, 42, 12, [(129, 68, 10), (152, 64, 13), (173, 69, 9)], foam)
+        + _bubbles(bubble, [(138, 142, 5, 0.6), (158, 164, 4, 0.55)])
+        + _stem(202)
+    )
+
+
+# --- Teku: reworked as a wine bowl - flared aroma rim, waist, bowl, hip, stem.
+def teku_1(foam: str, bubble: str) -> str:
+    """Wine bowl: rim flares out for aroma, tight waist, bowl, hip, long stem."""
+    return (
+        _pour("M106 58 C112 74 120 84 126 92 C112 108 108 126 110 140 "
+              "C112 158 114 166 117 172 C122 182 130 188 138 192 L162 192 "
+              "C170 188 178 182 183 172 C186 166 188 158 190 140 "
+              "C192 126 188 108 174 92 C180 84 188 74 194 58 Z")
+        + _foam(58, 44, 13, [(126, 49, 11), (150, 44, 14), (174, 49, 11)], foam)
+        + _bubbles(bubble, [(136, 132, 5, 0.6), (160, 162, 4, 0.55)])
+        + _stem(192)
+    )
+
+
+def teku_2(foam: str, bubble: str) -> str:
+    """Bigger flare, tighter waist, fuller bowl - the aroma rim exaggerated."""
+    return (
+        _pour("M100 56 C108 74 122 86 130 94 C112 112 104 128 106 142 "
+              "C108 162 112 170 116 176 C122 186 130 190 138 194 L162 194 "
+              "C170 190 178 186 184 176 C188 170 192 162 194 142 "
+              "C196 128 188 112 170 94 C178 86 192 74 200 56 Z")
+        + _foam(56, 48, 14, [(124, 47, 12), (150, 42, 15), (176, 47, 12)], foam)
+        + _bubbles(bubble, [(134, 134, 5, 0.6), (162, 166, 4, 0.55)])
+        + _stem(194)
     )
 
 
 def teku_3(foam: str, bubble: str) -> str:
-    """Dead-straight lines, no curve at all - maximum angularity."""
+    """Rounder bowl, softer waist, subtler hip - nearest a plain wine glass."""
     return (
-        _pour("M116 80 L136 166 L132 204 L168 204 L164 166 L184 80 Z")
-        + _foam(80, 34, 11, [(131, 73, 9), (152, 70, 12), (171, 74, 9)], foam)
-        + _bubbles(bubble, [(142, 118, 5, 0.6), (156, 154, 4, 0.55)])
-        + _stem(204)
+        _pour("M110 60 C116 76 122 86 128 94 C116 110 112 128 114 142 "
+              "C116 160 118 168 122 174 C126 184 132 189 140 192 L160 192 "
+              "C168 189 174 184 178 174 C182 168 184 160 186 142 "
+              "C188 128 184 110 172 94 C178 86 184 76 190 60 Z")
+        + _foam(60, 40, 12, [(128, 51, 10), (150, 46, 13), (172, 51, 10)], foam)
+        + _bubbles(bubble, [(138, 134, 5, 0.6), (160, 164, 4, 0.55)])
+        + _stem(192)
     )
 
 
 CANDIDATES = {
-    "default": [("1 - reference taper", shaker_1), ("2 - softer, taller", shaker_2),
-                ("3 - concave sides", shaker_3)],
-    "nonicpint": [("1 - bulge a third down", nonic_1), ("2 - higher, softer ring", nonic_2),
-                  ("3 - wider bulge", nonic_3)],
-    "schooner": [("1 - reference bell", schooner_1), ("2 - deeper waist", schooner_2),
-                 ("3 - moderated cone", schooner_3)],
-    "tulip": [("1 - rounded bowl", tulip_1), ("2 - fuller, tighter pinch", tulip_2),
-              ("3 - tall and narrow", tulip_3)],
-    "teku": [("1 - long cone, soft waist", teku_1), ("2 - severe, no flare", teku_2),
-             ("3 - dead-straight lines", teku_3)],
+    "default": [("1 - wide mouth", shaker_1), ("2 - widest mouth", shaker_2),
+                ("3 - wide mouth, straighter sides", shaker_3)],
+    "nonicpint": [("1 - stubby", nonic_1), ("2 - halfway back", nonic_2),
+                  ("3 - stubbiest", nonic_3)],
+    "schooner": [("1 - vertical rim, waist mid-height", schooner_1),
+                 ("2 - longer rim, narrower foot", schooner_2),
+                 ("3 - higher waist, gentler", schooner_3)],
+    "tulip": [("1 - short straight collar", tulip_1), ("2 - taller collar", tulip_2),
+              ("3 - collar leaning out", tulip_3)],
+    "teku": [("1 - wine bowl, flared rim", teku_1), ("2 - bigger flare, tighter waist", teku_2),
+             ("3 - rounder bowl, subtle hip", teku_3)],
 }
 
 GLASSES = [
