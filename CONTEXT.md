@@ -184,6 +184,16 @@ nothing. ADR-0002 stands unchanged - this sits alongside it.
 DDI is **not a general wipe detector**. See _Known hazards_.
 _Avoid_: data id, volume id, install id
 
+**Snapshot**:
+The Board as it stood at one moment, packaged as a zip mirroring the data
+directory's layout - so restoring one is unpacking it. Carries Settings, the Tap
+files and images of both Sources, and the Archived beers. Never carries Status
+or the DDI. Carries the Brewfather credential only when the operator
+opts in at export time, and that choice is offered only when the key sits in
+`config.json` rather than the environment. Produced and consumed by the admin's
+export and import. See issue #29 for the reasoning behind each inclusion.
+_Avoid_: backup, dump, archive (which already means the Archived beers)
+
 ### Lifecycle
 
 A Tap moves through four states:
