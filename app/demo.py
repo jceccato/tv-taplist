@@ -11,9 +11,9 @@ import logging
 import os
 
 from . import tap_store as taps
+from .beer import Beer
 from .config_store import load_config, save_config
 from .paths import ensure_dirs
-from .timezone import iso_now
 
 log = logging.getLogger("taplist.demo")
 
@@ -56,21 +56,17 @@ def maybe_seed_demo() -> None:
     log.info("seeding %d demo taps", len(SAMPLE_TAPS))
 
     for tap, name, abv, ibu, ebc, source, desc in SAMPLE_TAPS:
-        front_matter = {
-            "name": name,
-            "abv": abv,
-            "ibu": ibu,
-            "ebc": ebc,
-            "source": source,
-            "image": None,
-            "updated": iso_now(),
-        }
+        # The sample Beers set four fields and leave the rest at the type's
+        # defaults. That used to be a hand-built dict of seven keys out of
+        # roughly eighteen, and the gap was invisible because every reader
+        # defended itself with `.get()` - which is the drift issue #32 closed.
+        beer = Beer(name=name, abv=abv, ibu=ibu, ebc=ebc)
         # The SAMPLE_TAPS `source` strings are the Source enum's on-disk values
         # ("custom" / "brewfather"), so they convert straight across. Seeding
         # writes both Sources on purpose, so the demo board shows a mix of
         # Manual and Brewfather Slots (and the source badge has something to
         # say).
-        taps.write(tap, taps.Source(source), front_matter, desc)
+        taps.write(tap, taps.Source(source), beer, desc)
 
     # Set a tap count and an announcement so the display looks intentional.
     cfg = load_config()

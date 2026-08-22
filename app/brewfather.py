@@ -214,7 +214,7 @@ def _store_image(img_client: httpx.Client, tap: int, batch: dict[str, Any]) -> s
     """Download this Batch's photo and file it; return the stored image name.
 
     The fetch-and-store half of writing a Tap, kept apart from deciding WHAT to
-    write (that is `mapping.front_matter`, which needs no client). A failed
+    write (that is `mapping.beer`, which needs no client). A failed
     download is not an erasure: the previously cached image is kept, and only a
     Slot that never had one ends up with None (the placeholder).
     """
@@ -240,12 +240,13 @@ def _write_bf_tap(img_client: httpx.Client, tap: int, batch: dict[str, Any], rev
     from Mapping, which is handed the batch object and nothing else.
     """
     image_name = _store_image(img_client, tap, batch)
-    front_matter = mapping.front_matter(
-        batch, rev=rev, image=image_name, updated=iso_now(),
-    )
-    taps.write(tap, SYNC_SOURCE, front_matter, mapping.description(batch))
+    beer = mapping.beer(batch)
+    # The image is stored first so the store's own `image:` key names the photo
+    # that is actually on disk beside the file.
+    taps.write(tap, SYNC_SOURCE, beer, mapping.description(batch),
+               revision=mapping.source_revision(batch, rev))
     log.info("wrote tap %d (%s) (name=%r image=%s)",
-             tap, SYNC_SOURCE, front_matter["name"], image_name)
+             tap, SYNC_SOURCE, beer.name, image_name)
 
 
 def _is_unchanged(tap: int, batch: dict[str, Any], rev: int) -> bool:
@@ -254,15 +255,16 @@ def _is_unchanged(tap: int, batch: dict[str, Any], rev: int) -> bool:
     Lets the sync skip a re-write (and image re-download) when nothing changed,
     keeping API/bandwidth use minimal and avoiding needless display churn.
 
-    Two separable answers, deliberately: Mapping says whether the cached front
-    matter is this Batch at this revision under the current MAPPING_VERSION, and
-    whether the Batch offers a photo at all; the store says whether it actually
-    holds one. Neither half needs to know the other's business.
+    Two separable answers, deliberately: Mapping says whether the cached
+    revision record is this Batch at this revision under the current
+    MAPPING_VERSION, and whether the Batch offers a photo at all; the store says
+    whether it actually holds one. Neither half needs to know the other's
+    business.
     """
     cached = taps.read(tap, SYNC_SOURCE)
     if cached is None:
         return False
-    if not mapping.is_current(cached.front_matter, batch, rev):
+    if not mapping.is_current(cached.revision, batch, rev):
         return False
     return (not mapping.wants_image(batch)) or (cached.image is not None)
 

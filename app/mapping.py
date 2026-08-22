@@ -7,12 +7,14 @@ lifecycle statuses. A second Source would bring its own mapping, not reuse this
 one.
 
 **Nothing here performs I/O.** No HTTP client, no filesystem, no Tap file store,
-no archive. Every function takes plain data - a Batch dict, a cached front-matter
-dict - and returns plain data, so "what Beer does this Batch map to?" is a
-question that can be asked and answered without a network client. That is the
-whole point of the split (issue #10); keep it that way. The one import that
-reaches outside the pure layer is `MAX_NUM_TAPS`, a constant, deliberately left
-where the operator-facing Settings schema keeps it.
+no archive. Every function takes plain data - a Batch dict, a cached
+`SourceRevision` - and returns plain data, so "what Beer does this Batch map
+to?" is a question that can be asked and answered without a network client. That
+is the whole point of the split (issue #10); keep it that way. `app/beer.py`,
+which holds the Beer type this module builds, is dependency-free for the same
+reason (issue #32). The one import that reaches outside the pure layer is
+`MAX_NUM_TAPS`, a constant, deliberately left where the operator-facing Settings
+schema keeps it.
 
 Field mapping (verified against a live /v2/batches?complete=True payload):
   name        <- recipe.name      (a batch's own name is Brewfather's generic
@@ -46,6 +48,7 @@ import logging
 import re
 from typing import Any
 
+from .beer import Beer, SourceRevision
 from .beer_glass import GLASS_KEYS
 from .colors import EBC_PER_SRM, parse_hex_color, parse_saturation
 from .config_store import MAX_NUM_TAPS
@@ -390,60 +393,66 @@ def glass(batch: dict[str, Any]) -> str | None:
 
 # ---- the whole Beer, and the cache question about it ---------------------
 
-def front_matter(
-    batch: dict[str, Any], *, rev: int, image: str | None, updated: str,
-) -> dict[str, Any]:
-    """The Tap file front matter one Batch maps to. Pure: no client, no disk.
+def beer(batch: dict[str, Any]) -> Beer:
+    """The **Beer** one Batch maps to. Pure: no client, no disk.
 
-    `rev`, `image` and `updated` are supplied by the caller rather than derived
-    here because none of them is a fact about the Batch: `rev` is the recency
-    value the sync already resolved a Slot conflict with, `image` is whatever the
-    Tap file store ended up holding after the (possibly failed) download, and
-    `updated` is the moment of the write. Passing them in keeps this function
-    deterministic - the same Batch and the same three arguments always produce
-    the same dict - so it can be asserted against directly in a test.
+    Everything a Beer is comes from the Batch alone, so this needs no arguments
+    beyond it and is deterministic - the same Batch always maps to an equal Beer,
+    which is what lets a test assert against the value directly.
 
-    The `source` key is written for a human reading the file in a text editor.
-    Nothing reads it back as truth: the filename decides the Source (ADR-0003).
+    The Tap file also carries `source`, `image` and `updated`, and none of them
+    is here: they are facts about the file rather than about the beverage, the
+    store owns all three, and nothing reads them back as truth (ADR-0003, and
+    docs/adr/0005 for where the line falls).
     """
-    return {
-        "name": beer_name(batch),
-        "abv": abv(batch),
-        "ibu": ibu(batch),
-        "ebc": ebc(batch),
-        "og": og(batch),
-        "fg": fg(batch),
-        "saturation": saturation(batch),
-        "color_override": color_override(batch),
-        "glass": glass(batch),
-        "source": "brewfather",
-        "batch_id": batch_id(batch),
-        "source_rev": rev,            # batch revision, used to skip unchanged syncs
-        "map_rev": MAPPING_VERSION,   # extraction-logic version (forces one refresh)
-        "image": image,
-        "updated": updated,
-    }
+    return Beer(
+        name=beer_name(batch),
+        abv=abv(batch),
+        ibu=ibu(batch),
+        ebc=ebc(batch),
+        og=og(batch),
+        fg=fg(batch),
+        saturation=saturation(batch),
+        color_override=color_override(batch),
+        glass=glass(batch),
+    )
 
 
-def is_current(cached: dict[str, Any], batch: dict[str, Any], rev: int) -> bool:
-    """True if cached front matter already reflects this Batch at this revision.
+def source_revision(batch: dict[str, Any], rev: int) -> SourceRevision:
+    """The cache-coherence record stamped on this Batch's Tap file.
+
+    Named apart from `revision` above, which answers a different question: that
+    one reads the Batch's own recency value out of Brewfather's payload, this
+    one builds the record the Tap file stores.
+
+    `rev` is passed in rather than derived because it is not a fact about the
+    Batch on its own - it is the recency value the sync already resolved a Slot
+    conflict with. `MAPPING_VERSION` rides along so that a change to the
+    extraction logic above invalidates every cached Tap exactly once.
+    """
+    return SourceRevision(
+        batch_id=batch_id(batch),
+        source_rev=rev,
+        map_rev=MAPPING_VERSION,
+    )
+
+
+def is_current(cached: SourceRevision | None, batch: dict[str, Any], rev: int) -> bool:
+    """True if a cached Tap already reflects this Batch at this revision.
 
     The *pure* half of the sync's freshness check: same Batch, same revision,
     same mapping version. The remaining half - whether the store actually holds
     the image this Batch wants - is a storage question and stays with the caller
     (see `wants_image`).
 
-    Comparisons are made on `str()` of both sides because the cached values come
-    back from YAML, which may have parsed a numeric id or revision into an int.
+    `None` means the Tap carries no revision record at all, which is what a
+    Manual Tap looks like: never current, because it is not a cache of anything.
 
     A mapping-logic change (a new MAPPING_VERSION) makes this False even when the
     Batch itself is untouched, which is what forces the one-time rewrite that
     lets cached files pick up new fields.
     """
-    same_batch = str(cached.get("batch_id")) == str(batch_id(batch))
-    same_rev = str(cached.get("source_rev")) == str(rev)
-    same_map = str(cached.get("map_rev")) == str(MAPPING_VERSION)
-    return same_batch and same_rev and same_map
+    return cached is not None and cached.matches(source_revision(batch, rev))
 
 
 def desired_map(batches: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:

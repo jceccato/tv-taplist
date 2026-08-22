@@ -50,7 +50,9 @@ from typing import Any
 import yaml
 
 from .atomic import atomic_write_bytes, atomic_write_text, safe_unlink
+from .beer import Beer, SourceRevision, TapPresentation
 from .paths import TAPS_DIR
+from .timezone import iso_now
 
 log = logging.getLogger("taplist.taps")
 
@@ -96,9 +98,12 @@ _FRONT_MATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", re.DOTALL)
 class TapFile:
     """One Tap file on disk: which Slot, which Source, its content, its image.
 
-    `front_matter` is deliberately an untyped dict - turning it into a typed
-    Beer is the Mapping/fetch split's job (issue #10), and doing both at once
-    would make either change unreviewable.
+    `beer` is a typed `Beer` (issue #32). It used to be an untyped
+    `front_matter` dict, which meant three writers each decided what a Beer was
+    and every reader coerced defensively; `app/beer.py` now holds that answer
+    once. The keys the store writes for a human but never reads back as truth -
+    `source` and `image` - are not on the Beer, and the two that describe the
+    Slot or the file rather than the beverage have fields of their own here.
 
     `body` is the markdown after the front matter (the description / tasting
     notes). It is a named field rather than being smuggled back into the
@@ -107,13 +112,23 @@ class TapFile:
 
     `image` is a Path or None - never a URL. The store knows nothing about web
     routes; the board builds the image URL from this.
+
+    `updated` is when this file was last written - a fact about the file, not
+    about the beer. The store stamps it, so no writer can forget to.
+
+    `revision` is `None` on a Manual Tap, and that is the type saying
+    "Brewfather-only" rather than a comment saying it: a Manual Tap is not a
+    cache of anything, so there is no revision to be current with.
     """
 
     slot: int
     source: Source
-    front_matter: dict[str, Any] = field(default_factory=dict)
+    beer: Beer = field(default_factory=Beer)
     body: str = ""
     image: Path | None = None
+    updated: str | None = None
+    presentation: TapPresentation = field(default_factory=TapPresentation)
+    revision: SourceRevision | None = None
 
 
 # ---- private path construction -------------------------------------------
@@ -183,12 +198,46 @@ def _load(slot: int, source: Source) -> Any:
         log.warning("could not read %s: %s", path, exc)
         return _UNREADABLE
     front_matter, body = parse_markdown(text)
+    return _tap_file(slot, source, front_matter, body)
+
+
+def _updated_text(value: Any) -> str | None:
+    """Coerce the front-matter `updated:` value to a string, or None.
+
+    YAML parses an *unquoted* timestamp into a `datetime`, and `/api/board`
+    serialises with plain `json.dumps` - so one hand-edited file missing its
+    quotes used to raise TypeError and take the whole public board down, every
+    TV with it. ADR-0001 makes these files something operators edit; a value
+    they mistyped must never stop the box, so it is rendered rather than
+    rejected. ISO 8601 is the form every writer emits, so a parsed timestamp is
+    put back into it.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value.strip() or None
+    isoformat = getattr(value, "isoformat", None)
+    return isoformat() if callable(isoformat) else str(value)
+
+
+def _tap_file(slot: int, source: Source, front_matter: dict[str, Any],
+              body: str) -> TapFile:
+    """Assemble a TapFile from parsed front matter. Coercion lives in the types.
+
+    Every value-level question is answered here, once, rather than by each
+    reader: a bad value becomes None and the Tap resolves normally. That is
+    deliberately a different question from the file being unreadable, which is
+    what `resolve` handles above - see docs/adr/0005.
+    """
     return TapFile(
         slot=int(slot),
         source=source,
-        front_matter=front_matter,
+        beer=Beer.from_front_matter(front_matter),
         body=body,
         image=image_for(slot, source),
+        updated=_updated_text(front_matter.get("updated")),
+        presentation=TapPresentation.from_front_matter(front_matter),
+        revision=SourceRevision.from_front_matter(front_matter),
     )
 
 
@@ -227,8 +276,6 @@ def resolve(slot: int) -> TapFile | None:
         return TapFile(
             slot=int(slot),
             source=source,
-            front_matter={},
-            body="",
             image=image_for(slot, source),
         )
     return None
@@ -264,14 +311,43 @@ def occupied_slots(source: Source) -> list[int]:
 
 # ---- writing --------------------------------------------------------------
 
-def write(slot: int, source: Source, front_matter: dict[str, Any], body: str) -> None:
+def write(slot: int, source: Source, beer: Beer, body: str, *,
+          presentation: TapPresentation | None = None,
+          revision: SourceRevision | None = None) -> None:
     """Atomically write one Slot's Tap file for one Source.
+
+    Callers supply the **Beer** and the description; the store adds the
+    serialisation garnish - `source`, `image` and `updated` - because all three
+    are facts it already owns and none of them is read back as truth. `image` in
+    particular is taken from `image_for`, so the key can no longer disagree with
+    the photo actually sitting beside the file: it used to be passed in, and a
+    caller that computed it differently would have written a lie a human reads.
+
+    `presentation` and `revision` are optional because not every Source has
+    either. Sync passes a revision and no presentation, the Admin the reverse,
+    and the demo seeder neither - and an omitted one leaves its keys out of the
+    file rather than writing nulls into every Tap on the box.
 
     The store does not police which Source a caller writes: Admin legitimately
     writes a Manual file over an occupied Brewfather Slot and demo seeding
     writes both. Sync's "never touch a Manual Tap" rule is a sync policy, and
     it is enforced structurally by sync only ever passing Source.BREWFATHER.
     """
+    if beer.coerced:
+        # Logged here rather than where the Beer was built, because this is the
+        # once-per-write path: coercion also happens on every read, and the
+        # board is rebuilt on every poll from every TV.
+        log.warning("tap %d (%s): dropped unusable value(s) for %s",
+                    slot, source, ", ".join(beer.coerced))
+    front_matter: dict[str, Any] = beer.to_front_matter()
+    if presentation is not None:
+        front_matter.update(presentation.to_front_matter())
+    if revision is not None:
+        front_matter.update(revision.to_front_matter())
+    image = image_for(slot, source)
+    front_matter["source"] = str(source)
+    front_matter["image"] = image.name if image is not None else None
+    front_matter["updated"] = iso_now()
     atomic_write_text(_md_path(slot, source), serialise_markdown(front_matter, body))
 
 

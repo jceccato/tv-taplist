@@ -40,6 +40,7 @@ from pydantic import BaseModel, ConfigDict
 
 from . import admin_ops, auth, tap_store as taps
 from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
+from .beer import Beer, TapPresentation
 from .beer_glass import GLASS_TYPES, beer_glass_svg
 from .board import build_board
 from .brewfather import run_sync
@@ -430,7 +431,7 @@ def _shadow_beer_name(tap: int) -> str | None:
     if not taps.exists(tap, taps.Source.BREWFATHER):
         return None
     shadow = taps.read(tap, taps.Source.BREWFATHER)
-    name = (shadow.front_matter.get("name") or "").strip() if shadow else ""
+    name = shadow.beer.name if shadow else ""
     return name or "a Brewfather beer"
 
 
@@ -452,23 +453,27 @@ def _build_admin_tap_rows(cfg: dict) -> list[dict]:
         tap_file = taps.resolve(tap)
         # "Is this Slot Manual?" has one answer now: the winning Source.
         override = tap_file is not None and tap_file.source is taps.Source.MANUAL
-        data = tap_file.front_matter if tap_file is not None else {}
+        # A Vacant Slot prefills from an empty Beer rather than from an empty
+        # dict, so the form's fields are the type's fields either way.
+        beer = tap_file.beer if tap_file is not None else Beer()
+        presentation = (tap_file.presentation if tap_file is not None
+                        else TapPresentation())
         img = tap_file.image if tap_file is not None else None
         rows.append({
             "tap": tap,
             "override": override,
-            "name": data.get("name") or "",
-            "abv": data.get("abv") if data.get("abv") is not None else "",
-            "ibu": data.get("ibu") if data.get("ibu") is not None else "",
-            "og": data.get("og") if data.get("og") is not None else "",
-            "fg": data.get("fg") if data.get("fg") is not None else "",
+            "name": beer.name,
+            "abv": beer.abv if beer.abv is not None else "",
+            "ibu": beer.ibu if beer.ibu is not None else "",
+            "og": beer.og if beer.og is not None else "",
+            "fg": beer.fg if beer.fg is not None else "",
             # Colour prefilled in the admin's chosen unit (stored as EBC).
-            "color_value": _color_in_unit(data.get("ebc"), unit),
-            "saturation": _saturation_percent(data.get("saturation")),
-            "color_override": data.get("color_override") or "",
-            "glass": data.get("glass") or "",
-            "show_og": _tri_to_form(data.get("show_og")),
-            "show_fg": _tri_to_form(data.get("show_fg")),
+            "color_value": _color_in_unit(beer.ebc, unit),
+            "saturation": _saturation_percent(beer.saturation),
+            "color_override": beer.color_override or "",
+            "glass": beer.glass or "",
+            "show_og": _tri_to_form(presentation.show_og),
+            "show_fg": _tri_to_form(presentation.show_fg),
             # The description is the markdown body, a named field on the
             # TapFile rather than a synthesised front-matter key.
             "description": (tap_file.body if tap_file is not None else "") or "",
@@ -723,7 +728,7 @@ async def save_override(
     # value before it writes either, so neither can orphan the other.
     upload = _validated_upload(image)
     try:
-        front_matter = admin_ops.save_override(
+        admin_ops.save_override(
             tap,
             name=name, abv=abv, ibu=ibu, og=og, fg=fg,
             color=color, saturation=saturation, color_override=color_override,
@@ -735,9 +740,12 @@ async def save_override(
     except admin_ops.OverrideRejected as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    image_name = front_matter["image"]
+    # The photo is asked of the store rather than read off the front matter the
+    # save returned: the store finds it by globbing the Slot's stem, so this
+    # cannot report an image the file does not actually have beside it.
+    stored_image = taps.image_for(tap, taps.Source.MANUAL)
     return {"ok": True, "override": True,
-            "image_url": f"/img/{image_name}" if image_name else None}
+            "image_url": f"/img/{stored_image.name}" if stored_image else None}
 
 
 # ---- admin: manual sync trigger ------------------------------------------
