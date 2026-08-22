@@ -244,3 +244,14 @@ on the Admin form's inputs, taken from the same constants the clamp uses, so the
 browser refuses the value at the point of typing rather than after a round trip.
 A reader who adds server-side rejection duplicates the form's job and gains
 nothing the clamp does not already guarantee.
+
+**A bad value in a Tap file is not a bad Tap file, and the store must never
+confuse the two.** Sitting beside the entry above, and for the same reason: a
+hand-edited file has no one to report an error to. `abv: banana` coerces to
+nothing and the Tap resolves normally, under its own Source, keeping every field
+it got right. That is deliberately different from the two file-level failures
+`tap_store.resolve` already tells apart - a file that vanished (precedence moves
+on) and a file that will not read (the walk stops, so a disk hiccup cannot put
+another brewery's beer on the TV). Merging value validity into either of those
+would answer a mistyped ABV by changing which beer is on the board. See
+ADR-0005.

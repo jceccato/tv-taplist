@@ -29,7 +29,23 @@ Closed so far: [#9](https://github.com/jceccato/tv-taplist/issues/9),
 [#11](https://github.com/jceccato/tv-taplist/issues/11),
 [#13](https://github.com/jceccato/tv-taplist/issues/13),
 [#28](https://github.com/jceccato/tv-taplist/issues/28),
-[#30](https://github.com/jceccato/tv-taplist/issues/30).
+[#30](https://github.com/jceccato/tv-taplist/issues/30),
+[#32](https://github.com/jceccato/tv-taplist/issues/32).
+
+### A mistyped value in a tap file no longer changes which beer is shown ([#32](https://github.com/jceccato/tv-taplist/issues/32))
+
+Tap files in the data directory are meant to be editable by hand. A beer's
+fields now go through one definition of what a beer is, so a value that cannot
+be read - `abv: banana`, a colour that is not a colour - is simply dropped, and
+the rest of that beer still pours on its own tap. It is logged once, when
+something writes the file, rather than on every refresh of every TV. One real
+crash goes with it: a date typed without quotes used to blank every screen in
+the venue.
+
+This otherwise changes nothing about running the box. Same file names, same
+keys, no migration, and the display sees exactly what it saw before. What it
+changes is what it takes to add a second beer source without the same quiet
+drift that left demo taps missing half their fields for months.
 
 ### Nothing publishes without a green suite ([#30](https://github.com/jceccato/tv-taplist/issues/30))
 
