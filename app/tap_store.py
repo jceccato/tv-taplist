@@ -91,6 +91,9 @@ IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg")
 
 _FRONT_MATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", re.DOTALL)
 
+# The datetime suffix `archived_stem` appends, as a pattern for reading it back.
+_ARCHIVED_SUFFIX_RE = re.compile(r"^\d{8}T\d{6}$")
+
 
 @dataclass(frozen=True)
 class TapFile:
@@ -125,6 +128,101 @@ def _stem(slot: int, source: Source) -> str:
 
 def _md_path(slot: int, source: Source) -> Path:
     return TAPS_DIR / f"{_stem(slot, source)}.md"
+
+
+# ---- reading a filename back (the reverse of _stem) ------------------------
+#
+# `_stem` turns a Slot and a Source into a name. These two turn a name back into
+# a Slot and a Source, or say it is not a Tap file at all. They exist because a
+# caller handed a bare filename - one read out of a zip, say - has to decide
+# whether it belongs in taps/ or old_beers/ *without* rebuilding the convention
+# for itself, which is exactly what ADR-0003 makes this module's job. Everything
+# else in the module addresses files by Slot and Source and never needs these.
+#
+# Both are strict on purpose: a name is legal only if this module would have
+# written it. `bf_tap_03.md` is rejected even though it parses, because nothing
+# here produces it and accepting it would give one Slot two spellings.
+
+
+@dataclass(frozen=True)
+class TapFileName:
+    """What a legal Tap filename says: which Slot, which Source, which suffix.
+
+    `suffix` is '.md' for the markdown or one of IMAGE_EXTS for the paired
+    photo, so a caller can tell the two halves of a pair apart without going
+    back to the string.
+    """
+
+    slot: int
+    source: Source
+    suffix: str
+
+
+def _identify_stem(stem: str) -> tuple[int, Source] | None:
+    """Split a filename stem into its Slot and Source, or None if it is neither."""
+    for source, prefix in _PREFIX.items():
+        if not stem.startswith(prefix):
+            continue
+        digits = stem[len(prefix):]
+        if not digits.isdigit():
+            continue
+        slot = int(digits)
+        # Round-trip through the writer. This is what rejects a leading zero,
+        # a non-ASCII digit that int() would happily accept, and any other
+        # spelling this module would not itself have produced.
+        if _stem(slot, source) != stem:
+            continue
+        return slot, source
+    return None
+
+
+def _identify_suffix(name: str) -> tuple[str, str] | None:
+    """Split a filename into (stem, suffix), keeping only suffixes a Tap uses."""
+    path = Path(name)
+    suffix = path.suffix.lower()
+    if suffix != ".md" and suffix not in IMAGE_EXTS:
+        return None
+    return path.stem, suffix
+
+
+def identify(name: str) -> TapFileName | None:
+    """Whether `name` is a legal Tap filename in taps/, and if so whose.
+
+    Returns None for anything this module would not have written there - a
+    stray note, a half-finished `.tmp_` file from an atomic write in flight, an
+    archived name that belongs in old_beers/ instead.
+    """
+    split = _identify_suffix(name)
+    if split is None:
+        return None
+    stem, suffix = split
+    identified = _identify_stem(stem)
+    if identified is None:
+        return None
+    slot, source = identified
+    return TapFileName(slot=slot, source=source, suffix=suffix)
+
+
+def identify_archived(name: str) -> TapFileName | None:
+    """Whether `name` is a legal Archived filename in old_beers/, and if so whose.
+
+    The Archived spelling is `archived_stem`'s output plus the original
+    extension, e.g. `bf_tap_3_20260624T153000.jpg`. The datetime is checked for
+    shape only and then discarded: nothing needs to read it back, and the
+    archive's own age accounting uses the file's mtime rather than its name.
+    """
+    split = _identify_suffix(name)
+    if split is None:
+        return None
+    stem, suffix = split
+    base, _, when = stem.rpartition("_")
+    if not base or not _ARCHIVED_SUFFIX_RE.match(when):
+        return None
+    identified = _identify_stem(base)
+    if identified is None:
+        return None
+    slot, source = identified
+    return TapFileName(slot=slot, source=source, suffix=suffix)
 
 
 # ---- front matter parse / serialise --------------------------------------

@@ -213,3 +213,52 @@ def test_on_disk_filenames_are_the_documented_contract():
         "custom_tap_11.md",
         "custom_tap_11.png",
     ]
+
+
+# ---- reading a filename back ----------------------------------------------
+#
+# The reverse of the contract above, and the reason it lives here rather than in
+# the caller that wanted it: a Snapshot's layout can only be validated by
+# recognising a Tap filename, and recognising one is this module's job (ADR-0003)
+# even when the caller is holding nothing but a string.
+
+def test_identify_reads_a_tap_filename_back_to_its_slot_and_source():
+    assert store.identify("custom_tap_1.md") == store.TapFileName(1, store.Source.MANUAL, ".md")
+    assert store.identify("bf_tap_12.jpg") == store.TapFileName(12, store.Source.BREWFATHER, ".jpg")
+    # The suffix is normalised the way the rest of the store spells it.
+    assert store.identify("bf_tap_7.SVG") == store.TapFileName(7, store.Source.BREWFATHER, ".svg")
+
+
+@pytest.mark.parametrize("name", [
+    "",
+    "notes.txt",                      # not a Tap suffix at all
+    "custom_tap_1.txt",               # right stem, wrong suffix
+    "custom_tap.md",                  # no Slot
+    "custom_tap_x.md",                # not a number
+    "custom_tap_03.md",               # a spelling the store never writes
+    ".tmp_custom_tap_1.md",           # an atomic write still in flight
+    "tap_1.md",                       # neither prefix
+    "bf_tap_9_20260101T120000.md",    # Archived, and so belongs in old_beers/
+])
+def test_identify_refuses_anything_the_store_would_not_have_written(name):
+    assert store.identify(name) is None
+
+
+def test_identify_archived_reads_the_datetime_suffixed_spelling():
+    when = datetime(2026, 6, 24, 15, 30, 0)
+    stem = store.archived_stem(3, store.Source.BREWFATHER, when)
+    assert store.identify_archived(f"{stem}.md") == \
+        store.TapFileName(3, store.Source.BREWFATHER, ".md")
+    assert store.identify_archived(f"{stem}.jpg") == \
+        store.TapFileName(3, store.Source.BREWFATHER, ".jpg")
+
+
+@pytest.mark.parametrize("name", [
+    "bf_tap_9.md",                    # current, and so belongs in taps/
+    "bf_tap_9_2026.md",               # not the datetime shape
+    "bf_tap_9_20260101T1200.md",      # truncated datetime
+    "bf_tap_9_20260101T120000.txt",   # not a Tap suffix
+    "_20260101T120000.md",            # no Tap in front of the datetime
+])
+def test_identify_archived_refuses_other_spellings(name):
+    assert store.identify_archived(name) is None
