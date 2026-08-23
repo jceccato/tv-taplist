@@ -100,6 +100,7 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
       <button class="tab active" type="button" data-tab="settings" role="tab">Settings</button>
       <button class="tab" type="button" data-tab="theme" role="tab">Theme</button>
       <button class="tab" type="button" data-tab="overrides" role="tab">Manual overrides</button>
+      <button class="tab" type="button" data-tab="snapshot" role="tab">Snapshot</button>
     </nav>
 
     <!-- ===== Settings tab ===== -->
@@ -435,6 +436,63 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             </div>
           </form>
           {% endfor %}
+        </div>
+      </section>
+    </div>
+
+    <!-- ===== Snapshot tab =====
+         Its own tab rather than a panel on Settings: a Snapshot is not a
+         setting - it does not save with the settings form, it covers the beers
+         and the archive as well as the settings, and Import replaces data, so
+         it does not belong one mis-click away from "Save settings". -->
+    <div class="tab-panel" id="tab-snapshot" role="tabpanel" hidden>
+      <section class="card-panel">
+        <h2>Export a Snapshot</h2>
+        <p class="hint">A Snapshot is this board as it stands right now, packaged as a zip that mirrors your data directory: settings, every tap file and photo from both sources, the archived beers, and your venue logo. Restoring one is unpacking it - you can import it here, or unzip it straight into the data directory of a stopped box.</p>
+        <p class="hint">It never contains the sync status or the <code>.data_dir_id</code> file. Both belong to the box, not to the data.</p>
+
+        {% if snapshot_credential_option %}
+          <label class="checkbox">
+            <input type="checkbox" id="snapshot-credentials">
+            Include the Brewfather credentials
+          </label>
+          <p class="hint warn">The Snapshot is not encrypted. Ticking this writes your Brewfather API key into the zip in plaintext, so treat the file like the key itself. Leave it unticked and the Snapshot's Brewfather fields are blank - you paste the key in after restoring.</p>
+        {% endif %}
+
+        <div class="btn-row">
+          <button class="btn primary" type="button" id="snapshot-export">Download Snapshot</button>
+        </div>
+
+        <hr class="panel-sep">
+        <h2>Import a Snapshot</h2>
+        <p class="hint">Restoring replaces any file the Snapshot carries and leaves everything else alone. A file that is not a Snapshot is refused whole, with nothing changed.</p>
+        <form id="snapshot-import-form">
+          <input type="file" id="snapshot-file" accept=".zip,application/zip">
+          <div class="btn-row">
+            <button class="btn primary" type="submit" id="snapshot-import">Upload and check</button>
+          </div>
+        </form>
+
+        <!-- Filled in from the server's answer after the upload is validated.
+             The browser never works out which case applies. -->
+        <div id="snapshot-decision" hidden>
+          <hr class="panel-sep">
+          <h3>Brewfather</h3>
+          <p id="snapshot-decision-text"></p>
+          <div id="snapshot-decision-choice" hidden>
+            <label class="checkbox">
+              <input type="radio" name="keep_syncing" value="true" checked>
+              Keep syncing from Brewfather. The Snapshot's Brewfather beers are skipped - the next sync would replace them within minutes anyway.
+            </label>
+            <label class="checkbox">
+              <input type="radio" name="keep_syncing" value="false">
+              Stop syncing. The Brewfather key is cleared and the Snapshot's Brewfather beers are imported and stay put.
+            </label>
+          </div>
+          <div class="btn-row">
+            <button class="btn primary" type="button" id="snapshot-confirm">Restore this Snapshot</button>
+            <button class="btn" type="button" id="snapshot-cancel">Cancel</button>
+          </div>
         </div>
       </section>
     </div>

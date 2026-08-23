@@ -266,6 +266,14 @@ safe to delete: every value in it is regenerated on the next sync and the next
 daily update check. Set `PUID`/`PGID` to the host user that should own these files so
 the non-root container can write them.
 
+To copy this whole directory off the box - before an upgrade, or to move to new
+hardware - use the **Snapshot** tab in `/admin`. It downloads a zip that mirrors
+the layout above, so restoring it is either an import on the same tab or simply
+unzipping it back into the data directory of a stopped container. See
+[Snapshots](FAQ.md#snapshots-getting-your-board-off-the-box-and-back-on) in the
+FAQ for what a Snapshot carries, what it deliberately leaves out, and the one
+question the import asks about Brewfather.
+
 ---
 
 ## Reverse proxy (HTTPS)
@@ -310,6 +318,9 @@ docker compose up -d
 
 Your data directory and `.env` are untouched. The TV picks up new CSS/JS on its
 next poll (assets are cache-busted by mtime) so no manual hard-refresh is needed.
+
+If you would rather have a copy in hand first, download a Snapshot from the
+**Snapshot** tab in `/admin` before you pull.
 
 If you are building from source instead of pulling the prebuilt image, see
 [BUILDING.md](BUILDING.md) for the update procedure.

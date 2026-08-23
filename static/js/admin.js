@@ -506,4 +506,129 @@
       }
     });
   }
+
+  // ---- Snapshot: export + import ----
+  // The import is two steps on purpose. Which Brewfather question to ask (if
+  // any) depends on whether the *Snapshot* carries a key, which nothing here
+  // can see - so the file is uploaded and validated first, and the server
+  // answers with the case. This code renders the case it is handed; it never
+  // works out which one applies. Uploading twice instead would mean sending a
+  // Snapshot that can run to gigabytes over the venue's LAN a second time.
+  const snapshotExportBtn = document.getElementById("snapshot-export");
+  if (snapshotExportBtn) {
+    snapshotExportBtn.addEventListener("click", () => {
+      const opt = document.getElementById("snapshot-credentials");
+      // A plain navigation, not fetch: the browser then owns the download,
+      // including its progress UI on a Snapshot that takes minutes.
+      const url = "/admin/snapshot" + (opt && opt.checked ? "?credentials=true" : "");
+      window.location.assign(url);
+    });
+  }
+
+  const snapshotForm = document.getElementById("snapshot-import-form");
+  if (snapshotForm) {
+    const fileInput = document.getElementById("snapshot-file");
+    const panel = document.getElementById("snapshot-decision");
+    const text = document.getElementById("snapshot-decision-text");
+    const choice = document.getElementById("snapshot-decision-choice");
+    const uploadBtn = document.getElementById("snapshot-import");
+    const confirmBtn = document.getElementById("snapshot-confirm");
+    const cancelBtn = document.getElementById("snapshot-cancel");
+
+    function hidePanel() {
+      panel.hidden = true;
+      choice.hidden = true;
+      text.textContent = "";
+    }
+
+    // One sentence per case, matching the server's `decision`. The strings live
+    // here rather than being sent down because they are UI copy, but the choice
+    // of which one to show is the server's.
+    function describe(res) {
+      if (res.decision === "environment") {
+        return "This box's Brewfather key comes from an environment variable, so it will keep "
+          + "syncing whatever happens here - an import cannot clear an environment variable. "
+          + "The Snapshot's Brewfather beers are skipped, because the next sync would replace "
+          + "them within minutes anyway. Everything else is imported.";
+      }
+      if (res.decision === "choose") {
+        if (res.box_has_key && res.snapshot_has_key) {
+          return "This box has a Brewfather key and so does the Snapshot. This box's own key is "
+            + "kept - an import never replaces a working key. Choose what happens next:";
+        }
+        if (res.box_has_key) {
+          return "This box has a Brewfather key in its settings. Choose what happens next:";
+        }
+        return "This Snapshot carries a Brewfather key. Restoring it would let this box sync, "
+          + "and syncing rewrites every Brewfather tap. Choose what happens next:";
+      }
+      return "Neither this box nor the Snapshot has a Brewfather key, so nothing will sync over "
+        + "the restored beers. Everything in the Snapshot is imported.";
+    }
+
+    snapshotForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        showToast("Choose a Snapshot zip first.", "err");
+        return;
+      }
+      uploadBtn.disabled = true;
+      const original = uploadBtn.textContent;
+      uploadBtn.textContent = "Checking…";
+      hidePanel();
+      try {
+        // The file IS the body - no multipart wrapper - so the server can
+        // stream it straight to disk without a size cap meant for beer photos.
+        const res = await postForm("/admin/snapshot/stage", file);
+        text.textContent = describe(res);
+        choice.hidden = res.decision !== "choose";
+        panel.hidden = false;
+      } catch (err) {
+        showToast("Snapshot refused: " + err.message, "err");
+      } finally {
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = original;
+      }
+    });
+
+    confirmBtn.addEventListener("click", async () => {
+      const picked = choice.hidden
+        ? null
+        : choice.querySelector('input[name="keep_syncing"]:checked');
+      const fd = new FormData();
+      // Blank means "the operator was never asked", which the server accepts
+      // only for the two cases that carry no question.
+      fd.append("keep_syncing", picked ? picked.value : "");
+      confirmBtn.disabled = true;
+      const original = confirmBtn.textContent;
+      confirmBtn.textContent = "Restoring…";
+      try {
+        const res = await postForm("/admin/snapshot/import", fd);
+        const skipped = res.counts.brewfather_skipped;
+        showToast(
+          "Snapshot restored: " + res.counts.taps + " tap file(s), "
+          + res.counts.old_beers + " archived file(s)"
+          + (skipped ? ", " + skipped + " Brewfather file(s) skipped" : "")
+          + ". Reloading…", "ok");
+        setTimeout(() => location.reload(), 1200);
+      } catch (err) {
+        showToast("Import failed: " + err.message, "err");
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = original;
+      }
+    });
+
+    cancelBtn.addEventListener("click", async () => {
+      hidePanel();
+      snapshotForm.reset();
+      try {
+        await postForm("/admin/snapshot/discard", new FormData());
+      } catch (err) {
+        // The staged copy is replaced by the next upload regardless, so a
+        // failure here costs disk space and nothing else.
+        showToast("Could not discard the uploaded Snapshot: " + err.message, "warn");
+      }
+    });
+  }
 })();
