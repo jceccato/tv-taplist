@@ -143,6 +143,9 @@ select {
 .slider-row input[type=number] { width: 5rem; }
 
 .panel-sep { border: 0; border-top: 1px solid var(--border); margin: 1.4rem 0 1rem; }
+/* A hint that carries a consequence rather than an explanation - the Snapshot's
+   plaintext-credential warning is the only one so far. */
+.hint.warn { color: var(--warn); }
 .btn-row { display: flex; gap: 0.6rem; margin-top: 0.8rem; }
 /* Upload / Remove logo buttons share the row equally (same size). */
 .btn-row .btn { flex: 1 1 0; text-align: center; margin-top: 0; }

@@ -34,22 +34,11 @@ from pathlib import Path
 from typing import Any
 
 from .beer_glass import DEFAULT_GLASS, normalize_glass
-from .colors import ResolvedColor, parse_saturation, resolve_color
+from .colors import ResolvedColor, resolve_color
 from .config_store import DEFAULT_CONFIG, load_config
 from .paths import venue_logo_path
 from .tap_store import resolve as resolve_tap_file
 from .theme import resolve_theme
-
-
-def _num(value: Any) -> float | int | None:
-    """Coerce a front-matter value to a number, or None."""
-    if value is None or value == "":
-        return None
-    try:
-        f = float(value)
-    except (TypeError, ValueError):
-        return None
-    return int(f) if f.is_integer() else f
 
 
 def _image_url_for(image: Path | None, color: ResolvedColor | None = None,
@@ -96,10 +85,14 @@ def _is_missing(value: Any) -> bool:
     """Whether an Attribute has no value to show.
 
     Deliberately not a falsiness test: 0 IBU is a fact about a lager, not an
-    absent reading, and hiding it would be wrong. Only None and the empty string
-    count as missing, matching what the display used to ask.
+    absent reading, and hiding it would be wrong.
+
+    None is the *only* absence, because the Tap file store coerces a blank field
+    to None when it builds the Beer (app/beer.py). This used to also test for
+    the empty string, once per Attribute per Tap per poll, because the value
+    arrived straight out of an untyped front-matter dict.
     """
-    return value is None or value == ""
+    return value is None
 
 
 def resolve_visibility(value: Any, global_show: Any, hide_when_empty: Any,
@@ -179,18 +172,15 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS,
             "image_url": None,
         }
 
-    data = tap_file.front_matter
-    ebc = _num(data.get("ebc"))
-    abv = _num(data.get("abv"))
-    ibu = _num(data.get("ibu"))
-    og = _num(data.get("og"))
-    fg = _num(data.get("fg"))
+    # The Beer arrives typed and already coerced - every Attribute is a number
+    # or None, never a blank string - so the board reads attributes instead of
+    # re-coercing a front-matter dict on every poll from every TV.
+    beer = tap_file.beer
     # Colour precedence lives in colors.resolve_color, not here. It answers with
     # a colour or with Unknown (None); the board forwards that answer to both
     # surfaces rather than each of them re-deriving it.
-    color = resolve_color(ebc, parse_saturation(data.get("saturation")),
-                          data.get("color_override"))
-    glass = normalize_glass(data.get("glass") or default_glass)
+    color = resolve_color(beer.ebc, beer.saturation, beer.color_override)
+    glass = normalize_glass(beer.glass or default_glass)
     return {
         "tap": tap,
         "vacant": False,
@@ -198,12 +188,12 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS,
         # written for a human reading the file and is never read back as truth,
         # so a mislabelled file cannot make sync and the display disagree.
         "source": str(tap_file.source),
-        "name": (data.get("name") or "").strip() or f"Tap {tap}",
-        "abv": abv,
-        "ibu": ibu,
-        "ebc": ebc,
-        "og": og,
-        "fg": fg,
+        "name": beer.name or f"Tap {tap}",
+        "abv": beer.abv,
+        "ibu": beer.ibu,
+        "ebc": beer.ebc,
+        "og": beer.og,
+        "fg": beer.fg,
         # Null when Colour is Unknown. The display's `|| grey` is then the
         # swatch's own declared fallback rather than a copy of a server value.
         "color_hex": color.color_hex if color else None,
@@ -217,17 +207,17 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS,
         # *why* a stat is hidden, only that it is. OG and FG are the two that
         # carry a per-Tap override; the rest have only the global toggle.
         "abv_visible": resolve_visibility(
-            abv, setting("show_abv"), setting("hide_abv_when_empty")),
+            beer.abv, setting("show_abv"), setting("hide_abv_when_empty")),
         "ibu_visible": resolve_visibility(
-            ibu, setting("show_ibu"), setting("hide_ibu_when_empty")),
+            beer.ibu, setting("show_ibu"), setting("hide_ibu_when_empty")),
         "ebc_visible": resolve_visibility(
-            ebc, setting("show_color"), setting("hide_color_when_empty")),
+            beer.ebc, setting("show_color"), setting("hide_color_when_empty")),
         "og_visible": resolve_visibility(
-            og, setting("show_og"), setting("hide_og_when_empty"),
-            data.get("show_og")),
+            beer.og, setting("show_og"), setting("hide_og_when_empty"),
+            tap_file.presentation.show_og),
         "fg_visible": resolve_visibility(
-            fg, setting("show_fg"), setting("hide_fg_when_empty"),
-            data.get("show_fg")),
+            beer.fg, setting("show_fg"), setting("hide_fg_when_empty"),
+            tap_file.presentation.show_fg),
         # The swatch shares the EBC toggle but asks whether *Colour* is known -
         # an EBC value OR an override - so passing the resolved Colour instead of
         # the EBC number is the entire special case. A Beer with only an override
@@ -235,7 +225,7 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS,
         # (ADR-0004), and `color_known` no longer has to travel to explain it.
         "swatch_visible": resolve_visibility(
             color, setting("show_color"), setting("hide_color_when_empty")),
-        "updated": data.get("updated"),
+        "updated": tap_file.updated,
     }
 
 
@@ -244,7 +234,7 @@ def build_board() -> dict[str, Any]:
     cfg = load_config()
     num_taps = int(cfg.get("num_taps", 0) or 0)
     hide_vacant = bool(cfg.get("hide_vacant_taps", False))
-    default_glass = cfg.get("glass_type", "default")
+    default_glass = cfg.get("glass_type", DEFAULT_GLASS)
 
     taps: list[dict[str, Any]] = []
     for tap in range(1, num_taps + 1):

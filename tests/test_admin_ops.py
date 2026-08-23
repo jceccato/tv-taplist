@@ -11,27 +11,26 @@ from __future__ import annotations
 import pytest
 
 from app import admin_ops, paths, tap_store as taps
+from app.beer import Beer, TapPresentation
 
 
 def test_save_writes_a_manual_tap_with_the_submitted_beer():
-    front_matter = admin_ops.save_override(
+    beer = admin_ops.save_override(
         1, name="Hand Pour", abv="4.5", ibu="18", color="9",
         description="Cask ale.")
 
     assert taps.exists(1, taps.Source.MANUAL)
     stored = taps.read(1, taps.Source.MANUAL)
-    assert stored.front_matter["name"] == "Hand Pour"
-    assert stored.front_matter["abv"] == 4.5
-    assert stored.front_matter["ebc"] == 9
+    assert stored.beer == Beer(name="Hand Pour", abv=4.5, ibu=18, ebc=9)
     assert stored.body.strip() == "Cask ale."
-    # The returned front matter is what was written, so a caller (the route)
-    # need not read the file back to answer.
-    assert front_matter["name"] == stored.front_matter["name"]
+    # The returned Beer is what was written, so a caller (the route) need not
+    # read the file back to answer.
+    assert beer == stored.beer
 
 
 def test_save_names_an_unnamed_beer_after_its_slot():
     admin_ops.save_override(4, name="   ")
-    assert taps.read(4, taps.Source.MANUAL).front_matter["name"] == "Tap 4"
+    assert taps.read(4, taps.Source.MANUAL).beer.name == "Tap 4"
 
 
 def test_clearing_releases_the_slot():
@@ -62,10 +61,10 @@ def test_saving_keeps_the_brewfather_tap_warm_underneath(write_tap):
     assert taps.exists(3, taps.Source.MANUAL)
     assert taps.exists(3, taps.Source.BREWFATHER)
     # Manual wins while it stands...
-    assert taps.resolve(3).front_matter["name"] == "Guest Keg"
+    assert taps.resolve(3).beer.name == "Guest Keg"
     # ...and the Brewfather Beer is there the instant it is released.
     admin_ops.clear_override(3)
-    assert taps.resolve(3).front_matter["name"] == "Brewery IPA"
+    assert taps.resolve(3).beer.name == "Brewery IPA"
 
 
 def test_a_rejected_value_writes_nothing():
@@ -84,7 +83,7 @@ def test_a_rejected_value_leaves_an_existing_beer_untouched():
     admin_ops.save_override(1, name="Good Beer", abv="5")
     with pytest.raises(admin_ops.OverrideRejected):
         admin_ops.save_override(1, name="Edited", abv="oops")
-    assert taps.read(1, taps.Source.MANUAL).front_matter["name"] == "Good Beer"
+    assert taps.read(1, taps.Source.MANUAL).beer.name == "Good Beer"
 
 
 def test_an_upload_free_save_keeps_the_existing_image():
@@ -94,16 +93,14 @@ def test_an_upload_free_save_keeps_the_existing_image():
     first = taps.image_for(1, taps.Source.MANUAL)
     assert first is not None
 
-    front_matter = admin_ops.save_override(1, name="Photographed",
-                                           description="New words.")
-    assert front_matter["image"] == first.name
+    admin_ops.save_override(1, name="Photographed", description="New words.")
     assert taps.image_for(1, taps.Source.MANUAL).name == first.name
 
 
 def test_a_new_upload_replaces_the_photo():
     admin_ops.save_override(1, name="X", image=(b"\x89PNG\r\n\x1a\n", ".png"))
-    front_matter = admin_ops.save_override(1, name="X", image=(b"JPEGBYTES", ".jpg"))
-    assert front_matter["image"].endswith(".jpg")
+    admin_ops.save_override(1, name="X", image=(b"JPEGBYTES", ".jpg"))
+    assert taps.image_for(1, taps.Source.MANUAL).name.endswith(".jpg")
     # The store owns the sweep of the previous extension, so only one remains.
     assert not (paths.TAPS_DIR / "custom_tap_1.png").exists()
 
@@ -111,22 +108,38 @@ def test_a_new_upload_replaces_the_photo():
 @pytest.mark.parametrize("unit,expected", [("ebc", 10), ("srm", 19.7)])
 def test_the_colour_is_stored_as_ebc_in_either_display_unit(unit, expected):
     admin_ops.save_override(1, name="Dark", color="10", unit=unit)
-    assert taps.read(1, taps.Source.MANUAL).front_matter["ebc"] == pytest.approx(expected)
+    assert taps.read(1, taps.Source.MANUAL).beer.ebc == pytest.approx(expected)
 
 
 def test_saturation_glass_and_tri_states_are_normalised():
-    front_matter = admin_ops.save_override(
+    beer = admin_ops.save_override(
         1, name="Loaded", color="20", saturation="60", color_override="780606",
         glass="teku", show_og=True, show_fg=False)
-    assert front_matter["saturation"] == 0.6          # a percentage -> a fraction
-    assert front_matter["color_override"] == "#780606"  # normalised with a leading #
-    assert front_matter["glass"] == "teku"
-    assert front_matter["show_og"] is True and front_matter["show_fg"] is False
+    assert beer.saturation == 0.6              # a percentage -> a fraction
+    assert beer.color_override == "#780606"    # normalised with a leading #
+    assert beer.glass == "teku"
+    # The tri-states are Presentation of the Slot, not properties of the
+    # beverage, so they are stored beside the Beer rather than on it.
+    stored = taps.read(1, taps.Source.MANUAL)
+    assert stored.presentation == TapPresentation(show_og=True, show_fg=False)
 
 
 def test_an_unknown_glass_inherits_the_global_default():
-    front_matter = admin_ops.save_override(1, name="X", glass="notaglass")
-    assert front_matter["glass"] is None
+    beer = admin_ops.save_override(1, name="X", glass="notaglass")
+    assert beer.glass is None
+
+
+def test_a_colour_override_that_will_not_parse_is_dropped_and_noted():
+    """An unusable submitted value coerces rather than rejecting.
+
+    Numbers reject because the Admin form has somebody to tell; a colour is a
+    picker value, so an unusable one falls back to no override. The Beer records
+    what it dropped so the store can log it once, at the write, rather than on
+    every board build (docs/adr/0005).
+    """
+    beer = admin_ops.save_override(1, name="X", color_override="not-a-colour")
+    assert beer.color_override is None
+    assert beer.coerced == ("color_override",)
 
 
 def test_the_operations_only_ever_touch_the_manual_source():

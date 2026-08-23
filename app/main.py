@@ -18,6 +18,9 @@ Admin (session-protected):
   POST /admin/settings  -> save settings
   POST /admin/override/{tap} -> save / clear a manual override (+ image upload)
   POST /admin/sync      -> trigger a sync now
+  GET  /admin/snapshot  -> stream a Snapshot of the data directory as a zip
+  POST /admin/snapshot/stage  -> upload a Snapshot and validate it
+  POST /admin/snapshot/import -> restore the staged Snapshot
 """
 from __future__ import annotations
 
@@ -33,14 +36,16 @@ from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
     RedirectResponse,
+    StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict
 
-from . import admin_ops, auth, tap_store as taps
+from . import admin_ops, auth, snapshot, tap_store as taps
 from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
-from .beer_glass import GLASS_TYPES, beer_glass_svg
+from .beer import Beer, TapPresentation
+from .beer_glass import DEFAULT_GLASS, GLASS_TYPES, beer_glass_svg
 from .board import build_board
 from .brewfather import run_sync
 from .colors import (
@@ -362,6 +367,11 @@ async def admin_page(request: Request):
             "rows": rows,
             "asset_v": _asset_version("css/admin.css", "js/admin.js"),
             "bf": brewfather_credentials(),
+            # Whether the Snapshot tab may offer to carry the Brewfather
+            # credentials. The option is hidden rather than disabled when the
+            # key is environment-supplied or unset, because a checkbox that
+            # silently does nothing is worse than no checkbox.
+            "snapshot_credential_option": snapshot.credential_choice_available(),
             "color_label": "SRM" if cfg.get("color_unit") == "srm" else "EBC",
             "venue_logo_url": "/img/venue-logo" if venue_logo_path() else None,
             # Every numeric Settings input takes its min/max from here, so the
@@ -430,7 +440,7 @@ def _shadow_beer_name(tap: int) -> str | None:
     if not taps.exists(tap, taps.Source.BREWFATHER):
         return None
     shadow = taps.read(tap, taps.Source.BREWFATHER)
-    name = (shadow.front_matter.get("name") or "").strip() if shadow else ""
+    name = shadow.beer.name if shadow else ""
     return name or "a Brewfather beer"
 
 
@@ -452,23 +462,27 @@ def _build_admin_tap_rows(cfg: dict) -> list[dict]:
         tap_file = taps.resolve(tap)
         # "Is this Slot Manual?" has one answer now: the winning Source.
         override = tap_file is not None and tap_file.source is taps.Source.MANUAL
-        data = tap_file.front_matter if tap_file is not None else {}
+        # A Vacant Slot prefills from an empty Beer rather than from an empty
+        # dict, so the form's fields are the type's fields either way.
+        beer = tap_file.beer if tap_file is not None else Beer()
+        presentation = (tap_file.presentation if tap_file is not None
+                        else TapPresentation())
         img = tap_file.image if tap_file is not None else None
         rows.append({
             "tap": tap,
             "override": override,
-            "name": data.get("name") or "",
-            "abv": data.get("abv") if data.get("abv") is not None else "",
-            "ibu": data.get("ibu") if data.get("ibu") is not None else "",
-            "og": data.get("og") if data.get("og") is not None else "",
-            "fg": data.get("fg") if data.get("fg") is not None else "",
+            "name": beer.name,
+            "abv": beer.abv if beer.abv is not None else "",
+            "ibu": beer.ibu if beer.ibu is not None else "",
+            "og": beer.og if beer.og is not None else "",
+            "fg": beer.fg if beer.fg is not None else "",
             # Colour prefilled in the admin's chosen unit (stored as EBC).
-            "color_value": _color_in_unit(data.get("ebc"), unit),
-            "saturation": _saturation_percent(data.get("saturation")),
-            "color_override": data.get("color_override") or "",
-            "glass": data.get("glass") or "",
-            "show_og": _tri_to_form(data.get("show_og")),
-            "show_fg": _tri_to_form(data.get("show_fg")),
+            "color_value": _color_in_unit(beer.ebc, unit),
+            "saturation": _saturation_percent(beer.saturation),
+            "color_override": beer.color_override or "",
+            "glass": beer.glass or "",
+            "show_og": _tri_to_form(presentation.show_og),
+            "show_fg": _tri_to_form(presentation.show_fg),
             # The description is the markdown body, a named field on the
             # TapFile rather than a synthesised front-matter key.
             "description": (tap_file.body if tap_file is not None else "") or "",
@@ -545,7 +559,7 @@ class SettingsForm(BaseModel):
     hide_fg_when_empty: bool = False
     show_source_badge: bool = False
     theme: str = "default"
-    glass_type: str = "default"
+    glass_type: str = DEFAULT_GLASS
     tap_photo_preset: str = "default"
     tap_text_preset: str = "default"
     tap_image_scale: float = 1.0
@@ -723,7 +737,7 @@ async def save_override(
     # value before it writes either, so neither can orphan the other.
     upload = _validated_upload(image)
     try:
-        front_matter = admin_ops.save_override(
+        admin_ops.save_override(
             tap,
             name=name, abv=abv, ibu=ibu, og=og, fg=fg,
             color=color, saturation=saturation, color_override=color_override,
@@ -735,9 +749,12 @@ async def save_override(
     except admin_ops.OverrideRejected as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    image_name = front_matter["image"]
+    # The photo is asked of the store rather than read off the front matter the
+    # save returned: the store finds it by globbing the Slot's stem, so this
+    # cannot report an image the file does not actually have beside it.
+    stored_image = taps.image_for(tap, taps.Source.MANUAL)
     return {"ok": True, "override": True,
-            "image_url": f"/img/{image_name}" if image_name else None}
+            "image_url": f"/img/{stored_image.name}" if stored_image else None}
 
 
 # ---- admin: manual sync trigger ------------------------------------------
@@ -747,6 +764,133 @@ async def trigger_sync(_: None = Depends(auth.require_admin)):
     # Run synchronously so the admin sees the result; sync takes JOB_LOCK itself.
     result = run_sync()
     return result
+
+
+# ---- admin: Snapshot export / import -------------------------------------
+#
+# Three routes because the import is two steps, and it is two steps for one
+# reason: the Brewfather question can only be answered once the *Snapshot's*
+# credential is known, and that is not knowable until the file is on the box.
+# The alternative - refuse the first attempt and make the operator upload again
+# with an answer attached - means sending a Snapshot that can run to gigabytes
+# twice over a venue LAN. Staging costs one file in the data directory instead.
+#
+# Note what the browser is never asked to do: it does not decide whether to
+# prompt. `/admin/snapshot/stage` hands back the case the server resolved, and
+# the admin renders the matching copy. The rule that picks the case lives in
+# `snapshot.plan_import` and only there.
+
+@app.get("/admin/snapshot")
+async def export_snapshot(
+    _: None = Depends(auth.require_admin),
+    credentials: bool = False,
+):
+    """Stream a Snapshot of the data directory as a zip download.
+
+    A GET because it is a read: nothing on the box changes, and a plain
+    navigation gives the operator the browser's own download UI, including
+    progress on a Snapshot that takes minutes.
+
+    `credentials` is the export's opt-in checkbox and defaults to off. The
+    module re-checks that the key is genuinely in `config.json` before honouring
+    it, so this route carries no rule of its own.
+    """
+    body = snapshot.settings_bytes(credentials)
+    entries = snapshot.enumerate_entries()
+    return StreamingResponse(
+        snapshot.stream_snapshot(body, entries),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{snapshot.snapshot_filename()}"',
+            # A Snapshot is a point in time and must never be served from a
+            # cache; it also may carry the Brewfather key.
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.post("/admin/snapshot/stage")
+async def stage_snapshot(request: Request, _: None = Depends(auth.require_admin)):
+    """Receive a Snapshot, validate it whole, and report what it will take to import.
+
+    The body is the zip itself rather than a multipart upload, which is what
+    lets it stream straight to disk in the data directory. The multipart path
+    would spool it into the system temp directory - Starlette's parser hands
+    every file part a `SpooledTemporaryFile` that rolls over at 1 MB, and
+    neither the size nor the directory is settable per request - and the
+    admin's 10 MB `MAX_UPLOAD_BYTES` cap, which exists to bound an in-memory
+    read of a beer photo, has no business anywhere near a Snapshot.
+
+    Nothing is written into the data directory proper here: on any failure the
+    staged file is deleted and the box is exactly as it was.
+    """
+    ensure_dirs()
+    snapshot.discard_staged()
+    try:
+        with snapshot.STAGED_UPLOAD_PATH.open("wb") as staged:
+            async for chunk in request.stream():
+                staged.write(chunk)
+        with snapshot.open_snapshot(snapshot.STAGED_UPLOAD_PATH) as zf:
+            plan = snapshot.plan_import(snapshot.read_snapshot_settings(zf))
+    except snapshot.SnapshotRejected as exc:
+        snapshot.discard_staged()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except BaseException:
+        snapshot.discard_staged()
+        raise
+    log.info("snapshot staged for import (decision=%s)", plan.kind)
+    return {
+        "ok": True,
+        "decision": plan.kind,
+        "box_has_key": plan.box_has_key,
+        "key_from_env": plan.key_from_env,
+        "snapshot_has_key": plan.snapshot_has_key,
+    }
+
+
+@app.post("/admin/snapshot/discard")
+async def discard_snapshot(_: None = Depends(auth.require_admin)):
+    """Throw away a staged Snapshot the operator decided not to import.
+
+    Without this, cancelling at the Brewfather question would leave a file the
+    size of the whole data directory sitting there until the next upload
+    replaced it.
+    """
+    snapshot.discard_staged()
+    return {"ok": True}
+
+
+@app.post("/admin/snapshot/import")
+async def import_snapshot(
+    _: None = Depends(auth.require_admin),
+    keep_syncing: str = Form(""),
+):
+    """Restore the staged Snapshot. `keep_syncing` is "true"/"false"/"" (not asked).
+
+    The tri-state is the same shape the override form's selects use: blank means
+    the operator was never asked, which is legitimate for the two cases that
+    carry no question and a 409 for the one that does.
+    """
+    if not snapshot.STAGED_UPLOAD_PATH.exists():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No Snapshot is waiting to be imported. Choose a file and upload it again.",
+        )
+    try:
+        result = snapshot.import_snapshot(
+            snapshot.STAGED_UPLOAD_PATH,
+            keep_syncing=_tri_from_form(keep_syncing),
+        )
+    except snapshot.SnapshotRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except snapshot.DecisionRequired as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    finally:
+        # The staged file goes on every path, including a partial restore: it is
+        # a copy of data that now lives in the data directory proper, and
+        # leaving it would double the box's disk use until the next import.
+        snapshot.discard_staged()
+    return {"ok": True, **result}
 
 
 # ---- admin: update check --------------------------------------------------

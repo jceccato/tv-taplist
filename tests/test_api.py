@@ -359,10 +359,10 @@ def test_override_save_then_clear_with_image():
     assert r.status_code == 200 and r.json()["override"] is True
     assert taps.exists(2, taps.Source.MANUAL)
     assert (paths.TAPS_DIR / "custom_tap_2.png").exists()
-    data = taps.read(2, taps.Source.MANUAL).front_matter
-    assert data["name"] == "Hand Pour"
-    assert data["abv"] == 4.5
-    assert data["ebc"] == 9  # EBC unit by default
+    beer = taps.read(2, taps.Source.MANUAL).beer
+    assert beer.name == "Hand Pour"
+    assert beer.abv == 4.5
+    assert beer.ebc == 9  # EBC unit by default
 
     # Clearing the override archives the custom files.
     r2 = c.post("/admin/override/2", data={"enabled": "false"})
@@ -384,7 +384,7 @@ def test_override_save_leaves_the_existing_brewfather_tap_in_place(write_tap):
     assert taps.exists(3, taps.Source.BREWFATHER)
     assert (paths.TAPS_DIR / "bf_tap_3.jpg").exists()
     assert list(paths.OLD_BEERS_DIR.glob("bf_tap_3_*")) == []
-    assert taps.resolve(3).front_matter["name"] == "Now Custom"
+    assert taps.resolve(3).beer.name == "Now Custom"
 
 
 def test_clearing_an_override_reveals_the_brewfather_beer_with_no_sync(write_tap):
@@ -471,7 +471,9 @@ def test_override_image_upload_sweeps_the_previous_extension():
     assert r.status_code == 200
     assert (paths.TAPS_DIR / "custom_tap_1.webp").exists()
     assert not (paths.TAPS_DIR / "custom_tap_1.png").exists()
-    assert taps.read(1, taps.Source.MANUAL).front_matter["image"] == "custom_tap_1.webp"
+    # The store writes the `image:` key from what is beside the file, so it
+    # names the surviving photo rather than whatever a caller believed.
+    assert taps.image_for(1, taps.Source.MANUAL).name == "custom_tap_1.webp"
 
 
 def test_admin_row_source_comes_from_the_filename(write_tap):
@@ -490,7 +492,7 @@ def test_override_saves_saturation_as_fraction():
     r = c.post("/admin/override/1",
                data={"enabled": "true", "name": "Muted", "color": "20", "saturation": "60"})
     assert r.status_code == 200
-    assert taps.read(1, taps.Source.MANUAL).front_matter["saturation"] == 0.6
+    assert taps.read(1, taps.Source.MANUAL).beer.saturation == 0.6
 
 
 def test_override_saves_colour_glass_gravity_and_visibility():
@@ -501,11 +503,14 @@ def test_override_saves_colour_glass_gravity_and_visibility():
         "og": "1.052", "fg": "1.011", "show_og": "true", "show_fg": "false",
     })
     assert r.status_code == 200
-    data = taps.read(1, taps.Source.MANUAL).front_matter
-    assert data["color_override"] == "#780606"   # normalised with leading #
-    assert data["glass"] == "teku"
-    assert data["og"] == 1.052 and data["fg"] == 1.011
-    assert data["show_og"] is True and data["show_fg"] is False
+    stored = taps.read(1, taps.Source.MANUAL)
+    assert stored.beer.color_override == "#780606"   # normalised with leading #
+    assert stored.beer.glass == "teku"
+    assert stored.beer.og == 1.052 and stored.beer.fg == 1.011
+    # The tri-states describe the Slot, not the beverage, so they live beside
+    # the Beer rather than on it.
+    assert stored.presentation.show_og is True
+    assert stored.presentation.show_fg is False
 
 
 def test_override_ignores_unknown_glass():
@@ -513,7 +518,7 @@ def test_override_ignores_unknown_glass():
     r = c.post("/admin/override/1",
                data={"enabled": "true", "name": "X", "glass": "notaglass"})
     assert r.status_code == 200
-    assert taps.read(1, taps.Source.MANUAL).front_matter["glass"] is None
+    assert taps.read(1, taps.Source.MANUAL).beer.glass is None
 
 
 def test_save_settings_theme_pagination_and_gravity():
@@ -556,7 +561,7 @@ def test_override_color_input_converts_from_srm():
     # 10 SRM should be stored as ~19.7 EBC.
     r = c.post("/admin/override/1", data={"enabled": "true", "name": "Dark", "color": "10"})
     assert r.status_code == 200
-    assert taps.read(1, taps.Source.MANUAL).front_matter["ebc"] == pytest.approx(19.7, abs=0.05)
+    assert taps.read(1, taps.Source.MANUAL).beer.ebc == pytest.approx(19.7, abs=0.05)
 
 
 def test_save_settings_display_options():
@@ -678,7 +683,7 @@ def test_preview_and_override_agree_on_the_stored_ebc(unit, typed):
     r = c.post("/admin/override/1",
                data={"enabled": "true", "name": "Same Beer", "color": typed})
     assert r.status_code == 200
-    stored = taps.read(1, taps.Source.MANUAL).front_matter["ebc"]
+    stored = taps.read(1, taps.Source.MANUAL).beer.ebc
 
     preview = client.get("/api/preview-color", params={"ebc": typed}).json()
     assert preview["color_hex"] == ebc_to_hex(stored)

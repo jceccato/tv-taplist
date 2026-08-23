@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from app import paths, tap_store as store
+from app.beer import BEER_KEYS, Beer, SourceRevision, TapPresentation
 
 
 # ---- the Source enum and precedence order --------------------------------
@@ -36,7 +37,7 @@ def test_resolve_prefers_manual_when_both_sources_hold_the_slot(write_tap):
     write_tap("bf", 1, name="Theirs", body="From Brewfather.")
     tap = store.resolve(1)
     assert tap.source is store.Source.MANUAL
-    assert tap.front_matter["name"] == "Mine"
+    assert tap.beer.name == "Mine"
     assert tap.body == "Hand entered."
 
 
@@ -45,7 +46,7 @@ def test_resolve_falls_back_to_brewfather_when_only_it_holds_the_slot(write_tap)
     tap = store.resolve(2)
     assert tap.source is store.Source.BREWFATHER
     assert tap.slot == 2
-    assert tap.front_matter["name"] == "Theirs"
+    assert tap.beer.name == "Theirs"
 
 
 def test_resolve_returns_none_for_a_vacant_slot():
@@ -75,15 +76,18 @@ def test_unreadable_manual_file_yields_an_empty_tap_not_the_brewfather_beer(
     tap = store.resolve(3)
     assert tap is not None
     assert tap.source is store.Source.MANUAL   # not promoted to Brewfather
-    assert tap.front_matter == {}
+    assert tap.beer == Beer()
     assert tap.body == ""
 
 
-def test_resolve_body_is_a_field_not_a_front_matter_key(write_tap):
-    write_tap("bf", 4, name="Theirs", body="Bright citrus and pine.")
+def test_resolve_body_is_a_field_not_a_beer_attribute(write_tap):
+    write_tap("bf", 4, name="Theirs", body="Bright citrus and pine.",
+              description="not read from here")
     tap = store.resolve(4)
     assert tap.body == "Bright citrus and pine."
-    assert "description" not in tap.front_matter
+    # The description is the markdown body. A `description:` key in the front
+    # matter is not a second way to set it - the Beer has no such field.
+    assert not hasattr(tap.beer, "description")
 
 
 # ---- read / write / exists ------------------------------------------------
@@ -91,24 +95,99 @@ def test_resolve_body_is_a_field_not_a_front_matter_key(write_tap):
 def test_read_addresses_one_source_even_when_the_other_wins(write_tap):
     write_tap("custom", 5, name="Mine")
     write_tap("bf", 5, name="Theirs")
-    assert store.read(5, store.Source.BREWFATHER).front_matter["name"] == "Theirs"
-    assert store.read(5, store.Source.MANUAL).front_matter["name"] == "Mine"
+    assert store.read(5, store.Source.BREWFATHER).beer.name == "Theirs"
+    assert store.read(5, store.Source.MANUAL).beer.name == "Mine"
 
 
 def test_read_returns_none_when_the_source_holds_nothing():
     assert store.read(5, store.Source.MANUAL) is None
 
 
-def test_write_then_read_round_trips_front_matter_and_body():
-    store.write(6, store.Source.MANUAL, {"name": "Saison", "abv": 6.2}, "Peppery.")
+def test_write_then_read_round_trips_the_beer_and_body():
+    store.write(6, store.Source.MANUAL, Beer(name="Saison", abv=6.2), "Peppery.")
     tap = store.read(6, store.Source.MANUAL)
     assert tap.slot == 6
     assert tap.source is store.Source.MANUAL
-    assert tap.front_matter["name"] == "Saison"
-    assert tap.front_matter["abv"] == 6.2
+    assert tap.beer == Beer(name="Saison", abv=6.2)
     assert tap.body == "Peppery."
     # Written for the other Source's eyes only if asked for; not shared.
     assert store.read(6, store.Source.BREWFATHER) is None
+
+
+def test_the_store_writes_the_serialisation_garnish_itself():
+    """`source`, `image` and `updated` are the store's, not the caller's.
+
+    None of the three is on the Beer, and none is read back as truth, but all
+    three are written so a human opening the file sees a complete record. The
+    store owns them because it is the one that knows which file this is.
+    """
+    store.write(6, store.Source.BREWFATHER, Beer(name="Saison"), "Peppery.")
+    text = (paths.TAPS_DIR / "bf_tap_6.md").read_text(encoding="utf-8")
+    front_matter, _ = store.parse_markdown(text)
+    assert front_matter["source"] == "brewfather"
+    assert front_matter["image"] is None       # no photo beside this file
+    assert front_matter["updated"]             # stamped by the store
+    # The Beer's own keys are all present, even the ones left unset, so the
+    # file reads as a form a human can fill in.
+    assert set(BEER_KEYS) <= set(front_matter)
+
+
+def test_the_image_key_names_the_photo_that_is_actually_on_disk():
+    """The key cannot disagree with the store: it is taken from `image_for`.
+
+    It used to be passed in by each writer, which is a chance for a caller to
+    write a filename a human then reads and believes.
+    """
+    store.save_image(6, store.Source.MANUAL, b"bytes", ".png")
+    store.write(6, store.Source.MANUAL, Beer(name="Saison"), "")
+    front_matter, _ = store.parse_markdown(
+        (paths.TAPS_DIR / "custom_tap_6.md").read_text(encoding="utf-8"))
+    assert front_matter["image"] == "custom_tap_6.png"
+
+
+def test_a_source_that_writes_no_presentation_leaves_the_keys_out():
+    """Sync writes no per-Slot Visibility overrides, so it writes no keys.
+
+    Emitting two nulls into every Brewfather Tap file would be noise in a file
+    operators read, and would suggest sync has an opinion about a Setting the
+    Admin owns.
+    """
+    store.write(6, store.Source.BREWFATHER, Beer(name="Saison"), "")
+    front_matter, _ = store.parse_markdown(
+        (paths.TAPS_DIR / "bf_tap_6.md").read_text(encoding="utf-8"))
+    assert "show_og" not in front_matter and "show_fg" not in front_matter
+    assert store.read(6, store.Source.BREWFATHER).presentation == TapPresentation()
+
+
+def test_a_manual_tap_has_no_revision_record():
+    """`revision is None` is the type saying "Brewfather-only".
+
+    A Manual Tap is not a cache of anything, so there is nothing for it to be
+    current with - which is what stops sync ever treating one as up to date.
+    """
+    store.write(6, store.Source.MANUAL, Beer(name="Saison"), "")
+    assert store.read(6, store.Source.MANUAL).revision is None
+
+    store.write(6, store.Source.BREWFATHER, Beer(name="Theirs"), "",
+                revision=SourceRevision(batch_id="b1", source_rev=3, map_rev=6))
+    assert store.read(6, store.Source.BREWFATHER).revision == SourceRevision(
+        batch_id="b1", source_rev=3, map_rev=6)
+
+
+def test_an_unquoted_timestamp_does_not_take_the_board_down(write_tap):
+    """A hand-edited `updated:` without quotes is a datetime to YAML.
+
+    `/api/board` serialises with plain json.dumps, so that used to raise
+    TypeError and blank every TV. ADR-0001 makes these files editable; a
+    mistyped value must be coerced, never allowed to stop the box.
+    """
+    from datetime import datetime, timezone
+
+    write_tap("custom", 6, name="Mine",
+              updated=datetime(2026, 8, 8, 9, 0, tzinfo=timezone.utc))
+    tap = store.read(6, store.Source.MANUAL)
+    assert isinstance(tap.updated, str)
+    assert tap.updated.startswith("2026-08-08T09:00:00")
 
 
 def test_exists_answers_is_this_slot_manual(write_tap):
@@ -202,8 +281,8 @@ def test_on_disk_filenames_are_the_documented_contract():
     fails loudly here instead of agreeing with itself. Operators' notes,
     scripts, and habits depend on these names (ADR-0001).
     """
-    store.write(11, store.Source.MANUAL, {"name": "Mine"}, "")
-    store.write(11, store.Source.BREWFATHER, {"name": "Theirs"}, "")
+    store.write(11, store.Source.MANUAL, Beer(name="Mine"), "")
+    store.write(11, store.Source.BREWFATHER, Beer(name="Theirs"), "")
     store.save_image(11, store.Source.MANUAL, b"a", ".png")
     store.save_image(11, store.Source.BREWFATHER, b"b", ".jpg")
 
@@ -213,3 +292,52 @@ def test_on_disk_filenames_are_the_documented_contract():
         "custom_tap_11.md",
         "custom_tap_11.png",
     ]
+
+
+# ---- reading a filename back ----------------------------------------------
+#
+# The reverse of the contract above, and the reason it lives here rather than in
+# the caller that wanted it: a Snapshot's layout can only be validated by
+# recognising a Tap filename, and recognising one is this module's job (ADR-0003)
+# even when the caller is holding nothing but a string.
+
+def test_identify_reads_a_tap_filename_back_to_its_slot_and_source():
+    assert store.identify("custom_tap_1.md") == store.TapFileName(1, store.Source.MANUAL, ".md")
+    assert store.identify("bf_tap_12.jpg") == store.TapFileName(12, store.Source.BREWFATHER, ".jpg")
+    # The suffix is normalised the way the rest of the store spells it.
+    assert store.identify("bf_tap_7.SVG") == store.TapFileName(7, store.Source.BREWFATHER, ".svg")
+
+
+@pytest.mark.parametrize("name", [
+    "",
+    "notes.txt",                      # not a Tap suffix at all
+    "custom_tap_1.txt",               # right stem, wrong suffix
+    "custom_tap.md",                  # no Slot
+    "custom_tap_x.md",                # not a number
+    "custom_tap_03.md",               # a spelling the store never writes
+    ".tmp_custom_tap_1.md",           # an atomic write still in flight
+    "tap_1.md",                       # neither prefix
+    "bf_tap_9_20260101T120000.md",    # Archived, and so belongs in old_beers/
+])
+def test_identify_refuses_anything_the_store_would_not_have_written(name):
+    assert store.identify(name) is None
+
+
+def test_identify_archived_reads_the_datetime_suffixed_spelling():
+    when = datetime(2026, 6, 24, 15, 30, 0)
+    stem = store.archived_stem(3, store.Source.BREWFATHER, when)
+    assert store.identify_archived(f"{stem}.md") == \
+        store.TapFileName(3, store.Source.BREWFATHER, ".md")
+    assert store.identify_archived(f"{stem}.jpg") == \
+        store.TapFileName(3, store.Source.BREWFATHER, ".jpg")
+
+
+@pytest.mark.parametrize("name", [
+    "bf_tap_9.md",                    # current, and so belongs in taps/
+    "bf_tap_9_2026.md",               # not the datetime shape
+    "bf_tap_9_20260101T1200.md",      # truncated datetime
+    "bf_tap_9_20260101T120000.txt",   # not a Tap suffix
+    "_20260101T120000.md",            # no Tap in front of the datetime
+])
+def test_identify_archived_refuses_other_spellings(name):
+    assert store.identify_archived(name) is None

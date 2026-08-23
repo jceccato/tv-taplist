@@ -19,6 +19,7 @@ A tour of what the app does and why. For getting it running, see
 - [Manual overrides](#manual-overrides)
 - [Archiving & cleanup](#archiving--cleanup)
 - [Where is my data?](#where-is-my-data)
+- [Snapshots: getting your board off the box and back on](#snapshots-getting-your-board-off-the-box-and-back-on)
 - [Security](#security)
 
 ---
@@ -142,7 +143,7 @@ You can also customise the tinted placeholder itself directly in the tokens:
   the swatch dot AND the glass placeholder).
 - `saturation:60` mutes the colour (use when a calculated EBC colour looks too
   vivid for the real beer).
-- `glass:teku` picks a glass silhouette (`default`, `nonicpint`, `schooner`,
+- `glass:teku` picks a glass silhouette (`nonicpint`, `default`, `schooner`,
   `tulip`, `teku`).
 
 ### Batch-note tokens reference
@@ -153,7 +154,7 @@ Put any of these in the **Batch Notes** field:
 |-------|--------|
 | `tap:3` | Assign this batch to **tap 3**. Required for the beer to appear. |
 | `colour:#780606` | Force an exact swatch + glass colour, overriding the EBC-derived colour. `color:` also works. |
-| `glass:nonicpint` | Glass silhouette: `default`, `nonicpint`, `schooner`, `tulip`, `teku`. |
+| `glass:nonicpint` | Glass silhouette: `nonicpint` (the default), `default` (the shaker pint - a historical key name), `schooner`, `tulip`, `teku`. |
 | `saturation:60` | Mute the colour to 60 % (a percentage, or a `0`–`1` fraction). |
 
 The sync scans the **Batch Notes** and **Taste Notes** for these tokens. Any token
@@ -279,9 +280,14 @@ on the next poll with no reload.
 ## Glassware
 
 When a beer has no photo, its placeholder is a **beer glass tinted to the beer's
-colour**, in one of several silhouettes - shaker pint, nonic pint, conical
-schooner, tulip or teku - chosen globally or per beer. Because it uses the same
-colour as the swatch, the pour always matches the dot.
+colour**, in one of several silhouettes - nonic pint (the default), shaker pint,
+conical schooner, tulip or teku - chosen globally or per beer. Because it uses
+the same colour as the swatch, the pour always matches the dot.
+
+The nonic is the default because it still reads as a beer glass once a busy
+board shrinks it to a thumbnail. Note the shaker pint's key is `default`, which
+is a historical name rather than a claim about which glass is selected: set
+`glass:default` to get the shaker.
 
 ---
 
@@ -400,6 +406,84 @@ tell those two situations apart. It holds a random identifier and nothing else.
 Leave it alone; deleting it looks exactly like a wipe and costs you a warning.
 
 `DEMO_MODE` suppresses both banners, since a demo box is meant to be disposable.
+
+---
+
+## Snapshots: getting your board off the box and back on
+
+The **Snapshot** tab in `/admin` downloads the board as it stands right now, as a
+single zip that mirrors your data directory. Because it mirrors the layout,
+restoring one is just unpacking it.
+
+A Snapshot contains:
+
+- your settings (`config.json`),
+- every tap file and photo, from **both** sources - the ones you entered by hand
+  and the ones Brewfather synced,
+- the archived beers in `old_beers/`,
+- your venue logo and the placeholder image, which sit at the top of the data
+  directory. The logo is in because your settings refer to it by filename, and
+  restoring settings without it leaves a broken reference.
+
+It never contains `status.json` or `.data_dir_id`. Both belong to the box rather
+than to the data: the status values all regenerate on the next cycle, and the
+identifier names *which directory this box is using*, not which beers are in it.
+Copying it onto a second box would let two boxes claim one identity, which is the
+exact confusion it exists to detect.
+
+### The Brewfather credentials
+
+The export offers an **Include the Brewfather credentials** checkbox, unticked,
+and offers it only when your API key is stored in `config.json`. If your key
+comes from the `BREWFATHER_API_KEY` environment variable, or you have not set one,
+there is no checkbox - the export never reads environment values, it only carries
+what `config.json` holds.
+
+Leave it unticked and both Brewfather fields in the Snapshot are blank; you paste
+the key in after restoring. Tick it and the key is written into the zip **in
+plaintext**. A Snapshot is not encrypted and is not password-protected, so a
+Snapshot that carries your key should be treated exactly like the key itself.
+
+### Restoring
+
+Choose the file on the Snapshot tab and click **Upload and check**. The whole zip
+is examined before anything is written: a file that is not a Snapshot, or one
+whose contents are damaged, is refused whole and nothing on the box changes.
+Restoring then replaces any file the Snapshot carries and leaves everything else
+alone. It is a restore, not a wipe.
+
+You can also restore by hand: stop the container, unzip the Snapshot into your
+data directory, and start it again. That is a supported path, and it is why there
+is no manifest or marker file inside the zip - it would only end up as a stray
+file in your data directory.
+
+### Why importing asks about Brewfather
+
+Before restoring, the box asks one question: **will this box have a working
+Brewfather key when the import finishes?**
+
+That matters because a box that syncs rewrites every Brewfather tap within
+minutes. Importing the Snapshot's Brewfather beers onto a box that will sync
+would show them briefly and then silently replace them - the import would appear
+to work and then quietly undo itself. So keeping a working key and importing the
+Brewfather beers are mutually exclusive, and the box asks rather than losing that
+race invisibly.
+
+You are asked only where you control the answer:
+
+| Your situation | What happens |
+|---|---|
+| Your key comes from an environment variable | No question. An import cannot clear an environment variable, so the box will keep syncing. The Snapshot's Brewfather beers are skipped and the admin says so. |
+| A key exists on either side - on the box, in the Snapshot, or both | You choose: **keep syncing** (the Brewfather beers are skipped, and the next sync fills them back in) or **stop syncing** (the key is cleared and the Snapshot's Brewfather beers are imported and stay). |
+| Neither the box nor the Snapshot has a key | No question. Everything is imported. |
+
+Your manually entered beers, the archive, the venue logo and every other setting
+are restored in all cases.
+
+One more rule worth knowing: **your box's own key always wins.** A Snapshot's
+credential is only used to fill a field you have left empty, so an import can
+never replace a working key with an older one and leave you wondering why sync
+started failing.
 
 ---
 
