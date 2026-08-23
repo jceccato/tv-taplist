@@ -2,7 +2,7 @@
 
 `app/main.py` owns HTTP - it parses a form, calls one of these, and turns the
 answer (or a rejection) into a response. What a save *means* lives here: which
-files move, what the front matter says, when a Slot is released. That split is
+files move, what Beer the Slot now holds, when a Slot is released. That split is
 the point of the module: saving an override, clearing one, keeping an existing
 photo and refusing a bad number were all previously reachable only by posting a
 form and reading a file back, which made them expensive to assert and easy to
@@ -20,9 +20,9 @@ from typing import Any
 from . import tap_store as taps
 from .archive import archive_tap
 from .atomic import JOB_LOCK
+from .beer import Beer, TapPresentation
 from .beer_glass import GLASS_KEYS
-from .colors import display_color_to_ebc, parse_hex_color, parse_saturation
-from .timezone import iso_now
+from .colors import display_color_to_ebc
 
 log = logging.getLogger("taplist.admin")
 
@@ -91,8 +91,8 @@ def save_override(
     description: str = "",
     image: tuple[bytes, str] | None = None,
     unit: str = "ebc",
-) -> dict[str, Any]:
-    """Write a Manual Tap into a Slot. Returns the front matter as stored.
+) -> Beer:
+    """Write a Manual Tap into a Slot. Returns the Beer as stored.
 
     `color` arrives in the operator's display `unit` and is stored as EBC, the
     only stored form. `image` is bytes plus an extension the caller has already
@@ -108,36 +108,41 @@ def save_override(
     overriding a Slot for one night is not a destructive act (ADR-0003).
     """
     glass_key = str(glass or "").strip()
-    front_matter: dict[str, Any] = {
-        "name": str(name or "").strip() or f"Tap {slot}",
-        "abv": _number(abv),
-        "ibu": _number(ibu),
-        "ebc": display_color_to_ebc(_number(color), unit),
-        "og": _number(og),
-        "fg": _number(fg),
-        "saturation": parse_saturation(saturation),
-        "color_override": parse_hex_color(color_override),
+    beer = Beer(
+        name=str(name or "").strip() or f"Tap {slot}",
+        # The five Attributes are parsed here, not left to the Beer's own
+        # coercion, because this is the one caller with somebody to tell: a
+        # typo in the Admin form gets a 422 and the operator fixes it. The
+        # type's coerce-to-None disposition is for a hand-edited file, which has
+        # no such audience (docs/adr/0005).
+        abv=_number(abv),
+        ibu=_number(ibu),
+        ebc=display_color_to_ebc(_number(color), unit),
+        og=_number(og),
+        fg=_number(fg),
+        # Saturation and the Colour override are handed over raw: both are
+        # normalised by the Beer, using the same colors.py parsers this module
+        # used to call, and letting the type do it means a value it cannot use
+        # is logged at the write instead of vanishing silently.
+        saturation=saturation,
+        color_override=color_override,
         # An unrecognised glassware key inherits the global default rather than
-        # rejecting: it is a picker value, not something an operator types.
-        "glass": glass_key if glass_key in GLASS_KEYS else None,
-        "show_og": show_og,
-        "show_fg": show_fg,
-        # Written for a human reading the file. The filename is what actually
-        # decides the Source; this key is never read back as truth.
-        "source": "custom",
-        "updated": iso_now(),
-    }
+        # rejecting: it is a picker value, not something an operator types. The
+        # Beer keeps a glass key verbatim, so the check stays here.
+        glass=glass_key if glass_key in GLASS_KEYS else None,
+    )
+    presentation = TapPresentation(show_og=show_og, show_fg=show_fg)
 
     with JOB_LOCK:
         if image is not None:
             data, ext = image
-            image_name = taps.save_image(slot, ADMIN_SOURCE, data, ext)
-        else:
-            existing = taps.image_for(slot, ADMIN_SOURCE)
-            image_name = existing.name if existing else None
-        front_matter["image"] = image_name
-        taps.write(slot, ADMIN_SOURCE, front_matter, description)
+            taps.save_image(slot, ADMIN_SOURCE, data, ext)
+        # The photo is stored before the write so the store's `image:` key names
+        # what is on disk; passing no image keeps whatever was already there.
+        taps.write(slot, ADMIN_SOURCE, beer, description,
+                   presentation=presentation)
+        stored_image = taps.image_for(slot, ADMIN_SOURCE)
 
     log.info("override saved for tap %d (name=%r image=%s)",
-             slot, front_matter["name"], image_name)
-    return front_matter
+             slot, beer.name, stored_image.name if stored_image else None)
+    return beer

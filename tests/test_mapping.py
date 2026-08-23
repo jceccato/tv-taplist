@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from app import config_store, mapping
+from app.beer import Beer, SourceRevision
 
 
 # ---- purity ------------------------------------------------------------
@@ -23,7 +24,7 @@ from app import config_store, mapping
 # the Settings schema deliberately - see issue #10's brief.
 _ALLOWED_MAPPING_IMPORTS = {
     "__future__", "logging", "re", "typing",
-    ".beer_glass", ".colors", ".config_store",
+    ".beer", ".beer_glass", ".colors", ".config_store",
 }
 
 
@@ -177,8 +178,8 @@ def test_og_fg_specific_gravity_only():
 
 # ---- the whole Beer ----------------------------------------------------
 
-def test_front_matter_maps_a_batch_with_no_client():
-    """One Batch in, one front-matter dict out - no client, no disk, no fake.
+def test_beer_maps_a_batch_with_no_client():
+    """One Batch in, one Beer out - no client, no disk, no fake.
 
     This is the assertion that used to be impossible to make: producing the Tap
     file's fields required an httpx client, because the same function also
@@ -197,38 +198,46 @@ def test_front_matter_maps_a_batch_with_no_client():
         "tasteNotes": "Juicy and soft",
         "_timestamp_ms": 1234,
     }
-    assert mapping.front_matter(
-        batch, rev=1234, image="bf_tap_3.webp", updated="2026-01-01T00:00:00+00:00",
-    ) == {
-        "name": "Hazy IPA",
-        "abv": 6.5,
-        "ibu": 30.0,
-        "ebc": 24.0,
-        "og": 1.055,
-        "fg": 1.012,
-        "saturation": 0.6,
-        "color_override": "#445566",
-        "glass": "tulip",
-        "source": "brewfather",
-        "batch_id": "b1",
-        "source_rev": 1234,
-        "map_rev": mapping.MAPPING_VERSION,
-        "image": "bf_tap_3.webp",
-        "updated": "2026-01-01T00:00:00+00:00",
-    }
+    assert mapping.beer(batch) == Beer(
+        name="Hazy IPA",
+        abv=6.5,
+        ibu=30.0,
+        ebc=24.0,
+        og=1.055,
+        fg=1.012,
+        saturation=0.6,
+        color_override="#445566",
+        glass="tulip",
+    )
+    # `source`, `image` and `updated` are the store's to write, so a Batch maps
+    # to none of them - see docs/adr/0005.
+    assert not hasattr(mapping.beer(batch), "source")
+    assert not hasattr(mapping.beer(batch), "image")
+    assert not hasattr(mapping.beer(batch), "updated")
 
 
-def test_front_matter_is_deterministic_for_one_batch():
+def test_beer_is_deterministic_for_one_batch():
     # Nothing is read from the clock, the environment or the disk, so the same
-    # inputs must map to the same output every time.
+    # Batch must map to an equal Beer every time. The clock used to be an
+    # argument for exactly this reason; now it is not this function's business.
     batch = {"_id": "b1", "recipe": {"name": "Ale"}, "_timestamp_ms": 7}
-    args = dict(rev=7, image=None, updated="2026-01-01T00:00:00+00:00")
-    assert mapping.front_matter(batch, **args) == mapping.front_matter(batch, **args)
+    assert mapping.beer(batch) == mapping.beer(batch)
+
+
+def test_a_batch_maps_to_a_beer_whose_values_are_already_coerced():
+    # The Beer that reaches the store is typed, so nothing downstream re-parses
+    # a saturation percentage or a hex string out of a dict.
+    batch = {"_id": "b1", "recipe": {"name": "Ale"},
+             "batchNotes": "tap:1 saturation:60 colour:445566"}
+    beer = mapping.beer(batch)
+    assert beer.saturation == 0.6
+    assert beer.color_override == "#445566"
+    assert beer.coerced == ()
 
 
 def test_is_current_compares_batch_revision_and_mapping_version():
     batch = {"_id": "b1", "_timestamp_ms": 500}
-    cached = mapping.front_matter(batch, rev=500, image=None, updated="t")
+    cached = mapping.source_revision(batch, 500)
     assert mapping.is_current(cached, batch, 500) is True
     # A newer revision of the same Batch is not current.
     assert mapping.is_current(cached, batch, 900) is False
@@ -236,12 +245,18 @@ def test_is_current_compares_batch_revision_and_mapping_version():
     assert mapping.is_current(cached, {"_id": "b2", "_timestamp_ms": 500}, 500) is False
 
 
+def test_is_current_is_false_for_a_tap_with_no_revision_record():
+    # What a Manual Tap looks like: no record at all. It is not a cache of
+    # anything, so it can never be current with a Batch.
+    assert mapping.is_current(None, {"_id": "b1", "_timestamp_ms": 500}, 500) is False
+
+
 def test_is_current_is_false_for_a_tap_cached_at_an_older_mapping_version():
     # The whole reason MAPPING_VERSION exists: a cached Tap written by older
     # extraction logic must be rewritten even though its Batch never changed.
     batch = {"_id": "b1", "_timestamp_ms": 500}
-    cached = mapping.front_matter(batch, rev=500, image=None, updated="t")
-    cached["map_rev"] = mapping.MAPPING_VERSION - 1
+    cached = SourceRevision(batch_id="b1", source_rev=500,
+                            map_rev=mapping.MAPPING_VERSION - 1)
     assert mapping.is_current(cached, batch, 500) is False
 
 
@@ -249,8 +264,8 @@ def test_is_current_tolerates_yaml_reparsing_the_stored_values():
     # The cached side comes back from YAML, which may have parsed a numeric id
     # or revision into an int; both sides are compared as strings.
     batch = {"_id": 42, "_timestamp_ms": 500}
-    cached = {"batch_id": "42", "source_rev": "500",
-              "map_rev": str(mapping.MAPPING_VERSION)}
+    cached = SourceRevision(batch_id="42", source_rev="500",
+                            map_rev=str(mapping.MAPPING_VERSION))
     assert mapping.is_current(cached, batch, 500) is True
 
 

@@ -251,9 +251,18 @@ def test_visibility_per_tap_override_beats_the_global_toggle():
 def test_visibility_empty_suppression_hides_an_enabled_attribute():
     # Step 3, and only step 3: a missing value hides an *enabled* Attribute...
     assert resolve_visibility(None, True, True) is False
-    assert resolve_visibility("", True, True) is False
     # ...and does nothing when the operator asked to keep the empty stat.
     assert resolve_visibility(None, True, False) is True
+
+
+def test_visibility_treats_none_as_the_only_absence():
+    """A blank front-matter field is None by the time it gets here.
+
+    The Tap file store coerces it when it builds the Beer (app/beer.py), so this
+    no longer tests for the empty string as well - which it used to do once per
+    Attribute per Tap on every poll from every TV.
+    """
+    assert resolve_visibility("", True, True) is True
 
 
 def test_visibility_empty_suppression_cannot_reveal_a_disabled_attribute():
