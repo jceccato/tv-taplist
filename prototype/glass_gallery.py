@@ -141,129 +141,132 @@ def nonic_3(foam: str, bubble: str) -> str:
     )
 
 
-# --- Conical schooner: vertical rim, taper, then a vertical foot with square
-# --- corners meeting the table - the rim's geometry mirrored at the bottom.
+# --- Conical schooner: LOCKED shape family. The rim's straight run now flows
+# --- into the taper with a vertical tangent (no corner), and the taper resolves
+# --- into the vertical base about a third of the way up the glass.
 def schooner_1(foam: str, bubble: str) -> str:
-    """Taper resolves into a short vertical base, square-cornered on the table."""
+    """Base starts a third up; smooth tangents at both ends of the curve."""
     return (
-        _pour("M108 76 L108 112 C108 150 120 190 126 212 L126 240 L174 240 "
-              "L174 212 C180 190 192 150 192 112 L192 76 Z")
+        _pour("M108 76 L108 100 C108 130 126 150 126 185 L126 240 L174 240 "
+              "L174 185 C174 150 192 130 192 100 L192 76 Z")
         + _foam(76, 42, 13, [(128, 67, 12), (150, 62, 15), (172, 67, 12)], foam)
-        + _bubbles(bubble, [(136, 146, 5, 0.6), (162, 184, 4, 0.6), (148, 216, 5, 0.55)])
+        + _bubbles(bubble, [(136, 140, 5, 0.6), (162, 172, 4, 0.6), (148, 214, 5, 0.55)])
     )
 
 
 def schooner_2(foam: str, bubble: str) -> str:
-    """Longer vertical base - more of a plinth under the taper."""
+    """Same flow, narrower foot - the taper bites a little deeper."""
     return (
-        _pour("M108 76 L108 112 C108 148 118 184 124 202 L124 240 L176 240 "
-              "L176 202 C182 184 192 148 192 112 L192 76 Z")
+        _pour("M108 76 L108 100 C108 132 128 152 128 182 L128 240 L172 240 "
+              "L172 182 C172 152 192 132 192 100 L192 76 Z")
         + _foam(76, 42, 13, [(128, 67, 12), (150, 62, 15), (172, 67, 12)], foam)
-        + _bubbles(bubble, [(136, 146, 5, 0.6), (162, 182, 4, 0.6), (148, 218, 5, 0.55)])
+        + _bubbles(bubble, [(136, 140, 5, 0.6), (162, 172, 4, 0.6), (148, 212, 5, 0.55)])
     )
 
 
 def schooner_3(foam: str, bubble: str) -> str:
-    """Shortest base, narrowest foot - taper carries almost to the table."""
+    """Curve starts higher and eases longer - the gentlest of the three."""
     return (
-        _pour("M108 76 L108 112 C108 152 122 196 130 222 L130 240 L170 240 "
-              "L170 222 C178 196 192 152 192 112 L192 76 Z")
+        _pour("M108 76 L108 94 C108 128 125 152 125 188 L125 240 L175 240 "
+              "L175 188 C175 152 192 128 192 94 L192 76 Z")
         + _foam(76, 42, 13, [(128, 67, 12), (150, 62, 15), (172, 67, 12)], foam)
-        + _bubbles(bubble, [(136, 148, 5, 0.6), (162, 186, 4, 0.6), (150, 216, 5, 0.55)])
+        + _bubbles(bubble, [(136, 138, 5, 0.6), (162, 170, 4, 0.6), (148, 216, 5, 0.55)])
     )
 
 
-# --- Tulip: gradual collar-to-bowl transition, fatter bowl, stubby stem.
-# --- Widest point sits HIGH and the bowl pinches in above the stem, which is
-# --- what keeps a tulip reading as a tulip beside the teku (whose bowl is
-# --- widest low down). Without that the two silhouettes converge.
+# --- Tulip: bowl close to INVERTED - widest just under the collar, tapering
+# --- down to the stem. The collar meets the bowl on a vertical tangent so
+# --- there is no corner between them.
 def tulip_1(foam: str, bubble: str) -> str:
-    """Collar eases into a fat, high-shouldered bowl; short thick stem."""
+    """Inverted bowl: mass at the top, tapering to the stem. Stubby stem."""
     return (
-        _pour("M112 78 L112 92 C101 102 97 118 99 138 C101 164 118 186 138 204 "
-              "L162 204 C182 186 199 164 201 138 C203 118 199 102 188 92 "
-              "L188 78 Z")
-        + _foam(78, 38, 12, [(130, 70, 10), (152, 66, 13), (172, 71, 9)], foam)
-        + _bubbles(bubble, [(132, 132, 5, 0.6), (166, 160, 4, 0.55)])
-        + _stem(204, width=18, foot_y=254, foot_half=36)
+        _pour("M112 72 L112 92 C112 104 96 108 95 124 C94 150 116 182 140 206 "
+              "L160 206 C184 182 206 150 205 124 C204 108 188 104 188 92 "
+              "L188 72 Z")
+        + _foam(72, 38, 12, [(130, 64, 10), (152, 60, 13), (172, 65, 9)], foam)
+        + _bubbles(bubble, [(126, 130, 5, 0.6), (168, 158, 4, 0.55)])
+        + _stem(206, width=18, foot_y=254, foot_half=36)
     )
 
 
 def tulip_2(foam: str, bubble: str) -> str:
-    """Fatter again, transition longer still - almost no corner at the collar."""
+    """More inverted still - widest higher and wider, a sharper run to the stem."""
     return (
-        _pour("M112 78 L112 90 C99 100 93 118 95 140 C97 168 116 190 138 206 "
-              "L162 206 C184 190 203 168 205 140 C207 118 201 100 188 90 "
-              "L188 78 Z")
-        + _foam(78, 38, 12, [(130, 70, 10), (152, 66, 13), (172, 71, 9)], foam)
-        + _bubbles(bubble, [(130, 134, 5, 0.6), (168, 162, 4, 0.55)])
-        + _stem(206, width=20, foot_y=254, foot_half=38)
+        _pour("M112 72 L112 90 C112 100 94 104 92 118 C90 146 114 182 140 208 "
+              "L160 208 C186 182 210 146 208 118 C206 104 188 100 188 90 "
+              "L188 72 Z")
+        + _foam(72, 38, 12, [(130, 64, 10), (152, 60, 13), (172, 65, 9)], foam)
+        + _bubbles(bubble, [(124, 128, 5, 0.6), (170, 158, 4, 0.55)])
+        + _stem(208, width=20, foot_y=254, foot_half=38)
     )
 
 
 def tulip_3(foam: str, bubble: str) -> str:
-    """Fat bowl, but a taller collar showing above it."""
+    """Inverted, but the shoulder rounder - less of a hard flare off the collar."""
     return (
-        _pour("M112 70 L112 92 C101 102 97 118 99 138 C101 164 118 186 138 204 "
-              "L162 204 C182 186 199 164 201 138 C203 118 199 102 188 92 "
-              "L188 70 Z")
-        + _foam(70, 38, 12, [(130, 62, 10), (152, 58, 13), (172, 63, 9)], foam)
-        + _bubbles(bubble, [(132, 132, 5, 0.6), (166, 160, 4, 0.55)])
-        + _stem(204, width=18, foot_y=254, foot_half=36)
+        _pour("M112 72 L112 94 C112 108 99 114 98 132 C97 158 118 184 140 206 "
+              "L160 206 C182 184 203 158 202 132 C201 114 188 108 188 94 "
+              "L188 72 Z")
+        + _foam(72, 38, 12, [(130, 64, 10), (152, 60, 13), (172, 65, 9)], foam)
+        + _bubbles(bubble, [(128, 136, 5, 0.6), (166, 162, 4, 0.55)])
+        + _stem(206, width=18, foot_y=254, foot_half=36)
     )
 
 
-# --- Teku: reworked again from the second reference photo. That glass is NOT a
-# --- funnel on an egg: it is a small lipped rim, then walls that widen steadily
-# --- all the way DOWN to the widest point low in the bowl, then turn under
-# --- sharply into a long slender stem.
+# --- Teku: round 4's shape 1, REPROPORTIONED - the stem is now about as tall
+# --- as the bowl, as in the reference photo. That meant shrinking the bowl
+# --- rather than lengthening the stem: 300 units of height is the whole budget,
+# --- so an equal split is roughly 105 each once the foot is allowed for.
 def teku_1(foam: str, bubble: str) -> str:
-    """Lipped rim, walls widening downward, widest low, long stem."""
+    """Stem height ~= bowl height. Bowl 52-167, stem 167-258."""
     return (
-        _pour("M106 62 C107 68 109 72 108 80 C100 106 90 132 90 158 "
-              "C90 182 112 204 137 212 L163 212 C188 204 210 182 210 158 "
-              "C210 132 200 106 192 80 C191 72 193 68 194 62 Z")
-        + _foam(62, 44, 12, [(126, 53, 11), (150, 48, 14), (174, 53, 11)], foam)
-        + _bubbles(bubble, [(128, 130, 5, 0.6), (166, 168, 4, 0.55), (146, 188, 5, 0.5)])
-        + _stem(212)
+        _pour("M118 52 C119 56 121 58 120 63 C112 85 102 110 102 133 "
+              "C102 150 118 162 140 167 L160 167 C182 162 198 150 198 133 "
+              "C198 110 188 85 180 63 C179 58 181 56 182 52 Z")
+        + _foam(52, 32, 9, [(132, 45, 8), (150, 41, 11), (168, 45, 8)], foam)
+        + _bubbles(bubble, [(126, 108, 4, 0.6), (172, 138, 4, 0.55), (148, 152, 4, 0.5)])
+        + _stem(167, width=11, foot_y=258, foot_half=32)
     )
 
 
 def teku_2(foam: str, bubble: str) -> str:
-    """Wider bowl, widest point lower - the fuller version of the same glass."""
+    """Bowl a touch bigger, stem a touch shorter - stem ~0.85x the bowl."""
     return (
-        _pour("M108 62 C109 68 111 72 110 82 C100 110 88 138 88 166 "
-              "C88 188 110 208 138 216 L162 216 C190 208 212 188 212 166 "
-              "C212 138 200 110 190 82 C189 72 191 68 192 62 Z")
-        + _foam(62, 42, 12, [(127, 53, 11), (150, 48, 14), (173, 53, 11)], foam)
-        + _bubbles(bubble, [(126, 134, 5, 0.6), (168, 174, 4, 0.55), (146, 194, 5, 0.5)])
-        + _stem(216)
+        _pour("M116 50 C117 54 119 56 118 62 C109 86 98 112 98 137 "
+              "C98 155 116 168 139 174 L161 174 C184 168 202 155 202 137 "
+              "C202 112 191 86 182 62 C181 56 183 54 184 50 Z")
+        + _foam(50, 34, 10, [(131, 43, 8), (150, 39, 11), (169, 43, 8)], foam)
+        + _bubbles(bubble, [(124, 110, 4, 0.6), (174, 142, 4, 0.55), (148, 158, 4, 0.5)])
+        + _stem(174, width=11, foot_y=258, foot_half=32)
     )
 
 
 def teku_3(foam: str, bubble: str) -> str:
-    """Straighter walls - nearer a cone, with only a small turn under."""
+    """Smaller bowl, longer and more slender stem - stem ~1.1x the bowl."""
     return (
-        _pour("M108 62 C109 68 111 72 110 80 C104 108 96 136 96 160 "
-              "C96 184 116 202 138 210 L162 210 C184 202 204 184 204 160 "
-              "C204 136 196 108 190 80 C189 72 191 68 192 62 Z")
-        + _foam(62, 42, 12, [(127, 53, 11), (150, 48, 14), (173, 53, 11)], foam)
-        + _bubbles(bubble, [(130, 132, 5, 0.6), (164, 170, 4, 0.55), (146, 190, 5, 0.5)])
-        + _stem(210)
+        _pour("M120 54 C121 58 123 60 122 65 C115 85 106 108 106 128 "
+              "C106 144 120 155 140 160 L160 160 C180 155 194 144 194 128 "
+              "C194 108 185 85 178 65 C177 60 179 58 180 54 Z")
+        + _foam(54, 30, 9, [(133, 47, 8), (150, 43, 10), (167, 47, 8)], foam)
+        + _bubbles(bubble, [(128, 104, 4, 0.6), (170, 132, 4, 0.55), (148, 146, 4, 0.5)])
+        + _stem(160, width=10, foot_y=258, foot_half=32)
     )
 
 
 CANDIDATES = {
-    "default": [("1 - straight sides", shaker_1), ("2 - straight, eased taper", shaker_2),
-                ("3 - the last trace of curve", shaker_3)],
-    "nonicpint": [("1 - wide mouth, spread bump", nonic_1), ("2 - gentler bump", nonic_2),
-                  ("3 - widest mouth, bump low", nonic_3)],
-    "schooner": [("1 - short vertical base", schooner_1), ("2 - longer plinth", schooner_2),
-                 ("3 - shortest base, narrow foot", schooner_3)],
-    "tulip": [("1 - fat bowl, stubby stem", tulip_1), ("2 - fattest, longest transition", tulip_2),
-              ("3 - fat bowl, taller collar", tulip_3)],
-    "teku": [("1 - lipped rim, widest low", teku_1), ("2 - wider bowl, widest lower", teku_2),
-             ("3 - straighter walls", teku_3)],
+    # Shaker and nonic are SETTLED (round 4, shape 1). Both entries point at the
+    # chosen builder so flipping the arrows cannot un-decide them by accident.
+    "default": [("LOCKED - straight sides", shaker_1), ("LOCKED - straight sides", shaker_1),
+                ("LOCKED - straight sides", shaker_1)],
+    "nonicpint": [("LOCKED - wide mouth, spread bump", nonic_1),
+                  ("LOCKED - wide mouth, spread bump", nonic_1),
+                  ("LOCKED - wide mouth, spread bump", nonic_1)],
+    "schooner": [("1 - base a third up", schooner_1), ("2 - narrower foot", schooner_2),
+                 ("3 - gentlest easing", schooner_3)],
+    "tulip": [("1 - inverted bowl", tulip_1), ("2 - most inverted", tulip_2),
+              ("3 - inverted, rounder shoulder", tulip_3)],
+    "teku": [("1 - stem = bowl", teku_1), ("2 - stem 0.85x bowl", teku_2),
+             ("3 - stem 1.1x bowl", teku_3)],
 }
 
 GLASSES = [
