@@ -213,12 +213,64 @@ def tulip_3(foam: str, bubble: str) -> str:
     )
 
 
-# --- Teku: round 4's shape 1, REPROPORTIONED - the stem is now about as tall
-# --- as the bowl, as in the reference photo. That meant shrinking the bowl
-# --- rather than lengthening the stem: 300 units of height is the whole budget,
-# --- so an equal split is roughly 105 each once the foot is allowed for.
+# --- Teku: the maintainer's hand-modelled bowl and stem, dropped in verbatim.
+# --- The stem and foot arrive as ONE object (stem, underside of the bowl, and
+# --- the elliptical foot in a single path), which is a better answer than the
+# --- prototype's rect-plus-crescent: nothing can drift apart at the joins.
+_TEKU_BOWL = (
+    "M 114 52 C 117.682 57.404 117.032 65.884 116.099 68.267 "
+    "C 109.834 83.765 101.123 120.567 98.912 134.147 "
+    "C 96.246 146.669 116 157 138 167 C 145 170 153 170 161 167 "
+    "C 182 158 202.126 144.955 200.288 134.577 "
+    "C 195.756 115.79 189.108 85.169 182 67 "
+    "C 180.707 62.965 182.139 57.704 184.644 51.986 Z"
+)
+
+_TEKU_STEM = (
+    "M 191 264 C 166 254 153 260 153 223 C 153 202 154 182 161.719 166.531 "
+    "C 153.435 169.784 144.325 169.609 137.042 166.356 "
+    "C 147 193 145 219 145 223 C 144 258 133 256 107 264 Z "
+    "M 107 264 A 42 8 0 1 0 191 264 A 42 8 0 1 0 107 264 Z"
+)
+
+
+# The clear-glass tint production uses is a near-white translucent: it reads on
+# the dark themes and all but disappears on Daylight. That was survivable when
+# the stem was a 12px rect; with the hand-modelled stem and its wide foot it
+# leaves the bowl floating on a white page. This mid-grey has enough body to
+# show against both ends of the theme range - the experiment behind candidate 2.
+_THEME_SAFE_FILL = "rgba(146,160,180,0.30)"
+_THEME_SAFE_STROKE = "rgba(108,124,146,0.75)"
+
+
+def _hand_stem(theme_safe: bool = False) -> str:
+    fill = _THEME_SAFE_FILL if theme_safe else _GLASS_FILL
+    stroke = _THEME_SAFE_STROKE if theme_safe else _GLASS_STROKE
+    return f'<path d="{_TEKU_STEM}" fill="{fill}" stroke="{stroke}" stroke-width="2"/>'
+
+
 def teku_1(foam: str, bubble: str) -> str:
-    """Stem height ~= bowl height. Bowl 52-167, stem 167-258."""
+    """The hand-modelled bowl and stem exactly as supplied, head fitted to it."""
+    return (
+        _hand_stem()
+        + _pour(_TEKU_BOWL)
+        + _foam(52, 35, 10, [(131, 44, 9), (149, 40, 12), (167, 44, 9)], foam)
+        + _bubbles(bubble, [(126, 112, 4, 0.6), (172, 140, 4, 0.55), (148, 155, 4, 0.5)])
+    )
+
+
+def teku_2(foam: str, bubble: str) -> str:
+    """The same glass, with a stem tint that survives the Daylight theme."""
+    return (
+        _hand_stem(theme_safe=True)
+        + _pour(_TEKU_BOWL)
+        + _foam(52, 35, 11, [(128, 42, 11), (149, 37, 14), (170, 42, 11)], foam)
+        + _bubbles(bubble, [(126, 112, 4, 0.6), (172, 140, 4, 0.55), (148, 155, 4, 0.5)])
+    )
+
+
+def teku_3(foam: str, bubble: str) -> str:
+    """Round 5's drawn shape, kept for one more comparison against the model."""
     return (
         _pour("M118 52 C119 56 121 58 120 63 C112 85 102 110 102 133 "
               "C102 150 118 162 140 167 L160 167 C182 162 198 150 198 133 "
@@ -226,30 +278,6 @@ def teku_1(foam: str, bubble: str) -> str:
         + _foam(52, 32, 9, [(132, 45, 8), (150, 41, 11), (168, 45, 8)], foam)
         + _bubbles(bubble, [(126, 108, 4, 0.6), (172, 138, 4, 0.55), (148, 152, 4, 0.5)])
         + _stem(167, width=11, foot_y=258, foot_half=32)
-    )
-
-
-def teku_2(foam: str, bubble: str) -> str:
-    """Bowl a touch bigger, stem a touch shorter - stem ~0.85x the bowl."""
-    return (
-        _pour("M116 50 C117 54 119 56 118 62 C109 86 98 112 98 137 "
-              "C98 155 116 168 139 174 L161 174 C184 168 202 155 202 137 "
-              "C202 112 191 86 182 62 C181 56 183 54 184 50 Z")
-        + _foam(50, 34, 10, [(131, 43, 8), (150, 39, 11), (169, 43, 8)], foam)
-        + _bubbles(bubble, [(124, 110, 4, 0.6), (174, 142, 4, 0.55), (148, 158, 4, 0.5)])
-        + _stem(174, width=11, foot_y=258, foot_half=32)
-    )
-
-
-def teku_3(foam: str, bubble: str) -> str:
-    """Smaller bowl, longer and more slender stem - stem ~1.1x the bowl."""
-    return (
-        _pour("M120 54 C121 58 123 60 122 65 C115 85 106 108 106 128 "
-              "C106 144 120 155 140 160 L160 160 C180 155 194 144 194 128 "
-              "C194 108 185 85 178 65 C177 60 179 58 180 54 Z")
-        + _foam(54, 30, 9, [(133, 47, 8), (150, 43, 10), (167, 47, 8)], foam)
-        + _bubbles(bubble, [(128, 104, 4, 0.6), (170, 132, 4, 0.55), (148, 146, 4, 0.5)])
-        + _stem(160, width=10, foot_y=258, foot_half=32)
     )
 
 
@@ -265,8 +293,8 @@ CANDIDATES = {
                  ("3 - gentlest easing", schooner_3)],
     "tulip": [("1 - inverted bowl", tulip_1), ("2 - most inverted", tulip_2),
               ("3 - inverted, rounder shoulder", tulip_3)],
-    "teku": [("1 - stem = bowl", teku_1), ("2 - stem 0.85x bowl", teku_2),
-             ("3 - stem 1.1x bowl", teku_3)],
+    "teku": [("1 - HAND MODEL", teku_1), ("2 - HAND MODEL, theme-safe stem", teku_2),
+             ("3 - round 5 drawn shape", teku_3)],
 }
 
 GLASSES = [
