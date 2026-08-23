@@ -143,7 +143,7 @@ You can also customise the tinted placeholder itself directly in the tokens:
   the swatch dot AND the glass placeholder).
 - `saturation:60` mutes the colour (use when a calculated EBC colour looks too
   vivid for the real beer).
-- `glass:teku` picks a glass silhouette (`default`, `nonicpint`, `schooner`,
+- `glass:teku` picks a glass silhouette (`nonicpint`, `default`, `schooner`,
   `tulip`, `teku`).
 
 ### Batch-note tokens reference
@@ -154,7 +154,7 @@ Put any of these in the **Batch Notes** field:
 |-------|--------|
 | `tap:3` | Assign this batch to **tap 3**. Required for the beer to appear. |
 | `colour:#780606` | Force an exact swatch + glass colour, overriding the EBC-derived colour. `color:` also works. |
-| `glass:nonicpint` | Glass silhouette: `default`, `nonicpint`, `schooner`, `tulip`, `teku`. |
+| `glass:nonicpint` | Glass silhouette: `nonicpint` (the default), `default` (the shaker pint - a historical key name), `schooner`, `tulip`, `teku`. |
 | `saturation:60` | Mute the colour to 60 % (a percentage, or a `0`–`1` fraction). |
 
 The sync scans the **Batch Notes** and **Taste Notes** for these tokens. Any token
@@ -280,9 +280,14 @@ on the next poll with no reload.
 ## Glassware
 
 When a beer has no photo, its placeholder is a **beer glass tinted to the beer's
-colour**, in one of several silhouettes - shaker pint, nonic pint, conical
-schooner, tulip or teku - chosen globally or per beer. Because it uses the same
-colour as the swatch, the pour always matches the dot.
+colour**, in one of several silhouettes - nonic pint (the default), shaker pint,
+conical schooner, tulip or teku - chosen globally or per beer. Because it uses
+the same colour as the swatch, the pour always matches the dot.
+
+The nonic is the default because it still reads as a beer glass once a busy
+board shrinks it to a thumbnail. Note the shaker pint's key is `default`, which
+is a historical name rather than a claim about which glass is selected: set
+`glass:default` to get the shaker.
 
 ---
 

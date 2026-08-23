@@ -234,7 +234,7 @@ def build_board() -> dict[str, Any]:
     cfg = load_config()
     num_taps = int(cfg.get("num_taps", 0) or 0)
     hide_vacant = bool(cfg.get("hide_vacant_taps", False))
-    default_glass = cfg.get("glass_type", "default")
+    default_glass = cfg.get("glass_type", DEFAULT_GLASS)
 
     taps: list[dict[str, Any]] = []
     for tap in range(1, num_taps + 1):

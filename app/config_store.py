@@ -21,7 +21,7 @@ import time
 from typing import Any
 
 from .atomic import atomic_write_text
-from .beer_glass import normalize_glass
+from .beer_glass import DEFAULT_GLASS, normalize_glass
 from .paths import CONFIG_PATH, ensure_dirs
 from .theme import DEFAULT_THEME, coerce_custom_theme, normalize_theme_name
 
@@ -60,7 +60,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Theme (display colours).
     "theme": "default",             # preset key, or "custom"
     "theme_custom": dict(DEFAULT_THEME),  # per-colour overrides when theme == "custom"
-    "glass_type": "default",        # default glassware for the no-photo placeholder
+    "glass_type": DEFAULT_GLASS,    # default glassware for the no-photo placeholder
     # Card sizing. A preset is remembered only so the admin can re-open the
     # picker where the operator left it; the two scales are what actually reach
     # the board, so a preset never needs re-resolving at render time.

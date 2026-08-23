@@ -34,9 +34,14 @@ def test_unparseable_colour_is_treated_as_unknown():
 
 
 def test_normalize_glass_falls_back():
+    from app.beer_glass import DEFAULT_GLASS
+
     assert normalize_glass("tulip") == "tulip"
-    assert normalize_glass("nope") == "default"
-    assert normalize_glass(None) == "default"
+    assert normalize_glass("default") == "default"   # the shaker's key still resolves
+    # Unknown and absent both land on whatever the default glass currently is,
+    # which is the point of the helper - the specific key is a product choice.
+    assert normalize_glass("nope") == DEFAULT_GLASS
+    assert normalize_glass(None) == DEFAULT_GLASS
 
 
 def test_every_glass_type_renders_valid_svg():
@@ -44,3 +49,42 @@ def test_every_glass_type_renders_valid_svg():
         svg = beer_glass_svg("#c07f1a", glass=key)
         assert svg.startswith("<svg") and svg.rstrip().endswith("</svg>")
         assert 'fill="url(#g)"' in svg   # the liquid uses the shared gradient
+
+
+def test_every_glass_key_has_a_silhouette_and_nothing_extra():
+    """The selectable list and the drawing table are one set, not two.
+
+    A new glass is added by writing a row and listing it; forgetting either half
+    is a KeyError on a live board, so the two are pinned to agree here.
+    """
+    from app.beer_glass import _SILHOUETTES
+
+    assert set(_SILHOUETTES) == GLASS_KEYS
+    from app.beer_glass import DEFAULT_GLASS
+
+    assert DEFAULT_GLASS in GLASS_KEYS
+
+
+def test_every_silhouette_is_centred_on_the_canvas():
+    """The head sits at x=150, so every pour has to be drawn symmetrically there.
+
+    Hand-modelled shapes arrive off-centre and are corrected before they land
+    here (issue #6). This is the guard that a future one was actually corrected:
+    the head is drawn at 150 unconditionally, so a pour centred anywhere else
+    wears its foam off to one side.
+    """
+    for key in GLASS_KEYS:
+        svg = beer_glass_svg("#c07f1a", glass=key)
+        assert svg.count('<ellipse cx="150"') == 1, key
+
+
+def test_stemmed_glasses_draw_the_stem_behind_the_pour():
+    """Layering, and the one tint. The stem is drawn first so the liquid sits in
+    front of it, and it uses the shared glass tint rather than one of its own -
+    a near-white stem vanishes on the Daylight theme."""
+    from app.beer_glass import _GLASS_FILL, _SILHOUETTES
+
+    for key in ("tulip", "teku"):
+        assert _SILHOUETTES[key].stem, key
+        svg = beer_glass_svg("#c07f1a", glass=key)
+        assert svg.index(_GLASS_FILL) < svg.index('fill="url(#g)"'), key

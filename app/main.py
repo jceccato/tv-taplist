@@ -45,7 +45,7 @@ from pydantic import BaseModel, ConfigDict
 from . import admin_ops, auth, snapshot, tap_store as taps
 from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
 from .beer import Beer, TapPresentation
-from .beer_glass import GLASS_TYPES, beer_glass_svg
+from .beer_glass import DEFAULT_GLASS, GLASS_TYPES, beer_glass_svg
 from .board import build_board
 from .brewfather import run_sync
 from .colors import (
@@ -559,7 +559,7 @@ class SettingsForm(BaseModel):
     hide_fg_when_empty: bool = False
     show_source_badge: bool = False
     theme: str = "default"
-    glass_type: str = "default"
+    glass_type: str = DEFAULT_GLASS
     tap_photo_preset: str = "default"
     tap_text_preset: str = "default"
     tap_image_scale: float = 1.0

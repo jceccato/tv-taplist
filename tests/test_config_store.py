@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from app import config_store
+from app import beer_glass, config_store
 
 
 def _read_raw() -> dict:
@@ -81,7 +81,7 @@ def test_coerce_clamps_pagination_and_normalises_theme_glass():
     assert cfg["page_size"] == config_store.MAX_PAGE_SIZE        # clamped to the grid max
     assert cfg["rotation_seconds"] == config_store.MIN_ROTATION_SECONDS
     assert cfg["theme"] == "default"                            # unknown -> default
-    assert cfg["glass_type"] == "default"
+    assert cfg["glass_type"] == beer_glass.DEFAULT_GLASS      # unknown -> default
 
 
 def test_coerce_custom_theme_fills_invalid_colours():
