@@ -31,7 +31,8 @@ Closed so far: [#9](https://github.com/jceccato/tv-taplist/issues/9),
 [#28](https://github.com/jceccato/tv-taplist/issues/28),
 [#29](https://github.com/jceccato/tv-taplist/issues/29),
 [#30](https://github.com/jceccato/tv-taplist/issues/30),
-[#32](https://github.com/jceccato/tv-taplist/issues/32).
+[#32](https://github.com/jceccato/tv-taplist/issues/32),
+[#33](https://github.com/jceccato/tv-taplist/issues/33).
 
 ### A mistyped value in a tap file no longer changes which beer is shown ([#32](https://github.com/jceccato/tv-taplist/issues/32))
 
@@ -40,8 +41,8 @@ fields now go through one definition of what a beer is, so a value that cannot
 be read - `abv: banana`, a colour that is not a colour - is simply dropped, and
 the rest of that beer still pours on its own tap. It is logged once, when
 something writes the file, rather than on every refresh of every TV. One real
-crash goes with it: a date typed without quotes used to blank every screen in
-the venue.
+crash goes with it ([#33](https://github.com/jceccato/tv-taplist/issues/33)):
+a date typed without quotes used to blank every screen in the venue.
 
 This otherwise changes nothing about running the box. Same file names, same
 keys, no migration, and the display sees exactly what it saw before. What it
