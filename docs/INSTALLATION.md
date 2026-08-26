@@ -213,7 +213,7 @@ extra tokens:
 |-------|--------|
 | `tap:3` | Assign this batch to **tap 3** (required for it to appear). |
 | `colour:#780606` | Force an exact swatch + glass colour. `color:` also works. |
-| `glass:nonicpint` | Glass silhouette: `nonicpint` (the default), `default` (the shaker pint - a historical key name), `schooner`, `tulip`, `teku`, `dimpledmug`. |
+| `glass:willibecher` | Glass silhouette: `willibecher` (the default), `nonicpint`, `default` (the shaker pint - a historical key name), `schooner`, `tulip`, `teku`, `dimpledmug`. |
 | `saturation:60` | Mute the colour to 60 % (a percentage, or a `0`–`1` fraction). |
 
 **Tasting notes** go in the **Taste Notes** field on the batch's Completed tab

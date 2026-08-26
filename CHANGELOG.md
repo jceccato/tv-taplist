@@ -34,8 +34,8 @@ Closed so far: [#9](https://github.com/jceccato/tv-taplist/issues/9),
 [#32](https://github.com/jceccato/tv-taplist/issues/32),
 [#33](https://github.com/jceccato/tv-taplist/issues/33).
 In progress: [#6](https://github.com/jceccato/tv-taplist/issues/6) (five
-remodelled glasses and the dimpled mug are done; the issue stays open for more
-glass types).
+remodelled glasses plus the dimpled mug and the Willi Becher are done; the issue
+stays open for more glass types).
 
 ### A mistyped value in a tap file no longer changes which beer is shown ([#32](https://github.com/jceccato/tv-taplist/issues/32))
 
@@ -75,7 +75,7 @@ archive, the venue logo and every other setting are restored either way, and you
 box's own Brewfather key is never replaced by the Snapshot's. A file that is not a
 Snapshot is refused whole, with nothing on the box changed.
 
-### Redrawn beer glasses, and the nonic pint is the new default ([#6](https://github.com/jceccato/tv-taplist/issues/6))
+### Redrawn beer glasses, two new ones, and a new default ([#6](https://github.com/jceccato/tv-taplist/issues/6))
 
 The five glass silhouettes drawn for taps with no photo have been remodelled by
 hand and redrawn from scratch: the shaker pint has a proper straight-sided
@@ -85,17 +85,18 @@ plain cone, the tulip has a straight collar over a high-shouldered bowl, and the
 teku is a wine-glass bowl on a full-length stem rather than an hourglass. They
 read as recognisable glassware from across a room, which the old shapes did not.
 
-**The default glassware is now the nonic pint.** It survives being shrunk to a
-thumbnail on a busy board, where the shaker's straight sides start to look like
-a tumbler. This only affects boxes that never chose one: an operator who picked
-a glass - globally or per beer - keeps exactly what they picked, and the shaker
-is still there under its own name.
+**Two glasses have been added.** A **Willi Becher** - the tapered glass most
+venues pour into now - and a **dimpled mug**: a squat barrel with a handle whose
+facets are cut into the beer rather than drawn over it, so the courses interlock
+and the outer ones are sliced in half by the edge of the glass the way a real
+mug's are. Pick either globally in the admin, or per beer with
+`glass:willibecher` / `glass:dimpledmug`.
 
-**A dimpled mug has been added**, the sixth glass. It is a squat barrel with a
-handle, and its facets are cut into the beer rather than drawn over it, so the
-courses interlock and the outer ones are sliced in half by the edge of the glass
-the way a real mug's are. Pick it globally in the admin, or per beer with
-`glass:dimpledmug`.
+**The default glassware is now the Willi Becher.** Both it and the nonic pint
+survive being shrunk to a thumbnail on a busy board, where the shaker's straight
+sides start to look like a tumbler. This only affects boxes that never chose
+one: an operator who picked a glass - globally or per beer - keeps exactly what
+they picked, and every previous glass is still there under its own name.
 
 Two things that were quietly broken are fixed with them. Stemmed glasses drew
 their foot a few pixels clear of the stem, so a tulip or teku always had a base
