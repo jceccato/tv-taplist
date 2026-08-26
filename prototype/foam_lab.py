@@ -39,10 +39,16 @@ def build() -> str:
     glasses = {}
     for key, label in GLASS_TYPES:
         s = _SILHOUETTES[key]
+        outline = flatten(s.pour)
+        ys = [p[1] for p in outline]
         glasses[key] = {
             "label": label,
             "pour": s.pour,
-            "outline": flatten(s.pour),
+            "outline": outline,
+            # Seeded proportionally: the depth the maintainer liked on the Willi
+            # Becher (46 units over a 159-unit pour), scaled to each glass's own
+            # height. A fixed depth reads far deeper on a shallow teku bowl.
+            "depth": round(46 * (max(ys) - min(ys)) / 159, 1),
             "stem": s.stem or "",
             "etch": s.etch or "",
             "sheen": s.sheen or "",
@@ -106,8 +112,9 @@ _TEMPLATE = r"""<!doctype html>
   <input type="range" id="sit" min="-14" max="14" step="0.5">
 
   <hr>
-  <label>Head depth, into the beer <b id="v-depth"></b></label>
-  <input type="range" id="depth" min="0" max="90" step="1">
+  <label>Head depth - <i id="depth-for"></i> only <b id="v-depth"></b></label>
+  <input type="range" id="depth" min="0" max="120" step="1">
+  <div class="seg"><button id="depth-all">Apply depth to every glass</button></div>
   <label>Underside curve <b id="v-curve"></b></label>
   <input type="range" id="curve" min="-30" max="30" step="0.5">
   <label>Underside softness <b id="v-fade"></b></label>
@@ -139,8 +146,13 @@ const DATA = __DATA__;
 /* Width 1.0 and no depth is TODAY's geometry made honest: production's
    hand-entered rx is narrower than the mouth on every glass but the mug. */
 const D = {width:1.0, ry:0.32, sit:0, depth:0, curve:0, fade:0,
-           blob:0.30, spread:0.55, lift:0.60};
-const KNOBS = Object.keys(D);
+           blob:0.30, spread:0.55, lift:0.30};
+/* Depth is the one knob that is PER GLASS: it is a distance into the beer, and
+   the glasses are not the same size, so one number cannot mean the same thing
+   on a teku bowl and a shaker pint. Every other knob is a ratio of the glass's
+   own mouth and travels across all seven unchanged. */
+const KNOBS = Object.keys(D).filter(k => k !== "depth");
+const DEPTHS = {};
 let glass = DATA.default, bg = "dark", colour = "amber", showShipped = false;
 
 const COLOURS = {
@@ -174,7 +186,7 @@ function mouth(outline) {
   return {top: top, left: s[0], right: s[1], half: (s[1] - s[0]) / 2};
 }
 
-function head(outline, foam, uid) {
+function head(outline, foam, uid, depth) {
   const m = mouth(outline);
   const cy = m.top + g("sit");
   const rx = m.half * g("width");
@@ -183,9 +195,14 @@ function head(outline, foam, uid) {
 
   // The body of the head: foam filling the top of the glass, clipped to the
   // pour, with a curved underside where it meets the beer.
-  const depth = g("depth");
   if (depth > 0) {
     const c = g("curve"), bot = cy + depth;
+    // The fade needs GEOMETRY to happen in. Measured as a fraction of the whole
+    // band, it ran past the bottom of the shape and was cut off mid-fade, which
+    // is why a soft setting looked like a hard line in the wrong place. It is
+    // now a distance either side of the boundary, and the shape is extended by
+    // that distance so the gradient has somewhere to finish.
+    const feather = g("fade") * 40;
     /* The underside curves ACROSS THE GLASS, not across the canvas, and about
        the depth line rather than below it. Spanning 0..300 put the glass in
        the flat middle of the arc, so the knob did almost nothing until the far
@@ -193,25 +210,23 @@ function head(outline, foam, uid) {
        also pushed the head deeper. Edges sit c/2 above the line, the centre
        c/2 below it, so the mean depth is exactly `depth` at any curve. */
     const s = span(outline, bot);
-    const edge = bot - c / 2;
-    const ctrl = bot + 1.5 * c;
+    const edge = bot - c / 2 + feather;
+    const ctrl = bot + 1.5 * c + feather;
     const band = "M -30 " + f(cy) + " L 330 " + f(cy) + " L 330 " + f(edge)
       + " L " + f(s[1]) + " " + f(edge)
       + " Q 150 " + f(ctrl) + " " + f(s[0]) + " " + f(edge)
       + " L -30 " + f(edge) + " Z";
-    const fade = g("fade");
-    if (fade > 0) {
+    if (feather > 0) {
       // userSpaceOnUse so the fade spans the band itself. Setting x1/y1 twice
       // is silently ignored by the parser, which collapses the gradient to one
       // user unit and makes the whole band invisible.
       out += '<linearGradient id="fade-' + uid + '" gradientUnits="userSpaceOnUse"'
-        + ' x1="0" x2="0" y1="' + f(cy) + '" y2="' + f(bot + c / 2) + '">'
-        + '<stop offset="' + f(Math.max(0, 1 - fade)) + '" stop-color="' + foam
-        + '" stop-opacity="1"/>'
+        + ' x1="0" x2="0" y1="' + f(bot - feather) + '" y2="' + f(bot + feather) + '">'
+        + '<stop offset="0" stop-color="' + foam + '" stop-opacity="1"/>'
         + '<stop offset="1" stop-color="' + foam + '" stop-opacity="0"/></linearGradient>';
     }
     out += '<g clip-path="url(#clip-' + uid + ')"><path d="' + band + '" fill="'
-      + (fade > 0 ? "url(#fade-" + uid + ")" : foam) + '"/></g>';
+      + (feather > 0 ? "url(#fade-" + uid + ")" : foam) + '"/></g>';
   }
 
   // The surface, and the mound of bubbles standing over the rim.
@@ -254,7 +269,7 @@ function svg(key, size, uid) {
     out += '<ellipse cx="150" cy="' + h[0] + '" rx="' + h[1] + '" ry="' + h[2]
       + '" fill="none" stroke="#ff5f6d" stroke-width="2" stroke-dasharray="5 4"/>';
   }
-  return out + head(spec.outline, foam, uid) + "</svg>";
+  return out + head(spec.outline, foam, uid, DEPTHS[key]) + "</svg>";
 }
 
 function seg(host, items, get, set) {
@@ -281,6 +296,10 @@ function render() {
       [["pale", "pale"], ["amber", "amber"], ["stout", "stout"], ["unknown", "unknown"]],
       function () { return colour; }, function (v) { colour = v; });
   KNOBS.forEach(k => document.getElementById("v-" + k).textContent = g(k));
+  document.getElementById("depth").value = DEPTHS[glass];
+  document.getElementById("v-depth").textContent = DEPTHS[glass];
+  document.getElementById("depth-for").textContent =
+    DATA.glasses[glass].label.replace(" (default)", "");
   document.getElementById("shipped").setAttribute("aria-pressed", showShipped);
 
   document.getElementById("sizes").innerHTML = [260, 150, 96, 64, 40]
@@ -295,13 +314,14 @@ function render() {
     const m = mouth(DATA.glasses[k].outline);
     const rx = m.half * g("width");
     return k + ": head=(" + f(m.top + g("sit")) + ", " + f(rx) + ", "
-      + f(rx * g("ry")) + ")   shipped rx " + DATA.glasses[k].shipped[1]
-      + "  mouth " + f(m.half);
+      + f(rx * g("ry")) + ")  depth " + DEPTHS[k]
+      + "   [shipped rx " + DATA.glasses[k].shipped[1] + ", mouth " + f(m.half) + "]";
   });
   document.getElementById("out").value = lines.join("\n");
 
   const q = new URLSearchParams({glass: glass, bg: bg, colour: colour});
   KNOBS.forEach(k => q.set(k, g(k)));
+  q.set("depths", Object.keys(DEPTHS).map(k => k + ":" + DEPTHS[k]).join(","));
   history.replaceState(null, "", "?" + q);
 }
 
@@ -314,11 +334,26 @@ function load() {
     const v = q.get(k);
     document.getElementById(k).value = v === null ? D[k] : v;
   });
+  Object.keys(DATA.glasses).forEach(k => DEPTHS[k] = DATA.glasses[k].depth);
+  (q.get("depths") || "").split(",").filter(Boolean).forEach(function (pair) {
+    const bits = pair.split(":");
+    if (bits[0] in DEPTHS) DEPTHS[bits[0]] = +bits[1];
+  });
 }
 
 KNOBS.forEach(k => document.getElementById(k).addEventListener("input", render));
+document.getElementById("depth").addEventListener("input", function () {
+  DEPTHS[glass] = +this.value;
+  render();
+});
+document.getElementById("depth-all").onclick = function () {
+  const v = DEPTHS[glass];
+  Object.keys(DEPTHS).forEach(k => DEPTHS[k] = v);
+  render();
+};
 document.getElementById("reset").onclick = function () {
   KNOBS.forEach(k => document.getElementById(k).value = D[k]);
+  Object.keys(DATA.glasses).forEach(k => DEPTHS[k] = DATA.glasses[k].depth);
   render();
 };
 document.getElementById("shipped").onclick = function () {
