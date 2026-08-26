@@ -77,6 +77,20 @@ The rule deciding which Source wins for a Slot: Manual, then Brewfather, then
 Vacant. Owned by the Tap file store, which resolves a Slot to the winning Tap
 and keeps filenames private - see ADR-0003.
 
+### Upcoming
+
+**Upcoming Beer**:
+A Beer not yet on a physical Tap but destined for one. Not a Tap - a Tap is a
+Beer in a Slot - and rendered as a teaser card, never as a Tap card. Its Slot
+is optional: bound when a non-Completed Batch carries a `tap:X` token but does
+not occupy that Slot (the Slot may be held by a more-complete Batch or a Manual
+Tap, or vacant because Fermenting and lower never occupy); unbound when a Batch
+carries an `upcoming:` note token and no `tap:X`. Two Upcoming Beers may bind
+to one Slot. Derived afresh on every sync and cached disposably under
+`/data/upcoming/` - never operator-authored, so it follows the Status policy
+rather than Settings'. See issue #4.
+_Avoid_: teaser (as the entity's name), coming soon, on deck
+
 ### Colour
 
 **Colour**:
