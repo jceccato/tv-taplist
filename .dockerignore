@@ -21,3 +21,5 @@ tests/
 taplist_data*/
 # docs/ holds README media (e.g. screenshot.png); not needed in the image.
 docs/
+# Design prototypes live on their branches, never in the image (see CLAUDE.md).
+prototype/
