@@ -1,6 +1,6 @@
 # Handoff: issue #4 "Coming up" teaser cards - display prototype refinement
 
-**Repo:** C:\misc\TVTapList | **Branch:** `prototype/upcoming-logic-4` (off main, uncommitted)
+**Repo:** C:\misc\TVTapList | **Branch:** `prototype/upcoming-logic-4` (off main; prototypes committed as `ec71774`, ADR-0006 uncommitted)
 **Issue:** https://github.com/jceccato/tv-taplist/issues/4 (label: `needs-triage`)
 **Active skills:** `/i-have-adhd` (still on - lead with next action, number steps, restate state), `/grill-with-docs` (grilling DONE - frontier empty).
 **Skill locations:** `~/.claude/skills/` holds `grill-with-docs`, `to-spec`,
@@ -9,35 +9,46 @@ cannot invoke them; ask the user to run the slash command.
 
 ## Next action
 
-Get the user's "go" for **ADR-0006** and the **marker feature-request issue**
-(see "Pending write-ups"), then run `/to-spec`.
+Run `/to-spec`. Nothing is outstanding.
 
-The five display refinements are DONE - see "Display feedback (all applied)".
-Three of them carry a spec obligation, listed there; do not lose them in
-`/to-spec`.
+Prototyping is DONE. The display prototype went through several rounds past the
+original five items - read **"FINAL PRESENTATION MODEL"**, which supersedes the
+three-candidate framing entirely. ADR-0006 is WRITTEN. The conditioning marker
+is FOLDED IN as a sub-issue of this spec.
+
+Carry into the spec: the spec obligations under "Display feedback", the
+conditioning-marker ticket note, and the open design questions. Do not re-derive
+the locked decisions and do not re-argue ADR-0006's rejected options.
 
 ## Where we got to
 
 Design grilling is COMPLETE. All 14 grilling questions (Q1-Q14) plus two
 wrinkle decisions are locked (see "Locked decisions"). Two prototypes exist on
 the branch: a logic prototype (resolution rules against fake data, with an
-interactive TUI) and a display prototype (three presentation candidates). The
+interactive TUI) and a display prototype (which began as three presentation
+candidates and ended as ONE composition - see "FINAL PRESENTATION MODEL"). The
 "Upcoming Beer" glossary entry has landed in `CONTEXT.md`. Nothing has been
-committed; nothing has been pushed; no GitHub issues or comments have been
-posted yet.
+pushed; no GitHub issues or comments have been posted yet.
 
-The user reviewed both prototypes and gave the feedback below; all five items
-have now been applied to the display prototype. The prototyping phase is done -
-the next step is the pending write-ups, then `/to-spec`.
+The user reviewed both prototypes and gave the feedback below. The original five
+items were applied, then several further rounds on top of them. Prototyping is
+done.
 
-## Files on this branch (all uncommitted)
+## Files on this branch
+
+Committed as `ec71774`:
 
 - `prototype/upcoming-logic/main.py` - logic prototype, 12 scenarios, stdlib only.
 - `prototype/upcoming-logic/tui.py` - interactive TUI over the logic prototype.
 - `prototype/upcoming-logic/README.md` - logic prototype notes + wrinkles.
-- `prototype/upcoming-display/index.html` - display prototype, 3 candidates.
+- `prototype/upcoming-display/index.html` - display prototype, the composition.
 - `prototype/upcoming-display/README.md` - display prototype notes + tensions.
+- `HANDOFF.md` - this file.
 - `CONTEXT.md` - MODIFIED: new "### Upcoming" subsection with the "Upcoming Beer" term.
+
+Uncommitted:
+
+- `docs/adr/0006-the-upcoming-store-is-disposable-and-separate.md` - NEW.
 
 ## Display feedback (all applied 2026-08-26)
 
@@ -91,10 +102,9 @@ the next step is the pending write-ups, then `/to-spec`.
 - The Label toggle is now a preset drop-down (Coming up / On deck / Soon) plus a
   **Custom...** free-text field capped at `LABEL_MAX = 32` chars, with a live
   counter. The label drives the ribbon AND the "<label> on tap N" subtitle.
-- `teaserAbv(t)` picks the source by status (fermenting or missing measured ->
-  recipe target; otherwise measured) but marks **every** upcoming ABV `~`.
-  The fake teasers carry both `abv` and `abvTarget`; the Dubbel's measured value
-  is deliberately absent to exercise the fallback.
+- **SUPERSEDED by the recipe rule below.** `teaserAbv()` no longer picks a
+  source at all - `teaserFields()` does, for every attribute at once - but it
+  still marks **every** upcoming ABV `~` whatever the source.
 - **No size option.** A teaser is formatted like every other slot, from the same
   config settings. The `.big` CSS and the Size button are gone.
 - **New Status option (default ON):** the batch status prints under the
@@ -115,8 +125,8 @@ the next step is the pending write-ups, then `/to-spec`.
   board (`rgba(46,52,68,0.97)`), dashed border all round, 12px radius, inset
   margin, drop shadow. A single dashed top line read as a divider, so the bottom
   row looked like permanent board furniture.
-- Option changes call `reapplyOptions()`, which re-renders candidate 2 and forces
-  `showPage(1)` so the effect is visible immediately.
+- **SUPERSEDED:** `reapplyOptions()` is gone with the candidate switcher; every
+  control now calls `render()`.
 - Verified in a browser: no console errors; vacant slots 3 and 5 render teasers
   with their status lines ("Conditioning" / "Fermenting"); the panel is 1256x318
   at the bottom with 2 columns; candidate 3 cycles only "Stout Imperial" and
@@ -283,10 +293,18 @@ three.
 13. **ADR-0006:** one ADR for the upcoming-store policy (why a third store, why
     disposable, why never in snapshots, why gated on the toggle).
 
-## Pending write-ups (await user "go")
+## Pending write-ups - ALL RESOLVED
 
-- **ADR-0006** - the upcoming-store policy (decision #13). Not yet written.
-  This is the ONLY item still awaiting a go.
+- **ADR-0006 - WRITTEN 2026-08-27.**
+  `docs/adr/0006-the-upcoming-store-is-disposable-and-separate.md`. Records why
+  `/data/upcoming/` is a third store rather than a fourth Source in the Tap file
+  store (an Upcoming Beer is not a candidate answer to "what is pouring", and
+  its Slot is optional and non-unique, so a precedence walk cannot express it);
+  why it follows ADR-0002's Status read policy rather than Settings'; why it is
+  keyed by Batch id; why it exists only while `show_upcoming_previews` is on;
+  why Snapshots never carry it; and why nothing here is ever Archived or pruned.
+  Nine rejected options are listed with their reasons - do not re-argue them in
+  the spec.
 
 **DECIDED 2026-08-27 - the conditioning-on-tap marker is no longer a separate
 feature request.** Decision #10 deferred it because it looked unrelated; it is
@@ -309,11 +327,85 @@ Narrower vocabulary, different resolution site in `board.py`.
 feature. It is independently useful and much smaller. Then it needs its own
 issue after all, and the teaser work inherits the vocabulary from it.
 
+## Prompts to run next (this session was cleared at ~190k tokens)
+
+The grilling thread is NOT in context any more. It does not need to be: it is
+reified in this file, `CONTEXT.md`, `docs/adr/0006-*.md` and the two prototype
+READMEs. Those ARE the thread. Run both prompts in ONE session, `/to-spec`
+first, and do not clear between them - the tickets must be cut from the spec
+while the spec is still in context.
+
+### 1. /to-spec
+
+```
+/to-spec
+
+Read HANDOFF.md first, then CONTEXT.md's "Upcoming" section,
+docs/adr/0006-the-upcoming-store-is-disposable-and-separate.md, and both
+prototype READMEs (prototype/upcoming-logic/README.md and
+prototype/upcoming-display/README.md).
+
+Spec issue #4, the "Coming up" teaser cards.
+
+The design work is COMPLETE and its output is those files. Thirteen locked
+decisions, the final presentation model, the settings list and the open
+questions are all written down. Collapse them into a buildable spec. Do not
+re-grill me and do not re-argue ADR-0006's nine rejected options.
+
+Three things to get right:
+
+1. The presentation model in HANDOFF.md under "FINAL PRESENTATION MODEL"
+   SUPERSEDES the three-candidate framing that appears earlier in the same
+   file and in the prototype README's history. There is one baseline (the
+   in-place cross-fade) plus optional composable surfaces, not three rival
+   candidates. If you find yourself writing "candidate 1/2/3", you are reading
+   a superseded section.
+2. The open design questions listed in HANDOFF.md are genuinely open. Decide
+   them in the spec with reasoning, or mark them explicitly deferred with a
+   default. Do not silently pick one.
+3. The board payload contract holds: `/api/board` carries resolved answers,
+   not inputs. Teaser Visibility and Colour resolve server-side like every
+   other Tap. The display renders what it is told.
+
+Flag anything in those files that contradicts something else rather than
+picking one quietly.
+```
+
+### 2. /to-tickets (same session, straight after)
+
+```
+/to-tickets
+
+Split the spec into tracer-bullet tickets with blocking edges.
+
+Sequencing constraints that are already decided - honour them rather than
+re-deriving:
+
+1. Mapping and store come before display. The `upcoming:` token, the
+   MAPPING_VERSION bump, the recipe-for-unfinished-batches rule and
+   `/data/upcoming/` are what everything else stands on.
+2. ONE MAPPING_VERSION bump covers the whole feature. The token, the recipe
+   rule and the ABV marker are all extraction changes; do not spend a bump per
+   ticket. The status-selection rules are NOT extraction changes and need no
+   bump at all.
+3. The conditioning-on-tap marker (`show_conditioning_status`) is a SUB-ISSUE
+   of this spec with a native `blocked_by` edge on the ticket that builds the
+   customer-facing status vocabulary and marker rendering. Its blast radius
+   differs from `show_upcoming_status`: it renders on a beer pouring RIGHT
+   NOW, on boards that never enable upcoming previews. Separate ticket,
+   separate toggle, never merged. See the ticket note in HANDOFF.md.
+4. Every ticket must be self-contained - the next session gets the ticket and
+   the repo, not this conversation.
+
+Then stop. I will run /implement per ticket, clearing between each.
+```
+
 ## Road ahead
 
-1. ~~Finish the 5 display feedback items.~~ DONE.
-2. Get user "go" for ADR-0006 + the marker feature-request issue; write/file
-   them.
+1. ~~Finish the 5 display feedback items.~~ DONE (plus several further rounds).
+2. ~~Get user "go" for ADR-0006 + the marker feature-request issue.~~ DONE.
+   ADR-0006 is written; the marker is a sub-issue of the #4 spec, not a
+   standalone feature request.
 3. `/to-spec` - collapse the locked decisions + the chosen presentation into a
    buildable spec.
 4. `/to-tickets` - split the spec into tracer-bullet tickets.
