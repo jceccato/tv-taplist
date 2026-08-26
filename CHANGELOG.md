@@ -33,8 +33,9 @@ Closed so far: [#9](https://github.com/jceccato/tv-taplist/issues/9),
 [#30](https://github.com/jceccato/tv-taplist/issues/30),
 [#32](https://github.com/jceccato/tv-taplist/issues/32),
 [#33](https://github.com/jceccato/tv-taplist/issues/33).
-In progress: [#6](https://github.com/jceccato/tv-taplist/issues/6) (the five
-existing glasses are done; the issue stays open for more glass types).
+In progress: [#6](https://github.com/jceccato/tv-taplist/issues/6) (five
+remodelled glasses and the dimpled mug are done; the issue stays open for more
+glass types).
 
 ### A mistyped value in a tap file no longer changes which beer is shown ([#32](https://github.com/jceccato/tv-taplist/issues/32))
 
@@ -89,6 +90,12 @@ thumbnail on a busy board, where the shaker's straight sides start to look like
 a tumbler. This only affects boxes that never chose one: an operator who picked
 a glass - globally or per beer - keeps exactly what they picked, and the shaker
 is still there under its own name.
+
+**A dimpled mug has been added**, the sixth glass. It is a squat barrel with a
+handle, and its facets are cut into the beer rather than drawn over it, so the
+courses interlock and the outer ones are sliced in half by the edge of the glass
+the way a real mug's are. Pick it globally in the admin, or per beer with
+`glass:dimpledmug`.
 
 Two things that were quietly broken are fixed with them. Stemmed glasses drew
 their foot a few pixels clear of the stem, so a tulip or teku always had a base
