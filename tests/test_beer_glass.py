@@ -84,7 +84,28 @@ def test_stemmed_glasses_draw_the_stem_behind_the_pour():
     a near-white stem vanishes on the Daylight theme."""
     from app.beer_glass import _GLASS_FILL, _SILHOUETTES
 
-    for key in ("tulip", "teku"):
+    for key in ("tulip", "teku", "dimpledmug"):
         assert _SILHOUETTES[key].stem, key
         svg = beer_glass_svg("#c07f1a", glass=key)
         assert svg.index(_GLASS_FILL) < svg.index('fill="url(#g)"'), key
+
+
+def test_etched_glasses_clip_their_detail_to_the_pour():
+    """The facets are etched INTO the liquid, not laid on top of it.
+
+    The clip is what lets a course of dimples run past the profile and be cut
+    in half by it, the way a real mug's are. Without it the overhang draws
+    outside the glass and the shape reads as broken.
+    """
+    from app.beer_glass import _SILHOUETTES
+
+    for key, shape in _SILHOUETTES.items():
+        if not shape.etch:
+            continue
+        svg = beer_glass_svg("#c07f1a", glass=key)
+        assert '<clipPath id="p">' in svg, key
+        assert 'clip-path="url(#p)"' in svg, key
+        # Over the liquid, under the foam: a facet crossing the head would be
+        # drawn on the surface of the beer rather than through the glass.
+        assert svg.index('fill="url(#g)"') < svg.index('clip-path="url(#p)"') < \
+            svg.index("<ellipse"), key
