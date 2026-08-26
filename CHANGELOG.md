@@ -105,9 +105,9 @@ The head is now measured to each glass's real mouth, and it is a band of foam
 sitting on top of the beer with a curved underside rather than a lid laid over
 it - the difference between a drawn glass and a poured one.
 
-Three things that were quietly broken are fixed with them. Stemmed glasses drew
-their foot a few pixels clear of the stem, so a tulip or teku always had a base
-floating under it. And the clear glass of a stem was a near-white tint that
+Two more things that were quietly broken are fixed with them. Stemmed glasses
+drew their foot a few pixels clear of the stem, so a tulip or teku always had a
+base floating under it. And the clear glass of a stem was a near-white tint that
 disappeared on the Daylight theme; it is now a mid-grey that reads on both the
 dark themes and the light one.
 
