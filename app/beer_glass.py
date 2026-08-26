@@ -31,14 +31,16 @@ from .colors import parse_hex_color
 # before unifying this with colors.UNKNOWN_SWATCH_HEX.
 _DEFAULT_HEX = "#e8a020"
 
-# Selectable glassware, in admin display order: (key, label). The nonic pint is
-# the default: it reads as a beer glass at every size the board renders, where
-# the shaker's straight sides can pass for a tumbler once the card is small.
+# Selectable glassware, in admin display order: (key, label). The Willi Becher
+# is the default: it is the glass most venues actually pour into now, and its
+# tapered body reads as a beer glass at every size the board renders, where the
+# shaker's straight sides can pass for a tumbler once the card is small.
 # The `default` KEY still means the shaker - it is written into operators'
 # config.json, their per-tap override files and their Brewfather notes, so
 # renaming it would silently repoint every board that uses it.
 GLASS_TYPES: list[tuple[str, str]] = [
-    ("nonicpint", "Nonic pint (default)"),
+    ("willibecher", "Willi Becher (default)"),
+    ("nonicpint", "Nonic pint"),
     ("default", "Shaker pint"),
     ("schooner", "Conical schooner"),
     ("tulip", "Tulip"),
@@ -46,7 +48,7 @@ GLASS_TYPES: list[tuple[str, str]] = [
     ("dimpledmug", "Dimpled mug"),
 ]
 GLASS_KEYS = {k for k, _ in GLASS_TYPES}
-DEFAULT_GLASS = "nonicpint"
+DEFAULT_GLASS = "willibecher"
 
 # Surface detail etched INTO the pour: the dimpled mug's facets, and the light
 # caught along the inside of each one. Both are strokes over the liquid, clipped
@@ -98,6 +100,21 @@ class _Silhouette(NamedTuple):
 
 
 _SILHOUETTES: dict[str, _Silhouette] = {
+    # Willi Becher: one long taper from a narrow base, easing inward again just
+    # below the rim. The rim curve is the first thing lost at thumbnail size,
+    # where it settles into an honest straight taper.
+    "willibecher": _Silhouette(
+        pour=(
+            "M 184.5 76 C 185.5 86.5 186.56 106.19 186.5 114 "
+            "C 186.5 125.64 180.47 195.86 177.5 235 "
+            "A 1 0.11 0 0 1 122.5 235 "
+            "C 119.53 195.86 113.5 125.64 113.5 114 "
+            "C 113.44 106.19 114.5 86.5 115.5 76 Z"
+        ),
+        head=(76, 31.5, 10.1),
+        bubbles=((138.3, 142.8, 4.5, 0.6), (161.7, 171.4, 4.0, 0.55),
+                 (147.1, 200.0, 5.0, 0.5)),
+    ),
     # Nonic pint: straight sides broken by the bulge a third from the top.
     "nonicpint": _Silhouette(
         pour=(
