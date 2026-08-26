@@ -109,7 +109,7 @@ _TEMPLATE = r"""<!doctype html>
   <label>Head depth, into the beer <b id="v-depth"></b></label>
   <input type="range" id="depth" min="0" max="90" step="1">
   <label>Underside curve <b id="v-curve"></b></label>
-  <input type="range" id="curve" min="0" max="30" step="0.5">
+  <input type="range" id="curve" min="-30" max="30" step="0.5">
   <label>Underside softness <b id="v-fade"></b></label>
   <input type="range" id="fade" min="0" max="1" step="0.02">
 
@@ -186,15 +186,26 @@ function head(outline, foam, uid) {
   const depth = g("depth");
   if (depth > 0) {
     const c = g("curve"), bot = cy + depth;
-    const band = "M 0 " + f(cy) + " L 300 " + f(cy) + " L 300 " + f(bot)
-      + " Q 150 " + f(bot + 2 * c) + " 0 " + f(bot) + " Z";
+    /* The underside curves ACROSS THE GLASS, not across the canvas, and about
+       the depth line rather than below it. Spanning 0..300 put the glass in
+       the flat middle of the arc, so the knob did almost nothing until the far
+       end of its range; and hanging the arc below `bot` meant every turn of it
+       also pushed the head deeper. Edges sit c/2 above the line, the centre
+       c/2 below it, so the mean depth is exactly `depth` at any curve. */
+    const s = span(outline, bot);
+    const edge = bot - c / 2;
+    const ctrl = bot + 1.5 * c;
+    const band = "M -30 " + f(cy) + " L 330 " + f(cy) + " L 330 " + f(edge)
+      + " L " + f(s[1]) + " " + f(edge)
+      + " Q 150 " + f(ctrl) + " " + f(s[0]) + " " + f(edge)
+      + " L -30 " + f(edge) + " Z";
     const fade = g("fade");
     if (fade > 0) {
       // userSpaceOnUse so the fade spans the band itself. Setting x1/y1 twice
       // is silently ignored by the parser, which collapses the gradient to one
       // user unit and makes the whole band invisible.
       out += '<linearGradient id="fade-' + uid + '" gradientUnits="userSpaceOnUse"'
-        + ' x1="0" x2="0" y1="' + f(cy) + '" y2="' + f(bot + c) + '">'
+        + ' x1="0" x2="0" y1="' + f(cy) + '" y2="' + f(bot + c / 2) + '">'
         + '<stop offset="' + f(Math.max(0, 1 - fade)) + '" stop-color="' + foam
         + '" stop-opacity="1"/>'
         + '<stop offset="1" stop-color="' + foam + '" stop-opacity="0"/></linearGradient>';
