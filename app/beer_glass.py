@@ -70,8 +70,9 @@ _GLASS_STROKE = "rgba(108,124,146,0.75)"
 
 # How the three blobs of the head are placed, as fractions of the head ellipse:
 # (dx * rx, dy * ry, r * rx). Shared by every glass so a new silhouette only has
-# to say where its mouth is and how wide it is.
-_HEAD_BLOBS = ((-0.55, -0.60, 0.30), (0.0, -0.95, 0.36), (0.55, -0.60, 0.30))
+# to say where its mouth is and how wide it is - the mound settled on the same
+# numbers for all seven, which is why it lives here and not on the rows.
+_HEAD_BLOBS = ((-0.55, -0.30, 0.30), (0.0, -0.47, 0.36), (0.55, -0.30, 0.30))
 
 
 class _Silhouette(NamedTuple):
@@ -89,6 +90,16 @@ class _Silhouette(NamedTuple):
     a dimpled mug, and the light along the inside of each. A shape that runs
     past the profile is cut by it, which is what lets a row of dimples sit half
     off the edge of the glass the way it does on the real thing.
+
+    `foam` is the BODY of the head - the top of the beer, below the surface -
+    also clipped to the pour. A head is the top inch of what is in the glass,
+    not a lid on it. Its underside curves across the glass at that height, so
+    the path is per glass rather than a shared shape.
+
+    `head`'s `rx` is the glass's real mouth. It used to be entered by eye and
+    came out a few units narrow on every glass but the mug, so the beer stopped
+    short of the lip; `test_the_head_fills_the_mouth` is the guard against that
+    creeping back in.
     """
 
     pour: str
@@ -97,6 +108,7 @@ class _Silhouette(NamedTuple):
     stem: str | None = None
     etch: str | None = None
     sheen: str | None = None
+    foam: str | None = None
 
 
 _SILHOUETTES: dict[str, _Silhouette] = {
@@ -111,7 +123,8 @@ _SILHOUETTES: dict[str, _Silhouette] = {
             "C 119.53 195.86 113.5 125.64 113.5 114 "
             "C 113.44 106.19 114.5 86.5 115.5 76 Z"
         ),
-        head=(76, 31.5, 10.1),
+        head=(76, 34.64, 11.08),
+        foam="M -30 76 L 330 76 L 330 85.5 L 185.36 85.5 Q 150 91.5 114.64 85.5 L -30 85.5 Z",
         bubbles=((138.3, 142.8, 4.5, 0.6), (161.7, 171.4, 4.0, 0.55),
                  (147.1, 200.0, 5.0, 0.5)),
     ),
@@ -124,14 +137,16 @@ _SILHOUETTES: dict[str, _Silhouette] = {
             "C 189.41 142.02 189.76 138.3 190.51 136.23 "
             "Q 196.13 125.02 192.5 110 L 193.5 88 Z"
         ),
-        head=(88, 40.5, 13.0),
+        head=(88, 43.42, 7.82),
+        foam="M -30 88 L 330 88 L 330 96.5 L 192.82 96.5 Q 150 106.5 107 96.5 L -30 96.5 Z",
         bubbles=((135.2, 147.4, 4.5, 0.6), (164.8, 172.9, 4.0, 0.55),
                  (146.3, 198.4, 5.0, 0.5)),
     ),
     # Shaker pint: dead-straight sides, a wide mouth, a flat floor.
     "default": _Silhouette(
         pour="M 100.5 70 L 116 228 Q 117 238 127 238 L 173 238 Q 183 238 184 228 L 199.5 70 Z",
-        head=(70, 46.5, 14.9),
+        head=(70, 49.31, 11.83),
+        foam="M -30 70 L 330 70 L 330 83 L 197.45 83 Q 150 83 101.78 83 L -30 83 Z",
         bubbles=((134.2, 140.6, 4.5, 0.6), (165.8, 170.8, 4.0, 0.55),
                  (146.0, 201.0, 5.0, 0.5)),
     ),
@@ -147,7 +162,8 @@ _SILHOUETTES: dict[str, _Silhouette] = {
             "C 114.16 161.82 106.75 137.29 105.1 100.14 "
             "C 104.89 92.14 104.95 85.83 106 76 Z"
         ),
-        head=(76, 41.0, 13.1),
+        head=(76, 44.16, 10.16),
+        foam="M -30 76 L 330 76 L 330 86.5 L 194.93 86.5 Q 150 96.5 105.07 86.5 L -30 86.5 Z",
         bubbles=((135.6, 143.2, 4.5, 0.6), (164.4, 172.0, 4.0, 0.55),
                  (146.4, 200.8, 5.0, 0.5)),
     ),
@@ -159,7 +175,8 @@ _SILHOUETTES: dict[str, _Silhouette] = {
             "Q 150 208 165 203 C 183.58 196.37 217.5 175.5 206.5 122.5 "
             "C 203 110 198 100 194 71 Z"
         ),
-        head=(71, 41.0, 13.1),
+        head=(71, 44.21, 14.15),
+        foam="M -30 71 L 330 71 L 330 91 L 197.9 91 Q 150 99 102.1 91 L -30 91 Z",
         bubbles=((128.4, 128.5, 4.5, 0.6), (171.6, 153.2, 4.0, 0.55),
                  (144.6, 177.9, 5.0, 0.5)),
         stem=(
@@ -181,7 +198,8 @@ _SILHOUETTES: dict[str, _Silhouette] = {
             "C 197.32 118.18 189.64 84.47 182.95 67.63 "
             "C 181.84 64.42 182.23 57.55 185.32 51.99 Z"
         ),
-        head=(51.99, 32.3, 10.3),
+        head=(51.99, 34.57, 11.06),
+        foam="M -30 51.99 L 330 51.99 L 330 65.24 L 182.76 65.24 Q 150 72.24 117.24 65.24 L -30 65.24 Z",
         bubbles=((133.1, 101.6, 4.5, 0.6), (166.9, 122.8, 4.0, 0.55),
                  (145.8, 144.0, 5.0, 0.5)),
         stem=(
@@ -202,7 +220,8 @@ _SILHOUETTES: dict[str, _Silhouette] = {
             "M 85 80 C 78.5 123 80 199 100.5 247 A 1 0.16 0 0 0 199.5 247 "
             "C 220 199 221.5 123 215 80 Z"
         ),
-        head=(80, 65.0, 20.8),
+        head=(80, 65.22, 13.7),
+        foam="M -30 80 L 330 80 L 330 101.5 L 217.53 101.5 Q 150 111.5 82.47 101.5 L -30 101.5 Z",
         bubbles=(),
         stem=(
             "M 216 99 C 245 97 273 97 266 160 C 259 227 211 217 205 222 L 211 201 "
@@ -321,29 +340,36 @@ def _bubbles(c: str, pts) -> str:
     )
 
 
-def _etch(shape: _Silhouette) -> str:
-    """Facets and their highlights, clipped to the pour they are etched into."""
-    if not shape.etch:
+def _inside_the_glass(shape: _Silhouette, foam: str) -> str:
+    """Everything cut to the pour: the body of the head, then the facets.
+
+    One clip serves both. The head's body goes down first so the facets read as
+    glass in FRONT of the foam - on a real mug the dimples carry on across the
+    head rather than stopping at it.
+    """
+    if not (shape.foam or shape.etch):
         return ""
-    out = (f'<clipPath id="p"><path d="{shape.pour}"/></clipPath>'
-           f'<g clip-path="url(#p)">'
-           f'<path d="{shape.etch}" fill="none" stroke="{_ETCH_STROKE}" '
-           f'stroke-width="{_ETCH_WIDTH:g}"/>')
-    if shape.sheen:
-        out += (f'<path d="{shape.sheen}" fill="none" stroke-linecap="round" '
-                f'stroke="{_SHEEN_STROKE}" stroke-width="{_SHEEN_WIDTH:g}"/>')
+    out = f'<clipPath id="p"><path d="{shape.pour}"/></clipPath><g clip-path="url(#p)">'
+    if shape.foam:
+        out += f'<path d="{shape.foam}" fill="{foam}"/>'
+    if shape.etch:
+        out += (f'<path d="{shape.etch}" fill="none" stroke="{_ETCH_STROKE}" '
+                f'stroke-width="{_ETCH_WIDTH:g}"/>')
+        if shape.sheen:
+            out += (f'<path d="{shape.sheen}" fill="none" stroke-linecap="round" '
+                    f'stroke="{_SHEEN_STROKE}" stroke-width="{_SHEEN_WIDTH:g}"/>')
     return out + "</g>"
 
 
 def _glass_body(glass: str, foam: str, bubble: str) -> str:
-    """One silhouette: glass behind the pour, then its etching, head and bubbles."""
+    """One silhouette: glass behind the pour, what is inside it, then the head."""
     shape = _SILHOUETTES[glass]
     liquid = 'fill="url(#g)" stroke="rgba(255,255,255,0.16)" stroke-width="3"'
     out = ""
     if shape.stem:
         out += (f'<path d="{shape.stem}" fill="{_GLASS_FILL}" '
                 f'stroke="{_GLASS_STROKE}" stroke-width="2"/>')
-    out += f'<path d="{shape.pour}" {liquid}/>' + _etch(shape)
+    out += f'<path d="{shape.pour}" {liquid}/>' + _inside_the_glass(shape, foam)
     return out + _head(*shape.head, foam) + _bubbles(bubble, shape.bubbles)
 
 

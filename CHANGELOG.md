@@ -98,7 +98,14 @@ sides start to look like a tumbler. This only affects boxes that never chose
 one: an operator who picked a glass - globally or per beer - keeps exactly what
 they picked, and every previous glass is still there under its own name.
 
-Two things that were quietly broken are fixed with them. Stemmed glasses drew
+**The beer now reaches the lip of the glass, and the head has depth.** Each
+glass's foam was sized by eye and every one but the mug came out a little
+narrow, so the pour stopped short of the rim and looked like it had gone flat.
+The head is now measured to each glass's real mouth, and it is a band of foam
+sitting on top of the beer with a curved underside rather than a lid laid over
+it - the difference between a drawn glass and a poured one.
+
+Three things that were quietly broken are fixed with them. Stemmed glasses drew
 their foot a few pixels clear of the stem, so a tulip or teku always had a base
 floating under it. And the clear glass of a stem was a near-white tint that
 disappeared on the Daylight theme; it is now a mid-grey that reads on both the
