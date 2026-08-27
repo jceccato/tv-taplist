@@ -58,7 +58,9 @@ from .colors import (
     text_color_for,
 )
 from .config_store import (
+    MAX_UPCOMING_LABEL_LEN,
     SETTINGS_BOUNDS,
+    UPCOMING_LABEL_PRESETS,
     apply_settings,
     brewfather_credentials,
     load_config,
@@ -418,6 +420,12 @@ async def admin_page(request: Request):
             # of numbers - no bound is hand-copied into the template.
             "bounds": {name: {"min": lo, "max": hi}
                        for name, (lo, hi) in SETTINGS_BOUNDS.items()},
+            # The teaser-ribbon label's cap and preset list (issue #39). Not a
+            # SETTINGS_BOUNDS entry - that table is numeric bounds only - so
+            # the template gets its own two values, both from config_store's
+            # single declaration.
+            "upcoming_label_max": MAX_UPCOMING_LABEL_LEN,
+            "upcoming_label_presets": UPCOMING_LABEL_PRESETS,
             # Theme + glassware pickers.
             "themes": THEMES,
             "theme_fields": THEME_FIELD_LABELS,
@@ -581,6 +589,10 @@ class SettingsForm(BaseModel):
     include_fermenting: bool = False
     show_upcoming_previews: bool = False
     max_upcoming_previews: int = 3
+    upcoming_label: str = ""
+    show_upcoming_status: bool = False
+    show_upcoming_subtitle: bool = False
+    show_upcoming_abv: bool = False
     num_taps: int
     hide_vacant_taps: bool = False
     announcement_text: str = ""

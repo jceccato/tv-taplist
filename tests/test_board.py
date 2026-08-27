@@ -583,7 +583,12 @@ def test_teaser_visibility_answers_come_from_the_same_chain_a_tap_uses():
     through build_board) so this pins the shared resolution itself, the way
     test_resolve_beer_card_matches_what_tap_resolution_embeds pins it for a Tap.
     """
-    cfg = config_store.update_config(show_og=True, show_fg=True)
+    # show_upcoming_abv defaults off (issue #39) and would otherwise force
+    # abv_visible False on the teaser alone, making this comparison fail for
+    # a reason unrelated to what it actually pins - so it is turned on here to
+    # isolate the shared-chain assertion from the teaser-only ABV gate, which
+    # has its own tests below.
+    cfg = config_store.update_config(show_og=True, show_fg=True, show_upcoming_abv=True)
     entry = upcoming_store.UpcomingEntry(
         batch_id="chain-check",
         beer=Beer(name="Chain Beer", abv=5.5, ibu=None, ebc=None,
@@ -626,3 +631,132 @@ def test_teaser_with_no_photo_falls_back_to_the_tinted_glass_placeholder():
     b = build_board()
     teaser = b["upcoming"][0]
     assert teaser["image_url"].startswith("/img/beer-glass")
+
+
+# ---- The teaser card's words (issue #39) -----------------------------------
+
+def test_status_label_is_the_customer_word_and_null_when_the_setting_is_off():
+    """status_label is spelled for a customer, and mutating the map breaks this.
+
+    Pins the exact vocabulary from #4/#39 (not just "truthy"), and pins the
+    null-when-off half separately so a reader cannot satisfy this by always
+    returning a label regardless of the Setting.
+    """
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20, show_upcoming_status=True)
+    _upcoming("status-on", status="conditioning", revision=1)
+    b = build_board()
+    assert b["upcoming"][0]["status_label"] == "Conditioning"
+
+    config_store.update_config(show_upcoming_status=False)
+    b = build_board()
+    assert b["upcoming"][0]["status_label"] is None
+
+
+def test_status_label_covers_every_customer_spelling():
+    cases = {
+        "completed": "Ready",
+        "conditioning": "Conditioning",
+        "fermenting": "Fermenting",
+        "brewing": "Brewing",
+        "planning": "Planned",
+    }
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20, show_upcoming_status=True)
+    for raw in cases:
+        _upcoming(f"status-{raw}", status=raw, revision=1)
+    b = build_board()
+    by_id = {t["batch_id"]: t["status_label"] for t in b["upcoming"]}
+    for raw, expected in cases.items():
+        assert by_id[f"status-{raw}"] == expected, raw
+
+
+def test_unbound_subtitle_ignores_the_setting_in_both_directions():
+    """The test that fails if boundness collapses into a plain read of the Setting.
+
+    An unbound teaser gets a subtitle whatever show_upcoming_subtitle says -
+    the setting is only consulted for a BOUND teaser. Checked with the Setting
+    off AND on so a hardcoded `if unbound: True` cannot be told apart from a
+    correct implementation by only one half of this test.
+    """
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20, show_upcoming_subtitle=False)
+    _upcoming("unbound-off", slot=None, status="completed", revision=1)
+    b = build_board()
+    assert b["upcoming"][0]["subtitle"] == "no tap assigned yet"
+
+    config_store.update_config(show_upcoming_subtitle=True)
+    b = build_board()
+    assert b["upcoming"][0]["subtitle"] == "no tap assigned yet"
+
+
+def test_bound_subtitle_follows_the_setting():
+    config_store.update_config(num_taps=2, show_upcoming_previews=True,
+                                max_upcoming_previews=20, show_upcoming_subtitle=False,
+                                upcoming_label="Coming up")
+    _upcoming("bound-sub", slot=1, status="completed", revision=1)
+    b = build_board()
+    assert b["upcoming"][0]["subtitle"] is None
+
+    config_store.update_config(show_upcoming_subtitle=True)
+    b = build_board()
+    assert b["upcoming"][0]["subtitle"] == "Coming up on tap 1"
+
+
+def test_bound_subtitle_uses_the_operators_own_label():
+    config_store.update_config(num_taps=2, show_upcoming_previews=True,
+                                max_upcoming_previews=20, show_upcoming_subtitle=True,
+                                upcoming_label="Up next")
+    _upcoming("bound-custom-label", slot=2, status="completed", revision=1)
+    b = build_board()
+    assert b["upcoming"][0]["subtitle"] == "Up next on tap 2"
+
+
+def test_show_upcoming_abv_off_forces_abv_visible_false_even_with_show_abv_on():
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20, show_abv=True,
+                                show_upcoming_abv=False)
+    _upcoming("abv-gated", status="completed", revision=1, abv=6.0)
+    b = build_board()
+    teaser = b["upcoming"][0]
+    assert teaser["abv_visible"] is False
+    assert teaser["abv_estimated"] is False
+
+
+def test_show_upcoming_abv_on_shows_it_and_marks_it_estimated():
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20, show_abv=True,
+                                show_upcoming_abv=True)
+    _upcoming("abv-shown", status="completed", revision=1, abv=6.0)
+    b = build_board()
+    teaser = b["upcoming"][0]
+    assert teaser["abv_visible"] is True
+    assert teaser["abv_estimated"] is True
+
+
+def test_abv_estimated_is_false_when_the_beer_has_no_abv_to_show():
+    """abv_estimated only ever accompanies a VISIBLE abv (issue #39).
+
+    show_upcoming_abv on is not enough by itself: hide_abv_when_empty (on by
+    default) still suppresses a missing value, and there is nothing to mark
+    '~' on a stat that is not drawn.
+    """
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20, show_abv=True,
+                                show_upcoming_abv=True, hide_abv_when_empty=True)
+    _upcoming("no-abv", status="completed", revision=1)  # abv left unset -> None
+    b = build_board()
+    teaser = b["upcoming"][0]
+    assert teaser["abv_visible"] is False
+    assert teaser["abv_estimated"] is False
+
+
+def test_board_carries_the_operators_teaser_label_only_when_upcoming_is_on():
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20, upcoming_label="Up next")
+    b = build_board()
+    assert b["upcoming_label"] == "Up next"
+
+    config_store.update_config(show_upcoming_previews=False)
+    b = build_board()
+    assert "upcoming_label" not in b

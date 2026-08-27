@@ -53,6 +53,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # ADR-0006, so lowering or raising it takes effect on the very next poll -
     # no sync required, because the cap never touches what the store caches.
     "max_upcoming_previews": 3,
+    # The teaser card's words (issue #39). All four are resolved at board time
+    # (app/board.py) into wire answers - status_label, subtitle, abv_estimated
+    # and the ribbon's own text - never forwarded as raw toggles; see
+    # CLAUDE.md's "resolved answers, not inputs" and CONTEXT.md's Visibility.
+    "upcoming_label": "Coming up",       # ribbon text; capped, see MAX_UPCOMING_LABEL_LEN
+    "show_upcoming_status": True,        # "Ready" / "Conditioning" / ... under the head
+    "show_upcoming_subtitle": False,     # "<label> on tap N" under a BOUND teaser's head;
+                                          # an unbound teaser always gets one regardless
+    "show_upcoming_abv": False,          # layered on top of show_abv; off wins either way
     "num_taps": 0,
     "hide_vacant_taps": False,
     "announcement_text": "",
@@ -112,6 +121,24 @@ MAX_ROTATION_SECONDS = 600
 # way MAX_NUM_TAPS is - it exists so a mistyped value can't ask the board to
 # resolve and sort an unbounded queue - so it is generous rather than tight.
 MAX_UPCOMING_PREVIEWS = 20
+
+# Cap on the operator's teaser-ribbon label (issue #39), a STRING length, not a
+# numeric bound - it deliberately does not live in SETTINGS_BOUNDS, which
+# clamps numbers and feeds the admin's numeric min/max rendering. The ribbon
+# is a single unwrapped line (CLAUDE.md) and does not wrap, so a label past
+# this length is truncated rather than rejected, at the same point _coerce
+# clamps every numeric bound; the admin form's `maxlength` renders from this
+# same constant. Checked against an eight-cards-across layout before shipping
+# - see the ticket's browser verification note.
+MAX_UPCOMING_LABEL_LEN = 32
+
+# The admin's ribbon-label presets, plus the "Custom..." entry point the form
+# adds itself. Whatever text is actually submitted is what gets stored and
+# truncated - this tuple only seeds the dropdown, so a stale browser can never
+# disagree with what the server saves.
+UPCOMING_LABEL_PRESETS: tuple[str, ...] = (
+    "Coming up", "Up next", "Coming soon", "Just around the bend",
+)
 
 # Card sizing bounds. The text range is deliberately wide: we cannot guess the
 # operator's screen (a Fire Stick on a small TV needs different numbers from a 4K
@@ -268,6 +295,15 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     merged["include_fermenting"] = bool(merged["include_fermenting"])
     merged["show_upcoming_previews"] = bool(merged["show_upcoming_previews"])
     merged["update_check_enabled"] = bool(merged["update_check_enabled"])
+    merged["show_upcoming_status"] = bool(merged["show_upcoming_status"])
+    merged["show_upcoming_subtitle"] = bool(merged["show_upcoming_subtitle"])
+    merged["show_upcoming_abv"] = bool(merged["show_upcoming_abv"])
+    # Truncate, never reject (CLAUDE.md): a hand-edited config.json has no one
+    # to report an error to, the same reasoning the numeric bounds use above,
+    # just for a string length instead of a number. An empty (or all-blank)
+    # label falls back to the default rather than shipping a blank ribbon.
+    label = str(merged["upcoming_label"] or "").strip()
+    merged["upcoming_label"] = (label or DEFAULT_CONFIG["upcoming_label"])[:MAX_UPCOMING_LABEL_LEN]
 
     # Display options.
     merged["color_unit"] = "srm" if str(merged["color_unit"]).lower() == "srm" else "ebc"

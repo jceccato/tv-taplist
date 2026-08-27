@@ -337,3 +337,52 @@ def test_apply_settings_resolves_the_presets_and_returns_the_saved_config():
 
 def test_apply_settings_clamps_and_does_not_raise():
     assert config_store.apply_settings(num_taps=-5)["num_taps"] == 0
+
+
+# ---- The teaser card's words (issue #39) -----------------------------------
+
+def test_upcoming_label_defaults_and_truncates_rather_than_rejects():
+    assert config_store.DEFAULT_CONFIG["upcoming_label"] == "Coming up"
+    long_label = "x" * 200
+    cfg = config_store.update_config(upcoming_label=long_label)
+    assert cfg["upcoming_label"] == "x" * config_store.MAX_UPCOMING_LABEL_LEN
+    assert len(cfg["upcoming_label"]) == config_store.MAX_UPCOMING_LABEL_LEN
+
+
+def test_upcoming_label_blank_falls_back_to_the_default():
+    cfg = config_store.update_config(upcoming_label="   ")
+    assert cfg["upcoming_label"] == "Coming up"
+
+
+def test_upcoming_label_within_the_cap_is_untouched():
+    cfg = config_store.update_config(upcoming_label="Up next")
+    assert cfg["upcoming_label"] == "Up next"
+
+
+def test_show_upcoming_status_defaults_true_and_coerces_bool():
+    assert config_store.DEFAULT_CONFIG["show_upcoming_status"] is True
+    cfg = config_store.update_config(show_upcoming_status="")  # falsy -> bool False
+    assert cfg["show_upcoming_status"] is False
+
+
+def test_show_upcoming_subtitle_defaults_false_and_coerces_bool():
+    assert config_store.DEFAULT_CONFIG["show_upcoming_subtitle"] is False
+    cfg = config_store.update_config(show_upcoming_subtitle="yes")
+    assert cfg["show_upcoming_subtitle"] is True
+
+
+def test_show_upcoming_abv_defaults_false_and_coerces_bool():
+    assert config_store.DEFAULT_CONFIG["show_upcoming_abv"] is False
+    cfg = config_store.update_config(show_upcoming_abv="yes")
+    assert cfg["show_upcoming_abv"] is True
+
+
+def test_upcoming_words_settings_absent_from_stored_config_read_the_default():
+    # A config written before issue #39 has none of these four keys; the merge
+    # over DEFAULT_CONFIG must fall back to the schema defaults rather than
+    # raising or reading as falsy/blank.
+    merged = config_store._coerce({"num_taps": 4})
+    assert merged["upcoming_label"] == "Coming up"
+    assert merged["show_upcoming_status"] is True
+    assert merged["show_upcoming_subtitle"] is False
+    assert merged["show_upcoming_abv"] is False

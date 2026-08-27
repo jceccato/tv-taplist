@@ -288,6 +288,22 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS,
     }
 
 
+# Customer-facing spelling of each Batch status (issue #39). A Batch's own
+# status word ("completed") is written for Brewfather, not for someone at the
+# bar deciding whether to come back this week or next - "how soon" is the
+# question a customer actually has. This is the one dictionary; #45's on-tap
+# conditioning marker reuses it rather than inventing its own wording a
+# second time. Keys mirror mapping.STATUS_PRECEDENCE; "unknown" is
+# deliberately absent; see resolve_upcoming for what that means on the wire.
+STATUS_DISPLAY_LABELS: dict[str, str] = {
+    "completed": "Ready",
+    "conditioning": "Conditioning",
+    "fermenting": "Fermenting",
+    "brewing": "Brewing",
+    "planning": "Planned",
+}
+
+
 def _order_upcoming(entries: list[UpcomingEntry], cap: int) -> list[UpcomingEntry]:
     """Order Upcoming Beers for display, and truncate to the cap (issue #37).
 
@@ -320,8 +336,13 @@ def resolve_upcoming(entry: UpcomingEntry, cfg: dict[str, Any],
     Reuses `resolve_beer_card` for the Attributes, the six Visibility answers
     and the Colour - the identical chain a Tap uses (ADR-0004, CLAUDE.md's
     "resolved answers, not inputs"). What is added here is specific to a
-    teaser: the Batch identity, the bound Slot (or none), the description and
-    `pinned`.
+    teaser: the Batch identity, the bound Slot (or none), the description,
+    `pinned`, and (issue #39) the teaser's own words - `status_label` (a
+    customer-facing status word, or null), `subtitle` (resolved text or null;
+    see below) and `abv_estimated` (drives the '~' marker, true only when
+    `abv_visible` is). `show_upcoming_abv` also re-gates `abv_visible` here,
+    on top of the ordinary Visibility answer `resolve_beer_card` already gave
+    it.
 
     A teaser's Slot resolves to None - becoming unbound - when it names a Slot
     beyond the *configured* tap count. Sync accepts `tap:1..MAX_NUM_TAPS`
@@ -345,11 +366,54 @@ def resolve_upcoming(entry: UpcomingEntry, cfg: dict[str, Any],
     # The Upcoming store's own photo, never a Tap's - see _image_url_for.
     card = resolve_beer_card(entry.beer, cfg, entry.image, default_glass,
                              img_prefix="/img/upcoming")
+
+    # show_upcoming_abv layers ON TOP of the ordinary ABV Visibility answer
+    # (issue #39), rather than being folded into resolve_beer_card: a Tap's
+    # ABV has no such extra gate, so this stays specific to a teaser instead
+    # of growing a parameter that every Tap call site would have to pass
+    # `True` past. Off forces abv_visible false regardless of the global
+    # show_abv toggle. abv_estimated - the '~' marker - travels true only
+    # when the ABV actually renders; there is nothing to mark on a hidden
+    # stat, and it is true whatever the source (a hydrometer reading on an
+    # unfinished beer is an estimate too), so it is never conditioned on
+    # anything about the Batch itself.
+    card["abv_visible"] = card["abv_visible"] and bool(
+        cfg.get("show_upcoming_abv", DEFAULT_CONFIG["show_upcoming_abv"]))
+    card["abv_estimated"] = card["abv_visible"]
+
+    # The customer word for the Batch status, or null when the Setting is
+    # off - resolved here, once, so #45's on-tap conditioning marker can
+    # reuse STATUS_DISPLAY_LABELS without re-deriving this null-when-off rule.
+    status_label = (
+        STATUS_DISPLAY_LABELS.get(entry.status)
+        if bool(cfg.get("show_upcoming_status", DEFAULT_CONFIG["show_upcoming_status"]))
+        else None
+    )
+
+    # The subtitle text is the resolved answer, never the Setting that
+    # produced it (CLAUDE.md, CONTEXT.md): boundness decides half the
+    # question, so sending the toggle alone would leave the display re-running
+    # that half itself. An unbound teaser (slot is None, including a teaser
+    # bound past num_taps - CLAUDE.md's "treated as unbound") has no tap
+    # number anywhere else on the card, so it ALWAYS gets a subtitle,
+    # whatever show_upcoming_subtitle says. A bound teaser gets one only when
+    # the Setting is on, because the ribbon already says "coming up" and the
+    # tap number is already in the card head.
+    if slot is None:
+        subtitle = "no tap assigned yet"
+    elif bool(cfg.get("show_upcoming_subtitle", DEFAULT_CONFIG["show_upcoming_subtitle"])):
+        label = str(cfg.get("upcoming_label") or DEFAULT_CONFIG["upcoming_label"])
+        subtitle = f"{label} on tap {slot}"
+    else:
+        subtitle = None
+
     return {
         "batch_id": entry.batch_id,
         "slot": slot,
         "pinned": pinned,
         "description": (entry.body or "").strip(),
+        "status_label": status_label,
+        "subtitle": subtitle,
         **card,
     }
 
@@ -442,4 +506,11 @@ def build_board() -> dict[str, Any]:
     }
     if upcoming is not None:
         board["upcoming"] = upcoming
+        # The ribbon's own text: the one input from this ticket's four
+        # Settings that legitimately travels raw, because it IS the answer -
+        # there is no chain to resolve, only a string to draw (CLAUDE.md).
+        # Absent whenever "upcoming" itself is, for the same reason: with the
+        # feature off there is no ribbon to letter.
+        board["upcoming_label"] = str(
+            cfg.get("upcoming_label", DEFAULT_CONFIG["upcoming_label"]))
     return board

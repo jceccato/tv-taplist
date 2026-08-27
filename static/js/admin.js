@@ -144,9 +144,44 @@
     wireAxis("tap_text_preset", "tap_text_scale", TAP_TEXT_PRESETS);
   }
 
+  // ---- teaser label (issue #39): preset dropdown + custom text + counter ----
+  // The dropdown's options are rendered by the server from
+  // config_store.UPCOMING_LABEL_PRESETS, so there is nothing to mirror or drift
+  // here - only the "which control currently owns the value" wiring, the same
+  // shape as setupCardSizing's preset-vs-slider pattern above. The submitted
+  // field is the hidden input; the visible select/text are just its UI.
+  function setupUpcomingLabel(form) {
+    const hidden = form.querySelector("#upcoming_label");
+    const preset = document.getElementById("upcoming_label_preset");
+    const custom = document.getElementById("upcoming_label_custom");
+    const count = document.getElementById("upcoming_label_count");
+    if (!hidden || !preset || !custom || !count) return;
+    const max = Number(custom.maxLength) > 0 ? Number(custom.maxLength) : 32;
+
+    function showCustom(show) {
+      custom.hidden = !show;
+      count.hidden = !show;
+    }
+    function syncCount() { count.textContent = custom.value.length + "/" + max; }
+    syncCount();
+
+    preset.addEventListener("change", () => {
+      const isCustom = preset.value === "__custom";
+      showCustom(isCustom);
+      hidden.value = isCustom ? custom.value : preset.value;
+      if (isCustom) custom.focus();
+    });
+    custom.addEventListener("input", () => {
+      hidden.value = custom.value.slice(0, max);
+      syncCount();
+    });
+  }
+
   // ---- settings form ----
   const settingsForm = document.getElementById("settings-form");
   if (settingsForm) {
+    setupUpcomingLabel(settingsForm);
+
     // Keep the logo-height slider and number input in sync.
     const hRange = document.getElementById("logo_h_range");
     const hNum = document.getElementById("logo_h");

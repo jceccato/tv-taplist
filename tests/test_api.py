@@ -1028,3 +1028,47 @@ def test_save_settings_axes_are_independent():
     cfg = config_store.load_config()
     assert cfg["tap_image_scale"] == 0.4      # the photo preset owns its number
     assert cfg["tap_text_scale"] == 1.8       # the text axis kept what was posted
+
+
+# ---- The teaser card's words (issue #39) -----------------------------------
+
+def test_admin_page_offers_the_teaser_word_controls():
+    c = _login(TestClient(app))
+    html = c.get("/admin").text
+    for needle in ('id="upcoming_label_preset"', 'id="upcoming_label_custom"',
+                   'name="upcoming_label"', 'name="show_upcoming_status"',
+                   'name="show_upcoming_subtitle"', 'name="show_upcoming_abv"'):
+        assert needle in html, needle
+    # The presets from #4/#39's spec, plus the Custom entry point.
+    for preset in ("Coming up", "Up next", "Coming soon", "Just around the bend"):
+        assert f'>{preset}<' in html, preset
+
+
+def test_admin_page_renders_the_label_maxlength_from_the_one_constant():
+    """The admin's cap and the coercion's cap must be the same constant.
+
+    A hand-typed "32" here would silently disagree with a future change to
+    config_store.MAX_UPCOMING_LABEL_LEN; this asserts against the constant
+    itself so the two cannot drift apart.
+    """
+    c = _login(TestClient(app))
+    html = c.get("/admin").text
+    tag = re.search(r'<input[^>]*\bid="upcoming_label_custom"[^>]*>', html)
+    assert tag, "no #upcoming_label_custom input in the admin page"
+    attrs = dict(re.findall(r'(\w+)="([^"]*)"', tag.group(0)))
+    assert attrs.get("maxlength") == str(config_store.MAX_UPCOMING_LABEL_LEN)
+
+
+def test_save_settings_persists_the_teaser_words():
+    c = _login(TestClient(app))
+    r = c.post("/admin/settings", data={
+        "num_taps": "1", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
+        "upcoming_label": "Up next", "show_upcoming_status": "true",
+        "show_upcoming_subtitle": "true", "show_upcoming_abv": "true",
+    })
+    assert r.status_code == 200 and r.json()["ok"] is True
+    cfg = config_store.load_config()
+    assert cfg["upcoming_label"] == "Up next"
+    assert cfg["show_upcoming_status"] is True
+    assert cfg["show_upcoming_subtitle"] is True
+    assert cfg["show_upcoming_abv"] is True

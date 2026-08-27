@@ -132,6 +132,27 @@ def test_display_js_never_reads_the_upcoming_settings():
         assert setting not in js, f"display.js still references {setting}"
 
 
+def test_display_js_renders_teaser_words_from_resolved_answers_not_derived():
+    """The teaser card's words are resolved answers (issue #39), not JS logic.
+
+    status_label, subtitle and abv_estimated already carry the customer word,
+    the boundness-aware subtitle text and the "is this shown ABV an estimate"
+    answer. display.js must read them as plain values, never hardcode the
+    customer-facing status vocabulary (STATUS_DISPLAY_LABELS in board.py) or
+    derive the '~' marker from anything about the beer itself - both of which
+    would put a second implementation of board.py's resolution in the one
+    language this project has no test harness for.
+    """
+    js = _display_js()
+    for field in ("status_label", "subtitle", "abv_estimated", "teaser_label"):
+        assert f"t.{field}" in js, f"display.js never reads t.{field}"
+    for word in ("Ready", "Conditioning", "Fermenting", "Brewing", "Planned"):
+        assert word not in js, (
+            f"display.js hardcodes the customer status word {word!r} instead "
+            "of reading t.status_label"
+        )
+
+
 def test_display_js_theme_vars_match_server_keys():
     # The THEME_VARS object in display.js must cover exactly the server THEME_KEYS,
     # or a themed board would leave some CSS variables unset (or set stray ones).
@@ -180,7 +201,9 @@ def test_text_scale_scales_the_clamp_ceiling_but_not_the_floor():
     # site must have exactly this shape.
     css = _DISPLAY_CSS.read_text(encoding="utf-8")
     sites = re.findall(r"font-size: clamp\([^;]*--tap-text-scale[^;]*\);", css)
-    assert len(sites) == 8, sites
+    # 8 pre-existing sites, plus 3 for the teaser's own words (issue #39): the
+    # ribbon, the subtitle and the status line.
+    assert len(sites) == 11, sites
     for site in sites:
         m = re.fullmatch(
             r"font-size: clamp\(\d+px, calc\([0-9.]+vmin \* var\(--tap-text-scale, 1\)\), "

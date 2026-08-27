@@ -160,6 +160,12 @@
   // from the same Settings as every other card (CLAUDE.md: "no size option").
   function withTeasers(board) {
     const pinned = pinnedTeasersBySlot(board);
+    // The ribbon's text (issue #39) is a board-level fact - one label for
+    // every teaser - not a per-teaser answer, so it is read once here rather
+    // than carried on each entry in `board.upcoming`. Absent whenever
+    // `upcoming` itself is (the feature is off), which never reaches this
+    // branch anyway since `pinned` would then be empty.
+    const label = board.upcoming_label || "Coming up";
     return (board.taps || []).map((t) => {
       if (!t.vacant) return t;
       const u = pinned.get(t.tap);
@@ -178,6 +184,12 @@
         abv_visible: u.abv_visible, ibu_visible: u.ibu_visible,
         ebc_visible: u.ebc_visible, og_visible: u.og_visible,
         fg_visible: u.fg_visible, swatch_visible: u.swatch_visible,
+        // The teaser's own words (issue #39): all three are resolved answers
+        // off the wire (board.py's resolve_upcoming) - this file reads them
+        // and never recomputes a status word, a subtitle, or whether an ABV
+        // counts as an estimate.
+        teaser_label: label, status_label: u.status_label, subtitle: u.subtitle,
+        abv_estimated: u.abv_estimated,
       };
     });
   }
@@ -193,6 +205,11 @@
       t.vacant ? 1 : 0, t.teaser ? 1 : 0, t.name, t.abv, t.ibu, t.ebc, t.og, t.fg,
       t.color_hex, t.abv_visible, t.ibu_visible, t.ebc_visible, t.og_visible,
       t.fg_visible, t.swatch_visible, t.description, t.image_url, t.source,
+      // The teaser's own words (issue #39): a different pinned teaser can take
+      // over a Vacant Slot without `vacant`/`teaser` themselves changing (the
+      // structural-refill check in fillCard only catches THAT transition), so
+      // these have to be part of the signature too or a swap would go unseen.
+      t.teaser_label, t.status_label, t.subtitle, t.abv_estimated,
     ].join("|");
   }
 
@@ -324,9 +341,25 @@
 
     if (changed("name")) { setText(card, ".name .scroller", t.name); measureMarquee(card.querySelector(".name")); }
     if (changed("description")) { setText(card, ".desc .scroller", t.description || ""); measureMarquee(card.querySelector(".desc")); }
-    if (changed("abv") || changed("abv_visible")) {
-      setText(card, '[data-stat="abv"] .v', fmtNum(t.abv, "%"));
+    if (changed("abv") || changed("abv_visible") || changed("abv_estimated")) {
+      setText(card, '[data-stat="abv"] .v', abvText(t));
       setHidden(card, '[data-stat="abv"]', !t.abv_visible);
+    }
+    if (t.teaser) {
+      // Only reachable when a different pinned teaser has taken over this
+      // Slot without `teaser` itself flipping - see the structural-refill
+      // note above and tapSignature's comment on the same case.
+      if (changed("teaser_label")) {
+        setText(card, ".ribbon", (t.teaser_label || "Coming up").toUpperCase());
+      }
+      if (changed("subtitle")) {
+        setText(card, ".sub", t.subtitle || "");
+        setHidden(card, ".sub", !t.subtitle);
+      }
+      if (changed("status_label")) {
+        setText(card, ".status", t.status_label || "");
+        setHidden(card, ".status", !t.status_label);
+      }
     }
     if (changed("ibu") || changed("ibu_visible")) {
       setText(card, '[data-stat="ibu"] .v', fmtNum(t.ibu));
@@ -362,6 +395,15 @@
     return "";
   }
 
+  // The '~' estimate marker (issue #39): a resolved answer off the wire
+  // (t.abv_estimated), never derived here. Marking is unconditional on the
+  // source of the number - a hydrometer reading on an unfinished beer is an
+  // estimate too - so this file's only job is to prepend the glyph when told.
+  function abvText(t) {
+    const v = fmtNum(t.abv, "%");
+    return t.abv_estimated && v !== "-" ? "~" + v : v;
+  }
+
   function filledInner(t) {
     const s = state.settings;
     // The swatch's declared fallback for an Unknown Colour (the server sends
@@ -376,17 +418,33 @@
     const hAttr = (visible) => (visible ? "" : " hidden");
     const badge = s.show_source_badge
       ? `<span class="source-badge">${sourceLabel(t.source)}</span>` : "";
+    // The teaser-only markup (issue #39): the ribbon and the subtitle/status
+    // lines. Present in the DOM only for a teaser card - never rendered, not
+    // merely hidden, on an ordinary filled Tap card - so a Tap's grid keeps
+    // its plain 3-row layout (head/desc/foot) and only `.card.teaser` needs
+    // the extra row `display.css` gives the meta block. Once a card IS a
+    // teaser, `fillCard`'s diff path can still flip `.sub`/`.status`
+    // individually via `hidden` without a structural rebuild - see there.
+    const ribbon = t.teaser
+      ? `<div class="ribbon">${esc((t.teaser_label || "Coming up").toUpperCase())}</div>` : "";
+    const meta = t.teaser
+      ? `<div class="teaser-meta">
+          <p class="sub"${t.subtitle ? "" : " hidden"}>${esc(t.subtitle || "")}</p>
+          <p class="status"${t.status_label ? "" : " hidden"}>${esc(t.status_label || "")}</p>
+        </div>` : "";
     return `
+      ${ribbon}
       <div class="card-head">
         <div class="tap-num">${t.tap}</div>
         <h2 class="name"><span class="scroller">${esc(t.name || "Tap " + t.tap)}</span></h2>
         <div class="swatch" style="background:${hex};color:${txt}"${hAttr(t.swatch_visible)}></div>
       </div>
+      ${meta}
       <p class="desc"><span class="scroller">${esc(t.description || "")}</span></p>
       <div class="card-foot">
         <img class="thumb" alt="" src="${esc(t.image_url || "/img/placeholder")}">
         <div class="stats">
-          <div class="stat" data-stat="abv"${hAttr(t.abv_visible)}><span class="v">${fmtNum(t.abv, "%")}</span><span class="k">ABV</span></div>
+          <div class="stat" data-stat="abv"${hAttr(t.abv_visible)}><span class="v">${abvText(t)}</span><span class="k">ABV</span></div>
           <div class="stat" data-stat="ibu"${hAttr(t.ibu_visible)}><span class="v">${fmtNum(t.ibu)}</span><span class="k">IBU</span></div>
           <div class="stat" data-stat="og"${hAttr(t.og_visible)}><span class="v">${gravity(t.og)}</span><span class="k">OG</span></div>
           <div class="stat" data-stat="fg"${hAttr(t.fg_visible)}><span class="v">${gravity(t.fg)}</span><span class="k">FG</span></div>

@@ -147,6 +147,40 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             <label for="max_upcoming_previews">Max upcoming previews shown</label>
             <input id="max_upcoming_previews" name="max_upcoming_previews" type="number" {{ bounds_for('max_upcoming_previews') }} step="1" value="{{ cfg.max_upcoming_previews }}">
             <p class="hint">Resolved at display time - changing this takes effect on the next poll, no sync needed.</p>
+
+            <hr class="panel-sep">
+            <h3>Teaser card words</h3>
+            <label for="upcoming_label_preset">Teaser label</label>
+            <select id="upcoming_label_preset">
+              {% for preset in upcoming_label_presets %}
+              <option value="{{ preset }}" {{ 'selected' if cfg.upcoming_label == preset else '' }}>{{ preset }}</option>
+              {% endfor %}
+              <option value="__custom" {{ 'selected' if cfg.upcoming_label not in upcoming_label_presets else '' }}>Custom&hellip;</option>
+            </select>
+            <input id="upcoming_label_custom" type="text" maxlength="{{ upcoming_label_max }}"
+                   placeholder="Custom label"
+                   value="{{ cfg.upcoming_label if cfg.upcoming_label not in upcoming_label_presets else '' }}"
+                   {{ '' if cfg.upcoming_label not in upcoming_label_presets else 'hidden' }}>
+            <span class="hint" id="upcoming_label_count" {{ '' if cfg.upcoming_label not in upcoming_label_presets else 'hidden' }}></span>
+            <input type="hidden" id="upcoming_label" name="upcoming_label" value="{{ cfg.upcoming_label }}">
+            <p class="hint">Ribbon text on a teaser card. It is a single unwrapped line and does not wrap, so a longer custom label is truncated at {{ upcoming_label_max }} characters rather than rejected.</p>
+
+            <label class="checkbox">
+              <input type="checkbox" name="show_upcoming_status" {{ 'checked' if cfg.show_upcoming_status else '' }}>
+              Show the batch status ("Ready", "Conditioning"...) under a teaser's head
+            </label>
+
+            <label class="checkbox">
+              <input type="checkbox" name="show_upcoming_subtitle" {{ 'checked' if cfg.show_upcoming_subtitle else '' }}>
+              Show "&lt;label&gt; on tap N" under a bound teaser's head
+            </label>
+            <p class="hint">An unbound teaser always shows a subtitle ("no tap assigned yet") whatever this says - it has no tap number anywhere else on the card.</p>
+
+            <label class="checkbox">
+              <input type="checkbox" name="show_upcoming_abv" {{ 'checked' if cfg.show_upcoming_abv else '' }}>
+              Show ABV on a teaser
+            </label>
+            <p class="hint">Off hides ABV on every teaser regardless of the Stats &amp; Colour toggle below. When shown, it is always marked with a "~" - even a measured reading on an unfinished beer is an estimate.</p>
           </fieldset>
 
           <fieldset>

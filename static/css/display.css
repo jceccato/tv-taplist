@@ -320,6 +320,59 @@ html, body {
    separate size or scale: this rule changes only the border. */
 .card.teaser {
   border: 2px dashed var(--accent);
+  /* One extra row for the subtitle/status block between the head and the
+     description - see display.js's filledInner, which only emits that block
+     for a teaser card. The foot keeps the flexible 1fr track so a longer
+     subtitle/status line never eats into the photo. */
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
+/* Teaser-only words (issue #39): the ribbon, and the subtitle/status block
+   between the head and the description. All three are resolved answers off
+   the wire (the ribbon's text is `board.upcoming_label`; the subtitle and
+   status line are per-teaser) - this file only styles them; it never decides
+   whether or what they say (see display.js's filledInner/fillCard). */
+.card .ribbon {
+  position: absolute;   /* out of grid flow - see .card.teaser's row count */
+  top: 0;
+  left: 0;
+  z-index: 3;
+  max-width: calc(100% - 1.6vmin);
+  background: var(--accent);
+  color: #1a1206;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  padding: 0.3vmin 1vmin;
+  border-radius: 1.4vmin 0 1vmin 0;
+  font-size: clamp(8px, calc(1.1vmin * var(--tap-text-scale, 1)), calc(18px * var(--tap-text-scale, 1)));
+  /* A single unwrapped line (CLAUDE.md, issue #39): checked at 32 characters
+     against the narrowest layout (eight cards) and it fits with room to
+     spare at the default text scale. `white-space: nowrap` is the rule this
+     stops from silently becoming a two-line ribbon; the overflow/ellipsis
+     pair is a defensive floor for the one combination that can still outgrow
+     the card - a maxed-out custom text scale on the narrowest board - so it
+     clips gracefully there instead of bleeding past the card's edge. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card .teaser-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2vmin;
+  min-height: 0;
+}
+.card .sub {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: clamp(10px, calc(1.5vmin * var(--tap-text-scale, 1)), calc(26px * var(--tap-text-scale, 1)));
+}
+.card .status {
+  color: var(--text-dim);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-size: clamp(8px, calc(1.1vmin * var(--tap-text-scale, 1)), calc(18px * var(--tap-text-scale, 1)));
 }
 
 /* Source badge (custom vs brewfather) */
