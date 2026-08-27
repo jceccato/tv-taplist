@@ -101,6 +101,24 @@ yet always says so on the card, since nothing else on it would. A beer that does
 have a tap does not repeat itself by default, but there is a setting for
 operators who want the tap number spelled out in words.
 
+**The cross-fade.** A beer coming up on a tap that is currently pouring now
+fades in over that tap's card for a few seconds and fades back out again. It is
+the clearest thing the board can say, because the teaser appears exactly where
+the beer will pour. One setting, **Upcoming beers appear every**, drives the
+timing (20 seconds by default, between 5 and 300). How long each teaser holds is
+worked out from that one number rather than being a second setting to tune, so a
+slower cadence reads as "occasionally, and lingers" instead of "rarely, and
+flickers".
+
+Operators running a busy service can switch **Allow a pouring beer to be
+cross-faded out** off, and no pouring beer is ever covered, even briefly. Those
+beers then wait for one of the optional surfaces coming in the next entries.
+
+**Demo mode now shows the feature.** A fresh demo start turns previews on and
+seeds two upcoming beers - one on an empty tap, visible immediately with no
+waiting, and one with no tap assigned - so the feature can be evaluated offline
+without a Brewfather account.
+
 **What upgrading costs the operator:** the mapping version moves from 6 to 7, so
 the first sync after upgrading rewrites every cached Brewfather tap file once
 and re-downloads their images once. That is a single slower sync cycle; after it

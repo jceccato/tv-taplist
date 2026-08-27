@@ -242,6 +242,20 @@ def test_all_three_writers_produce_a_beer(monkeypatch):
 
     assert _load_config()["show_upcoming_previews"] is True
 
+    # The outcome, not just its preconditions: a fresh demo board really does
+    # resolve the bound teaser as `pinned`, so an evaluator sees a teaser card
+    # on the very first paint with no sync and no animation to wait for. The
+    # assertions above pin what the seeder wrote; this one pins what an
+    # evaluator actually sees, and it is the one that fails if pinning ever
+    # stops following from "bound to a Vacant Slot".
+    from app.board import build_board
+
+    seeded_board = build_board()
+    pinned_teasers = [u for u in seeded_board["upcoming"] if u["pinned"]]
+    assert len(pinned_teasers) == 1
+    assert pinned_teasers[0]["slot"] == bound[0].slot
+    assert seeded_board["taps"][bound[0].slot - 1]["hidden"] is False
+
     # 4. The Upcoming store (issue #36), whose writer is handed a Beer built
     # by Mapping (in provisional mode) rather than building one itself - but
     # it is still a distinct write path with its own front matter, so it gets
