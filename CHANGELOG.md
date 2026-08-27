@@ -24,7 +24,8 @@ Versions follow [Semver](https://semver.org/). Dates are the release date.
 
 Merged to `main` and shipping in the next release.
 
-Closed so far: [#9](https://github.com/jceccato/tv-taplist/issues/9),
+Closed so far: [#6](https://github.com/jceccato/tv-taplist/issues/6),
+[#9](https://github.com/jceccato/tv-taplist/issues/9),
 [#10](https://github.com/jceccato/tv-taplist/issues/10),
 [#11](https://github.com/jceccato/tv-taplist/issues/11),
 [#13](https://github.com/jceccato/tv-taplist/issues/13),
@@ -33,9 +34,6 @@ Closed so far: [#9](https://github.com/jceccato/tv-taplist/issues/9),
 [#30](https://github.com/jceccato/tv-taplist/issues/30),
 [#32](https://github.com/jceccato/tv-taplist/issues/32),
 [#33](https://github.com/jceccato/tv-taplist/issues/33).
-In progress: [#6](https://github.com/jceccato/tv-taplist/issues/6) (five
-remodelled glasses plus the dimpled mug and the Willi Becher are done; the issue
-stays open for more glass types).
 
 ### A mistyped value in a tap file no longer changes which beer is shown ([#32](https://github.com/jceccato/tv-taplist/issues/32))
 
@@ -75,7 +73,7 @@ archive, the venue logo and every other setting are restored either way, and you
 box's own Brewfather key is never replaced by the Snapshot's. A file that is not a
 Snapshot is refused whole, with nothing on the box changed.
 
-### Redrawn beer glasses, two new ones, and a new default ([#6](https://github.com/jceccato/tv-taplist/issues/6))
+### Redrawn beer glasses, four new ones, and a new default ([#6](https://github.com/jceccato/tv-taplist/issues/6))
 
 The five glass silhouettes drawn for taps with no photo have been remodelled by
 hand and redrawn from scratch: the shaker pint has a proper straight-sided
@@ -85,12 +83,21 @@ plain cone, the tulip has a straight collar over a high-shouldered bowl, and the
 teku is a wine-glass bowl on a full-length stem rather than an hourglass. They
 read as recognisable glassware from across a room, which the old shapes did not.
 
-**Two glasses have been added.** A **Willi Becher** - the tapered glass most
-venues pour into now - and a **dimpled mug**: a squat barrel with a handle whose
-facets are cut into the beer rather than drawn over it, so the courses interlock
-and the outer ones are sliced in half by the edge of the glass the way a real
-mug's are. Pick either globally in the admin, or per beer with
-`glass:willibecher` / `glass:dimpledmug`.
+**Four glasses have been added**, taking the set to nine. A **Willi Becher** -
+the tapered glass most venues pour into now - and a **dimpled mug**: a squat
+barrel with a handle whose facets are cut into the beer rather than drawn over
+it, so the courses interlock and the outer ones are sliced in half by the edge
+of the glass the way a real mug's are.
+
+Then a **pilsner flute** and a **weizen**, the two the list was most obviously
+missing. The flute is the tallest and narrowest of the set, one long taper from
+a wide mouth to a base a third that width. The weizen is a vase: a narrow rim
+over shoulders carrying the widest point, a long waisted shaft, and a base that
+flares back out. Both are drawn to survive being shrunk - on the weizen the
+shoulders and the waist are what stop it reading as just another tall glass, and
+they are what the shape was tuned against. Pick any of them globally in the
+admin, or per beer with `glass:willibecher`, `glass:dimpledmug`,
+`glass:pilsnerflute` or `glass:weizen`.
 
 **The default glassware is now the Willi Becher.** Both it and the nonic pint
 survive being shrunk to a thumbnail on a busy board, where the shaker's straight

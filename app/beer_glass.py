@@ -43,6 +43,8 @@ GLASS_TYPES: list[tuple[str, str]] = [
     ("nonicpint", "Nonic pint"),
     ("default", "Shaker pint"),
     ("schooner", "Conical schooner"),
+    ("pilsnerflute", "Pilsner flute"),
+    ("weizen", "Weizen"),
     ("tulip", "Tulip"),
     ("teku", "Teku"),
     ("dimpledmug", "Dimpled mug"),
@@ -71,7 +73,7 @@ _GLASS_STROKE = "rgba(108,124,146,0.75)"
 # How the three blobs of the head are placed, as fractions of the head ellipse:
 # (dx * rx, dy * ry, r * rx). Shared by every glass so a new silhouette only has
 # to say where its mouth is and how wide it is - the mound settled on the same
-# numbers for all seven, which is why it lives here and not on the rows.
+# numbers on every glass, which is why it lives here and not on the rows.
 _HEAD_BLOBS = ((-0.55, -0.30, 0.30), (0.0, -0.47, 0.36), (0.55, -0.30, 0.30))
 
 
@@ -166,6 +168,42 @@ _SILHOUETTES: dict[str, _Silhouette] = {
         foam="M -30 76 L 330 76 L 330 86.5 L 194.93 86.5 Q 150 96.5 105.07 86.5 L -30 86.5 Z",
         bubbles=((135.6, 143.2, 4.5, 0.6), (164.4, 172.0, 4.0, 0.55),
                  (146.4, 200.8, 5.0, 0.5)),
+    ),
+    # Pilsner flute: the tallest and narrowest of the set - one long taper
+    # from a wide mouth to a base a third that width, turning back out at the
+    # foot so it meets the table square rather than on a stem. Height and
+    # slenderness are the whole read, so this is the one shape that must not be
+    # allowed to grow: widen it a few units and it becomes the schooner.
+    "pilsnerflute": _Silhouette(
+        pour=(
+            "M 182 44 C 180.5 62.5 179 82 177.5 102 "
+            "C 175 131 173.5 160.5 171 212 C 171.5 222.5 176 230.5 179.5 241 "
+            "A 1 0.35 0 0 1 120.5 241 C 124 230.5 128.5 222.5 129 212 "
+            "C 126.5 160.5 125 131 122.5 102 C 121 82 119.5 62.5 118 44 Z"
+        ),
+        head=(43.5, 31.88, 10.84),
+        foam="M -30 43.5 L 330 43.5 L 330 65.75 L 180.21 65.75 Q 150 68.75 119.79 65.75 L -30 65.75 Z",
+        bubbles=((139.8, 126.7, 4.5, 0.6), (160.2, 162.2, 4.0, 0.55),
+                 (147.4, 197.7, 5.0, 0.5)),
+    ),
+    # Weizen: a vase. A narrow rim over shoulders that carry the widest point,
+    # easing inward to a long waisted shaft and flaring back out to the base.
+    # The swell and the waist are what separate it from the schooner, and they
+    # are the first thing lost at thumbnail size - it is the shape most worth
+    # checking at 40px before believing it.
+    "weizen": _Silhouette(
+        pour=(
+            "M 178 46 C 183 59 183.5 70 183.5 82 C 182.5 100 182 109 180 120 "
+            "C 177 133 175.5 141 173.5 152 C 172.5 165 172 179 172 195 "
+            "C 172.5 209 176 227.5 181 250 A 1 0.2 0 0 1 119 250 "
+            "C 124 227.5 127.5 209 128 195 C 128 179 127.5 165 126.5 152 "
+            "C 124.5 141 123 133 120 120 C 118 109 117.5 100 116.5 82 "
+            "C 116.5 70 117 59 122 46 Z"
+        ),
+        head=(46.5, 27.7, 6.09),
+        foam="M -30 46.5 L 330 46.5 L 330 83.25 L 183.36 83.25 Q 150 88.25 116.64 83.25 L -30 83.25 Z",
+        bubbles=((139.3, 131.7, 4.5, 0.6), (160.7, 168.4, 4.0, 0.55),
+                 (147.3, 205.1, 5.0, 0.5)),
     ),
     # Tulip: straight collar easing into a bowl whose mass sits high, pinching
     # in above a short, thick stem.
