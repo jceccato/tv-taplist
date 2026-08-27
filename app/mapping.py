@@ -29,10 +29,12 @@ Field mapping (verified against a live /v2/batches?complete=True payload):
   colour      <- optional `colour:#rrggbb` note token; an exact override that wins
                  over the computed EBC colour
   glass       <- optional `glass:nonicpint` note token (glassware silhouette)
+  upcoming    <- optional valueless `upcoming:` note token; presence alone means
+                 "tease this beer" (issue #35). No payload, no ETA.
   description <- tasteNotes, else the recipe style name. The batch notes are NOT
                  used for the body - they only carry the control tokens
-                 (tap:X / saturation:NN / colour:#hex / glass:type), which are all
-                 stripped from any text we do show.
+                 (tap:X / saturation:NN / colour:#hex / glass:type / upcoming:),
+                 which are all stripped from any text we do show.
 
 The helpers still try several field-name/unit variants defensively and log what
 they found. Bump MAPPING_VERSION when changing the mapping so already-cached
@@ -41,6 +43,12 @@ files are refreshed on the next sync.
 Tap assignment: parse the batch notes text for a `tap:X` token. A token is
 accepted from 1 to MAX_NUM_TAPS - a system bound, not the operator's tap count -
 and an out-of-range one is logged with the batch named.
+
+An unfinished Batch (fermenting / brewing / planning) has no trustworthy
+measured reading, so `beer(batch, provisional=True)` reads colour, IBU, OG, FG
+and ABV from the recipe together instead of measured-first - see `beer()` and
+`_recipe_attributes`. The flag defaults to False and is only ever set by a
+caller building an Upcoming Beer, never for a pouring Tap.
 """
 from __future__ import annotations
 
@@ -63,7 +71,12 @@ log = logging.getLogger("taplist.sync")
 # refresh already-cached bf_tap files. `is_current` treats a stored map_rev
 # different from this as "changed", so the next sync rewrites every tap once with
 # the new mapping, then settles back to skipping genuinely unchanged batches.
-MAPPING_VERSION = 6
+#
+# 7 covers three changes together, landed in one bump so operators pay one
+# cache rewrite rather than three (issue #35): the `upcoming:` note token, the
+# recipe-only rule for a provisional (Upcoming) Beer built from an unfinished
+# Batch, and the `batch_status` field now stamped on every Brewfather Tap file.
+MAPPING_VERSION = 7
 
 # `tap:3`, `tap: 3`, `Tap:3`, etc.
 TAP_TOKEN_RE = re.compile(r"tap\s*:\s*(\d+)", re.IGNORECASE)
@@ -78,6 +91,12 @@ COLOR_TOKEN_RE = re.compile(r"colou?r\s*:\s*(#?[0-9a-fA-F]{6})", re.IGNORECASE)
 
 # `glass:nonicpint` - choose the glassware silhouette for this beer's placeholder.
 GLASS_TOKEN_RE = re.compile(r"glass\s*:\s*([a-zA-Z]+)", re.IGNORECASE)
+
+# `upcoming:` - valueless: presence alone means "tease this beer" (issue #35).
+# No payload, no ETA, no priority - the token's shape is deliberately closed
+# for now. A colon is required, same as every other token here, so the plain
+# English word "upcoming" inside a tasting note is never mistaken for it.
+UPCOMING_TOKEN_RE = re.compile(r"upcoming\s*:", re.IGNORECASE)
 
 # A Brewfather batch's own `name` defaults to a generic "Batch" / "Batch #12";
 # the real beer name lives on the embedded recipe, so we skip these.
@@ -214,11 +233,12 @@ def _notes_text(batch: dict[str, Any]) -> str:
 
 
 def _clean_description(text: str) -> str:
-    """Strip the control tokens (tap / saturation / colour / glass) and tidy whitespace."""
+    """Strip the control tokens (tap / saturation / colour / glass / upcoming) and tidy whitespace."""
     cleaned = TAP_TOKEN_RE.sub(" ", text)
     cleaned = SATURATION_TOKEN_RE.sub(" ", cleaned)
     cleaned = COLOR_TOKEN_RE.sub(" ", cleaned)
     cleaned = GLASS_TOKEN_RE.sub(" ", cleaned)
+    cleaned = UPCOMING_TOKEN_RE.sub(" ", cleaned)
     cleaned = re.sub(r"[ \t]+", " ", cleaned)
     cleaned = re.sub(r"\s*\n\s*", "\n", cleaned)
     return cleaned.strip()
@@ -391,27 +411,111 @@ def glass(batch: dict[str, Any]) -> str | None:
     return key if key in GLASS_KEYS else None
 
 
+def is_upcoming(batch: dict[str, Any]) -> bool:
+    """Whether a Batch carries the valueless `upcoming:` note token.
+
+    Independent of `slot_claim`: a Batch can carry both `tap:X` and
+    `upcoming:`, and the two acquisition paths for an Upcoming Beer (issue #4)
+    decide for themselves which wins for a given Slot. This function only
+    reports what the note says, not what it means for occupancy.
+    """
+    return bool(UPCOMING_TOKEN_RE.search(_notes_text(batch)))
+
+
+# Statuses read as "not finished yet" for the recipe rule below: a Batch still
+# in the tank has no trustworthy measured reading for anything, so a
+# provisional Beer built from one of these reads its Attributes from the
+# recipe instead. Completed and Conditioning are deliberately excluded - both
+# describe a beer that exists, physically, at the reading it was measured at.
+_UNFINISHED_STATUSES = frozenset({"fermenting", "brewing", "planning"})
+
+
+def _recipe_ebc(recipe: dict[str, Any]) -> float | None:
+    """Colour read from the recipe alone (no measured/estimated batch fields).
+
+    Mirrors `ebc()`'s SRM handling for the recipe half only: `recipe.color` /
+    `recipe.srm` are SRM despite the generic name and are converted, while a
+    rare explicit `recipe.ebc` is taken at face value. There is no "measured"
+    branch here - that is the whole point of the recipe-only rule.
+    """
+    srm = _first_number(recipe, "color", "srm")
+    if srm is not None:
+        return round(srm * EBC_PER_SRM, 1)
+    rebc = _first_number(recipe, "ebc")
+    return round(rebc, 1) if rebc is not None else None
+
+
+def _recipe_attributes(batch: dict[str, Any]) -> dict[str, float | int | None]:
+    """The five Attributes read from the recipe alone, all together.
+
+    An unfinished Batch's own measured/estimated fields describe a beer that
+    does not exist yet at its finished reading - a recipe ABV printed beside a
+    half-fermented FG would describe a beer that never existed at all. So a
+    provisional Beer takes colour, IBU, OG, FG and ABV from the recipe as one
+    group; mixing a measured field in for just one of them is the bug this
+    guards against. Any Attribute the recipe itself omits is still None - "all
+    together" names where the values come from, not that every one is present.
+    """
+    recipe = batch.get("recipe") or {}
+    return {
+        "abv": _first_number(recipe, "abv"),
+        "ibu": _first_number(recipe, "ibu"),
+        "ebc": _recipe_ebc(recipe),
+        "og": _first_gravity(recipe, "og"),
+        "fg": _first_gravity(recipe, "fg"),
+    }
+
+
+def _measured_attributes(batch: dict[str, Any]) -> dict[str, float | int | None]:
+    """The five Attributes as mapped today: measured/estimated first, recipe as fallback."""
+    return {
+        "abv": abv(batch),
+        "ibu": ibu(batch),
+        "ebc": ebc(batch),
+        "og": og(batch),
+        "fg": fg(batch),
+    }
+
+
 # ---- the whole Beer, and the cache question about it ---------------------
 
-def beer(batch: dict[str, Any]) -> Beer:
+def beer(batch: dict[str, Any], *, provisional: bool = False) -> Beer:
     """The **Beer** one Batch maps to. Pure: no client, no disk.
 
     Everything a Beer is comes from the Batch alone, so this needs no arguments
-    beyond it and is deterministic - the same Batch always maps to an equal Beer,
-    which is what lets a test assert against the value directly.
+    beyond it (plus the one flag below) and is deterministic - the same Batch
+    always maps to an equal Beer, which is what lets a test assert against the
+    value directly.
 
-    The Tap file also carries `source`, `image` and `updated`, and none of them
-    is here: they are facts about the file rather than about the beverage, the
-    store owns all three, and nothing reads them back as truth (ADR-0003, and
-    docs/adr/0005 for where the line falls).
+    `provisional` is False by default, which keeps today's measured-first
+    behaviour for every status including Fermenting - a pouring Tap is never
+    provisional, whatever its Batch's status, because a fermenting Batch with
+    `tap:X` pours today when `include_fermenting` is on and
+    `show_upcoming_previews` is off. Only a caller building an Upcoming Beer
+    (issue #4, not yet wired up by this ticket) sets it True, and only then -
+    and only for an unfinished status - does the recipe rule in
+    `_recipe_attributes` replace the measured-first one. Making this
+    unconditional would change the board with the Upcoming feature turned off,
+    which breaks the toggle's contract that off means today's behaviour
+    exactly.
+
+    The Tap file also carries `source`, `image`, `updated` and `batch_status`,
+    and none of them is here: they are facts about the file or about the Batch
+    at write time rather than about the beverage, the store owns them, and
+    nothing reads them back as truth (ADR-0003, and docs/adr/0005 for where the
+    line falls).
     """
+    if provisional and status_label(batch) in _UNFINISHED_STATUSES:
+        attrs = _recipe_attributes(batch)
+    else:
+        attrs = _measured_attributes(batch)
     return Beer(
         name=beer_name(batch),
-        abv=abv(batch),
-        ibu=ibu(batch),
-        ebc=ebc(batch),
-        og=og(batch),
-        fg=fg(batch),
+        abv=attrs["abv"],
+        ibu=attrs["ibu"],
+        ebc=attrs["ebc"],
+        og=attrs["og"],
+        fg=attrs["fg"],
         saturation=saturation(batch),
         color_override=color_override(batch),
         glass=glass(batch),

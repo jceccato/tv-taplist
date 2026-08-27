@@ -174,6 +174,26 @@ def test_a_manual_tap_has_no_revision_record():
         batch_id="b1", source_rev=3, map_rev=6)
 
 
+def test_a_manual_tap_has_no_batch_status():
+    """`batch_status` mirrors `revision`: absent on a Manual Tap for the same
+    reason - there is no Batch behind it to have a status (issue #35)."""
+    store.write(6, store.Source.MANUAL, Beer(name="Saison"), "")
+    assert store.read(6, store.Source.MANUAL).batch_status is None
+
+    store.write(6, store.Source.BREWFATHER, Beer(name="Theirs"), "",
+                batch_status="fermenting")
+    assert store.read(6, store.Source.BREWFATHER).batch_status == "fermenting"
+    front_matter, _ = store.parse_markdown(
+        (paths.TAPS_DIR / "bf_tap_6.md").read_text(encoding="utf-8"))
+    assert front_matter["batch_status"] == "fermenting"
+    # Omitting it (the Admin's / demo seeder's case) leaves the key out of the
+    # file entirely, the same treatment `presentation` gets above.
+    store.write(6, store.Source.BREWFATHER, Beer(name="Theirs"), "")
+    front_matter, _ = store.parse_markdown(
+        (paths.TAPS_DIR / "bf_tap_6.md").read_text(encoding="utf-8"))
+    assert "batch_status" not in front_matter
+
+
 def test_an_unquoted_timestamp_does_not_take_the_board_down(write_tap):
     """A hand-edited `updated:` without quotes is a datetime to YAML.
 

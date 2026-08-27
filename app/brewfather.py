@@ -242,9 +242,14 @@ def _write_bf_tap(img_client: httpx.Client, tap: int, batch: dict[str, Any], rev
     image_name = _store_image(img_client, tap, batch)
     beer = mapping.beer(batch)
     # The image is stored first so the store's own `image:` key names the photo
-    # that is actually on disk beside the file.
+    # that is actually on disk beside the file. batch_status mirrors the
+    # revision record: a fact about this Batch at write time, not about the
+    # beverage, so it rides beside `revision` rather than on the Beer itself
+    # (issue #35 - nothing renders it yet, but writing it now saves the ticket
+    # that does a second MAPPING_VERSION bump).
     taps.write(tap, SYNC_SOURCE, beer, mapping.description(batch),
-               revision=mapping.source_revision(batch, rev))
+               revision=mapping.source_revision(batch, rev),
+               batch_status=mapping.status_label(batch))
     log.info("wrote tap %d (%s) (name=%r image=%s)",
              tap, SYNC_SOURCE, beer.name, image_name)
 

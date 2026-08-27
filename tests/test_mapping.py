@@ -166,6 +166,26 @@ def test_color_and_glass_tokens_stripped_from_description():
         {"tasteNotes": "Smooth colour:#112233 and glass:tulip pour"}) == "Smooth and pour"
 
 
+def test_upcoming_token_is_valueless_case_insensitive_and_independent_of_tap():
+    # Presence alone is the whole signal - no payload, no ETA.
+    assert mapping.is_upcoming({"batchNotes": "upcoming:"}) is True
+    assert mapping.is_upcoming({"batchNotes": "UPCOMING: yes please"}) is True
+    assert mapping.is_upcoming({"batchNotes": "Upcoming:"}) is True
+    assert mapping.is_upcoming({"batchNotes": "no token here"}) is False
+    assert mapping.is_upcoming({}) is False
+    # A Batch carrying both tokens still reports its Slot claim - `upcoming:`
+    # does not override it. The two functions simply answer different
+    # questions; neither reads the other.
+    both = {"batchNotes": "tap:3 upcoming:"}
+    assert mapping.slot_claim(both) == 3
+    assert mapping.is_upcoming(both) is True
+
+
+def test_upcoming_token_stripped_from_description():
+    assert mapping.description(
+        {"tasteNotes": "Hoppy upcoming: finish"}) == "Hoppy finish"
+
+
 def test_og_fg_specific_gravity_only():
     assert mapping.og({"measuredOg": 1.052, "recipe": {"og": 1.060}}) == 1.052
     assert mapping.og({"recipe": {"og": 1.060}}) == 1.060
@@ -233,6 +253,78 @@ def test_a_batch_maps_to_a_beer_whose_values_are_already_coerced():
     assert beer.saturation == 0.6
     assert beer.color_override == "#445566"
     assert beer.coerced == ()
+
+
+# ---- the recipe rule for a provisional (Upcoming) Beer -----------------
+
+def _fermenting_batch_with_measured_and_recipe_values() -> dict:
+    """A mid-ferment Batch: measured readings that are only true today, plus a
+    recipe that describes the finished beer. Shared by every recipe-rule test
+    below so each one exercises the same disagreement between the two."""
+    return {
+        "_id": "f1",
+        "status": "Fermenting",
+        "recipe": {
+            "name": "Future Stout",
+            "abv": 7.0, "ibu": 45, "color": 60, "og": 1.070, "fg": 1.014,
+        },
+        # Mid-ferment measured values: a lower gravity than the recipe's FG,
+        # which is what "still fermenting" means, plus stray estimated/measured
+        # fields that must not leak into a provisional Beer.
+        "measuredAbv": 2.1,
+        "measuredIbu": 45,
+        "measuredEbc": 10,
+        "measuredOg": 1.070,
+        "measuredFg": 1.040,
+    }
+
+
+def test_provisional_beer_from_an_unfinished_batch_uses_the_recipe_for_all_five_together():
+    # The all-or-nothing property is the assertion: every one of the five
+    # Attributes comes from the recipe, not a mix of measured and recipe
+    # fields. This is one test, not five independent field checks.
+    batch = _fermenting_batch_with_measured_and_recipe_values()
+    beer = mapping.beer(batch, provisional=True)
+    assert (beer.abv, beer.ibu, beer.ebc, beer.og, beer.fg) == (
+        mapping._recipe_attributes(batch)["abv"],
+        mapping._recipe_attributes(batch)["ibu"],
+        mapping._recipe_attributes(batch)["ebc"],
+        mapping._recipe_attributes(batch)["og"],
+        mapping._recipe_attributes(batch)["fg"],
+    )
+    # None of the measured/mid-ferment values leaked through.
+    assert beer.abv != 2.1
+    assert beer.fg != 1.040
+    assert beer.ebc != round(10, 1)
+
+
+@pytest.mark.parametrize("status", ["Completed", "Conditioning"])
+def test_recipe_rule_does_not_apply_to_a_completed_or_conditioning_batch(status):
+    batch = _fermenting_batch_with_measured_and_recipe_values()
+    batch["status"] = status
+    provisional = mapping.beer(batch, provisional=True)
+    measured = mapping.beer(batch, provisional=False)
+    assert provisional == measured
+
+
+def test_non_provisional_beer_keeps_measured_first_behaviour_for_every_status_including_fermenting():
+    # This is the test that fails if someone makes the recipe rule
+    # unconditional: asking for a non-provisional (pouring-Tap) Beer must give
+    # today's measured-first answer for every status, Fermenting included -
+    # otherwise a fermenting Batch with tap:X would render differently the
+    # instant this ticket lands, even with the Upcoming feature off.
+    for status in ("Fermenting", "Brewing", "Planning", "Conditioning", "Completed"):
+        batch = _fermenting_batch_with_measured_and_recipe_values()
+        batch["status"] = status
+        assert mapping.beer(batch, provisional=False) == mapping.beer(batch)
+        assert mapping.beer(batch).abv == mapping.abv(batch)
+        assert mapping.beer(batch).fg == mapping.fg(batch)
+
+
+def test_mapping_version_is_7():
+    # The single bump for the whole of issue #4 (issue #35): the upcoming:
+    # token, the recipe rule and batch_status all land under one rewrite.
+    assert mapping.MAPPING_VERSION == 7
 
 
 def test_is_current_compares_batch_revision_and_mapping_version():

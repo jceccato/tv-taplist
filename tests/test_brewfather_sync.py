@@ -197,6 +197,16 @@ def test_sync_writes_the_whole_beer_key_set(mock_network):
     assert {"batch_id", "source_rev", "map_rev"} <= set(front_matter)
 
 
+def test_sync_writes_the_normalised_batch_status(mock_network):
+    # Written for a later ticket to render (#45); nothing reads it back yet.
+    # Case is normalised the same way `mapping.status_label` normalises it for
+    # the conflict log, so the field is consistent however Brewfather cased it.
+    _set_creds()
+    mock_network["batches"] = [_batch("b1", 2, "Tap Two Ale", status="COMPLETED")]
+    brewfather.run_sync()
+    assert taps.read(2, taps.Source.BREWFATHER).batch_status == "completed"
+
+
 def test_sync_includes_conditioning_when_enabled(mock_network):
     _set_creds()
     config_store.update_config(include_conditioning=True)

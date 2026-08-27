@@ -122,6 +122,13 @@ class TapFile:
     `revision` is `None` on a Manual Tap, and that is the type saying
     "Brewfather-only" rather than a comment saying it: a Manual Tap is not a
     cache of anything, so there is no revision to be current with.
+
+    `batch_status` mirrors that: the normalised Batch status
+    (`mapping.status_label`) at the moment this Tap file was written, and
+    `None` on a Manual Tap for the same reason a Manual Tap has no revision -
+    there is no Batch behind it to have a status. Nothing renders it yet
+    (issue #35); it is stamped now so the ticket that does render it costs no
+    second MAPPING_VERSION bump.
     """
 
     slot: int
@@ -132,6 +139,7 @@ class TapFile:
     updated: str | None = None
     presentation: TapPresentation = field(default_factory=TapPresentation)
     revision: SourceRevision | None = None
+    batch_status: str | None = None
 
 
 # ---- private path construction -------------------------------------------
@@ -336,7 +344,22 @@ def _tap_file(slot: int, source: Source, front_matter: dict[str, Any],
         updated=_updated_text(front_matter.get("updated")),
         presentation=TapPresentation.from_front_matter(front_matter),
         revision=SourceRevision.from_front_matter(front_matter),
+        batch_status=_batch_status_text(front_matter.get("batch_status")),
     )
+
+
+def _batch_status_text(value: Any) -> str | None:
+    """Coerce the front-matter `batch_status:` value to a string, or None.
+
+    A hand-edited Tap file has no one to report a bad value to (ADR-0005's
+    disposition rule), so this renders whatever is there rather than raising -
+    the same treatment `_updated_text` gives the `updated:` field.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value.strip() or None
+    return str(value)
 
 
 def read(slot: int, source: Source) -> TapFile | None:
@@ -411,7 +434,8 @@ def occupied_slots(source: Source) -> list[int]:
 
 def write(slot: int, source: Source, beer: Beer, body: str, *,
           presentation: TapPresentation | None = None,
-          revision: SourceRevision | None = None) -> None:
+          revision: SourceRevision | None = None,
+          batch_status: str | None = None) -> None:
     """Atomically write one Slot's Tap file for one Source.
 
     Callers supply the **Beer** and the description; the store adds the
@@ -421,10 +445,11 @@ def write(slot: int, source: Source, beer: Beer, body: str, *,
     the photo actually sitting beside the file: it used to be passed in, and a
     caller that computed it differently would have written a lie a human reads.
 
-    `presentation` and `revision` are optional because not every Source has
-    either. Sync passes a revision and no presentation, the Admin the reverse,
-    and the demo seeder neither - and an omitted one leaves its keys out of the
-    file rather than writing nulls into every Tap on the box.
+    `presentation`, `revision` and `batch_status` are optional because not
+    every Source has any of them. Sync passes a revision and a batch_status and
+    no presentation, the Admin the reverse, and the demo seeder none of the
+    three - and an omitted one leaves its key out of the file rather than
+    writing a null into every Tap on the box.
 
     The store does not police which Source a caller writes: Admin legitimately
     writes a Manual file over an occupied Brewfather Slot and demo seeding
@@ -442,6 +467,8 @@ def write(slot: int, source: Source, beer: Beer, body: str, *,
         front_matter.update(presentation.to_front_matter())
     if revision is not None:
         front_matter.update(revision.to_front_matter())
+    if batch_status is not None:
+        front_matter["batch_status"] = batch_status
     image = image_for(slot, source)
     front_matter["source"] = str(source)
     front_matter["image"] = image.name if image is not None else None
