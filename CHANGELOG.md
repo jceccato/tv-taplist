@@ -76,7 +76,15 @@ show. A beer assigned to a tap number higher than the board actually has is
 treated as unassigned rather than pointing at a tap nobody can see; raising the
 tap count re-attaches it on the next refresh.
 
-Still nothing on the TV - the cards themselves come next.
+The first thing a customer sees now works: **a vacant tap with a beer waiting on
+it shows that beer** instead of the plain "Vacant" card. The teaser is drawn
+exactly like every other card on the board - same size, same stats, same colour
+swatch, same photo or tinted glass - and is marked out only by a dashed amber
+border, so it reads as "not pouring yet" without shouting. A vacant tap with
+nothing coming still shows the ordinary Vacant card.
+
+Teaser cards obey the same stat visibility settings as tap cards, so a board with
+OG and FG switched off does not sprout them on a teaser.
 
 **What upgrading costs the operator:** the mapping version moves from 6 to 7, so
 the first sync after upgrading rewrites every cached Brewfather tap file once
