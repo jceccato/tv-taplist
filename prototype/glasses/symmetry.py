@@ -1,3 +1,16 @@
+# THIS IS A THROWAWAY HARNESS, KEPT BECAUSE IT WAS USEFUL - NOT MAINTAINED.
+#
+# It reads from `app/` and it is NOT covered by the test suite, so nothing fails
+# when production moves underneath it. Assume it is stale until you have run it.
+# Before trusting anything it draws, check the notes at the top of
+# prototype/glasses/README.md, and run it: an ImportError or a KeyError is the
+# cheap failure. The expensive one is a page that still renders while quietly
+# disagreeing with what the app ships.
+#
+# The exception: this is a RULE, not a page. It takes a path and returns a
+# path, touches nothing in `app/`, and is the least likely thing here to
+# rot. Every hand-drawn glass in production went through it.
+
 """PROTOTYPE - THROWAWAY. Make a hand-drawn SVG path symmetrical about x=150.
 
 The maintainer's hand-modelled glasses are drawn by eye, so the two sides never

@@ -1,12 +1,27 @@
+# THIS IS A THROWAWAY HARNESS, KEPT BECAUSE IT WAS USEFUL - NOT MAINTAINED.
+#
+# It reads from `app/` and it is NOT covered by the test suite, so nothing fails
+# when production moves underneath it. Assume it is stale until you have run it.
+# Before trusting anything it draws, check the notes at the top of
+# prototype/glasses/README.md, and run it: an ImportError or a KeyError is the
+# cheap failure. The expensive one is a page that still renders while quietly
+# disagreeing with what the app ships.
+#
+# Least likely of these to be stale: it enumerates `GLASS_TYPES` and reads
+# `_SILHOUETTES`, so a new glass appears without being named here. What it
+# cannot follow is a change to the SHAPE of a row - a new field, or a
+# rendering step that stops being a plain path.
+
 """PROTOTYPE - THROWAWAY. Every glass as production renders it (issue #6).
 
-    python prototype/contact_sheet.py   ->  prototype/contact_sheet.html
+    python prototype/glasses/contact_sheet.py   ->  prototype/glasses/contact_sheet.html
 
 The replacement for the hand-generated `glassware.html`. That file was pasted
 together from a snippet typed into a session, so it could not be regenerated
 after a shape changed and it quietly went stale. This reads `_SILHOUETTES`
 directly: whatever the app draws today is what the page shows, and a new glass
-appears the moment its row exists.
+appears the moment its row exists - but only as of the run that wrote the page,
+which is why the generated HTML is not committed.
 
 Two jobs:
 
@@ -33,7 +48,7 @@ import json
 import pathlib
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from app.beer_glass import (  # noqa: E402
     _SILHOUETTES, DEFAULT_GLASS, GLASS_TYPES, beer_glass_svg,
@@ -123,8 +138,9 @@ _TEMPLATE = r"""<!doctype html>
   <div class="seg" id="colour"><span>beer</span></div>
 </header>
 <p class="note">Exactly what <code>app/beer_glass.py</code> draws today - the page
-reads <code>_SILHOUETTES</code>, so it cannot go stale. <b>Check every shape at
-40px and on Daylight</b> before believing it. Each glass's block below is its
+reads <code>_SILHOUETTES</code>, so it was current when this page was generated. <b>Check
+every shape at 40px and on Daylight</b> before believing it, and regenerate if
+you did not write this page yourself. Each glass's block below is its
 production row, ready to paste back.</p>
 <main id="stage"></main>
 <script>

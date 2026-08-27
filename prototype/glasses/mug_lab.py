@@ -1,6 +1,19 @@
+# THIS IS A THROWAWAY HARNESS, KEPT BECAUSE IT WAS USEFUL - NOT MAINTAINED.
+#
+# It reads from `app/` and it is NOT covered by the test suite, so nothing fails
+# when production moves underneath it. Assume it is stale until you have run it.
+# Before trusting anything it draws, check the notes at the top of
+# prototype/glasses/README.md, and run it: an ImportError or a KeyError is the
+# cheap failure. The expensive one is a page that still renders while quietly
+# disagreeing with what the app ships.
+#
+# The one page here that does not read production: the mug's pour and its
+# dimple grid are typed into this file, so editing `_SILHOUETTES` does not
+# reach it. Copy the shipped values in before judging a change to the mug.
+
 """PROTOTYPE - THROWAWAY. Build the dimpled-mug tuning page (issue #6, Phase 2).
 
-    python prototype/mug_lab.py   ->  prototype/mug_lab.html
+    python prototype/glasses/mug_lab.py   ->  prototype/glasses/mug_lab.html
 
 The mug is the one glass whose silhouette is not enough on its own: without the
 dimples the pour is a stange with a handle. The dimples therefore have knobs,
@@ -24,7 +37,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import symmetry as sy  # noqa: E402
 
-# Hand-drawn by the maintainer; see prototype/mug-dimples.md.
+# Hand-drawn by the maintainer; see prototype/glasses/mug-dimples.md.
 POUR = "M 83 80 C 80 117 77 208 100 247 A 1 0.16 0 0 0 199 247 C 217 190 223 129 213 80 Z"
 # One-sided by nature - it hangs off the right - so the symmetriser cannot fold
 # it and it ships exactly as drawn.

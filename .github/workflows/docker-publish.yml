@@ -4,13 +4,16 @@ on:
   push:
     branches: [main]
     # Skip a build for changes that cannot reach the image. This mirrors
-    # .dockerignore, which excludes docs/ and every markdown file EXCEPT
-    # README.md - so README is re-included below and still builds.
+    # .dockerignore, which excludes docs/, prototype/, and every markdown file
+    # EXCEPT README.md - so README is re-included below and still builds.
     #
     # This has to be `paths`, not `paths-ignore`: the `!` exclusion character
     # works only in `paths`. Order is significant - a later pattern wins - so
     # read the list top to bottom: everything, then not markdown, then README
-    # after all, then not docs/ (which also drops its images).
+    # after all, then not docs/ (which also drops its images), then not
+    # prototype/ (whose .html and .py files are NOT covered by the markdown
+    # rule - this is the half that is easy to forget, because adding a
+    # directory to .dockerignore does not add it here).
     #
     # Path filters are not evaluated for tag pushes, so a release always builds
     # whatever it touched.
@@ -23,6 +26,7 @@ on:
       - "!**.md"
       - "README.md"
       - "!docs/**"
+      - "!prototype/**"
     tags: ["v*"]
   workflow_dispatch:
 

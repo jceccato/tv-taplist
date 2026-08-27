@@ -1,6 +1,21 @@
+# THIS IS A THROWAWAY HARNESS, KEPT BECAUSE IT WAS USEFUL - NOT MAINTAINED.
+#
+# It reads from `app/` and it is NOT covered by the test suite, so nothing fails
+# when production moves underneath it. Assume it is stale until you have run it.
+# Before trusting anything it draws, check the notes at the top of
+# prototype/glasses/README.md, and run it: an ImportError or a KeyError is the
+# cheap failure. The expensive one is a page that still renders while quietly
+# disagreeing with what the app ships.
+#
+# Reads every knob back out of `_SILHOUETTES`, including the shape of the
+# foam band, which it decodes by position (`nums[5]` and `nums[9]`). Change
+# how `foam` is written and this reads the wrong two numbers and opens on a
+# head nobody chose, without erroring. That decode is the first thing to
+# check if the sliders disagree with the page.
+
 """PROTOTYPE - THROWAWAY. Tune the head on every shipped glass (issue #6).
 
-    python prototype/foam_lab.py   ->  prototype/foam_lab.html
+    python prototype/glasses/foam_lab.py   ->  prototype/glasses/foam_lab.html
 
 Two questions this exists to answer:
 
@@ -27,7 +42,7 @@ import pathlib
 import re
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from app.beer_glass import (  # noqa: E402

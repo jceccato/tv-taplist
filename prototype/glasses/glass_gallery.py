@@ -1,3 +1,18 @@
+# THIS IS A THROWAWAY HARNESS, KEPT BECAUSE IT WAS USEFUL - NOT MAINTAINED.
+#
+# It reads from `app/` and it is NOT covered by the test suite, so nothing fails
+# when production moves underneath it. Assume it is stale until you have run it.
+# Before trusting anything it draws, check the notes at the top of
+# prototype/glasses/README.md, and run it: an ImportError or a KeyError is the
+# cheap failure. The expensive one is a page that still renders while quietly
+# disagreeing with what the app ships.
+#
+# KNOWN STALE. `HAND` holds five of the nine glasses - it was never updated
+# for the Willi Becher, the dimpled mug, the pilsner flute or the weizen,
+# because each of those arrived after the round this page was built to
+# judge. It still works for what it holds. Paste a new drawing into `HAND`
+# to use it; do not read the absence of a glass as that glass being gone.
+
 """PROTOTYPE - THROWAWAY. Beer glass silhouette gallery for issue #6.
 
 Round 6. The shapes are now the maintainer's own hand-modelled paths, dropped in
@@ -18,7 +33,7 @@ The corrections are rules, not hand-nudged coordinates - see `symmetry.py`. The
 head is refitted to whatever rim each correction produces rather than being
 placed by hand, so no candidate is flattered by foam that happens to suit it.
 
-    python prototype/glass_gallery.py
+    python prototype/glasses/glass_gallery.py
 
 The chips switch beer Colour, theme background, and the stem tint - production's
 near-white clear glass all but vanishes on the Daylight theme, which matters now
@@ -33,7 +48,7 @@ from __future__ import annotations
 import pathlib
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import symmetry  # noqa: E402
