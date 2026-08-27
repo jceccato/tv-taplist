@@ -272,7 +272,7 @@ def _fermenting_batch_with_measured_and_recipe_values() -> dict:
         # which is what "still fermenting" means, plus stray estimated/measured
         # fields that must not leak into a provisional Beer.
         "measuredAbv": 2.1,
-        "measuredIbu": 45,
+        "measuredIbu": 12,
         "measuredEbc": 10,
         "measuredOg": 1.070,
         "measuredFg": 1.040,
@@ -285,17 +285,13 @@ def test_provisional_beer_from_an_unfinished_batch_uses_the_recipe_for_all_five_
     # fields. This is one test, not five independent field checks.
     batch = _fermenting_batch_with_measured_and_recipe_values()
     beer = mapping.beer(batch, provisional=True)
+    # Asserted against the recipe's own literal values rather than against the
+    # helper that produced them: comparing the answer to _recipe_attributes()
+    # would pass even if both were wrong together. Every one of the five
+    # disagrees with its measured counterpart on this Batch, so a single field
+    # falling back to the measured branch fails this.
     assert (beer.abv, beer.ibu, beer.ebc, beer.og, beer.fg) == (
-        mapping._recipe_attributes(batch)["abv"],
-        mapping._recipe_attributes(batch)["ibu"],
-        mapping._recipe_attributes(batch)["ebc"],
-        mapping._recipe_attributes(batch)["og"],
-        mapping._recipe_attributes(batch)["fg"],
-    )
-    # None of the measured/mid-ferment values leaked through.
-    assert beer.abv != 2.1
-    assert beer.fg != 1.040
-    assert beer.ebc != round(10, 1)
+        7.0, 45, round(60 * mapping.EBC_PER_SRM, 1), 1.070, 1.014)
 
 
 @pytest.mark.parametrize("status", ["Completed", "Conditioning"])

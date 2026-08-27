@@ -37,6 +37,21 @@ In progress: [#6](https://github.com/jceccato/tv-taplist/issues/6) (five
 remodelled glasses plus the dimpled mug and the Willi Becher are done; the issue
 stays open for more glass types).
 
+### Coming up: teaser cards for beers that are not pouring yet ([#4](https://github.com/jceccato/tv-taplist/issues/4))
+
+Work in progress. This section grows as the feature lands.
+
+Brewfather sync now understands a valueless `upcoming:` note token, and each
+Brewfather tap file records its batch's status. Neither changes anything on the
+board yet - they are the groundwork the teaser cards are built on, and they are
+landing now so the whole feature costs one cache rewrite rather than several.
+
+**What upgrading costs the operator:** the mapping version moves from 6 to 7, so
+the first sync after upgrading rewrites every cached Brewfather tap file once
+and re-downloads their images once. That is a single slower sync cycle; after it
+the sync settles back to skipping batches that have not changed. Nothing needs
+doing by hand, and nothing on the TV changes while it happens.
+
 ### A mistyped value in a tap file no longer changes which beer is shown ([#32](https://github.com/jceccato/tv-taplist/issues/32))
 
 Tap files in the data directory are meant to be editable by hand. A beer's
