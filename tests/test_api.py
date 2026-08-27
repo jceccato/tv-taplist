@@ -119,6 +119,56 @@ def test_api_board_has_no_upcoming_key_when_toggle_is_off():
     assert "upcoming" not in board
 
 
+# ---- The in-place cross-fade baseline (issue #40) --------------------------
+
+def test_api_board_carries_cross_fade_and_interval_but_not_the_rotate_input():
+    """The wire carries the resolved answer and the scheduling fact, not the input.
+
+    `cross_fade` (per teaser) and `upcoming_interval_seconds` (board-level) are
+    what the display executes; `upcoming_rotate_occupied` is consumed entirely
+    into `cross_fade` server-side and must never reach the display (CLAUDE.md).
+    """
+    from app.beer import Beer
+    from app import upcoming_store
+
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20,
+                                upcoming_rotate_occupied=True,
+                                upcoming_interval_seconds=45)
+    # Occupy slot 1 via a Manual override so the teaser bound to it is not pinned.
+    _login(TestClient(app)).post(
+        "/admin/override/1",
+        data={"enabled": "true", "name": "Pouring Now", "abv": "5.0"},
+    )
+    upcoming_store.write("batch-fade", Beer(name="Fade Beer"), "soon",
+                          slot=1, status="completed", revision=1)
+    board = client.get("/api/board").json()
+    teaser = board["upcoming"][0]
+    assert teaser["pinned"] is False
+    assert teaser["cross_fade"] is True
+    assert board["upcoming_interval_seconds"] == 45
+    assert "upcoming_rotate_occupied" not in board
+
+
+def test_admin_page_offers_the_scheduling_controls():
+    c = _login(TestClient(app))
+    html = c.get("/admin").text
+    for needle in ('name="upcoming_interval_seconds"', 'name="upcoming_rotate_occupied"'):
+        assert needle in html, needle
+
+
+def test_save_settings_persists_the_scheduling_settings():
+    c = _login(TestClient(app))
+    r = c.post("/admin/settings", data={
+        "num_taps": "1", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
+        "upcoming_interval_seconds": "45", "upcoming_rotate_occupied": "false",
+    })
+    assert r.status_code == 200 and r.json()["ok"] is True
+    cfg = config_store.load_config()
+    assert cfg["upcoming_interval_seconds"] == 45
+    assert cfg["upcoming_rotate_occupied"] is False
+
+
 def test_img_upcoming_serves_the_cached_photo():
     from app.beer import Beer
     from app import upcoming_store

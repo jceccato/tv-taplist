@@ -149,6 +149,18 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             <p class="hint">Resolved at display time - changing this takes effect on the next poll, no sync needed.</p>
 
             <hr class="panel-sep">
+            <h3>Scheduling</h3>
+            <label for="upcoming_interval_seconds">Upcoming beers appear every (seconds)</label>
+            <input id="upcoming_interval_seconds" name="upcoming_interval_seconds" type="number" {{ bounds_for('upcoming_interval_seconds') }} step="1" value="{{ cfg.upcoming_interval_seconds }}">
+            <p class="hint">One cadence drives every upcoming animation. How long a teaser stays on screen is derived from this, not a separate setting.</p>
+
+            <label class="checkbox">
+              <input type="checkbox" name="upcoming_rotate_occupied" {{ 'checked' if cfg.upcoming_rotate_occupied else '' }}>
+              Allow a pouring beer to be cross-faded out
+            </label>
+            <p class="hint">Off keeps every occupied tap showing its current beer at all times - a teaser bound to it simply does not get a turn.</p>
+
+            <hr class="panel-sep">
             <h3>Teaser card words</h3>
             <label for="upcoming_label_preset">Teaser label</label>
             <select id="upcoming_label_preset">

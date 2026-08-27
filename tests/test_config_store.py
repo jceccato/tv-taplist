@@ -377,6 +377,30 @@ def test_show_upcoming_abv_defaults_false_and_coerces_bool():
     assert cfg["show_upcoming_abv"] is True
 
 
+# ---- Scheduling (issue #40) -------------------------------------------------
+
+def test_upcoming_rotate_occupied_defaults_true_and_coerces_bool():
+    assert config_store.DEFAULT_CONFIG["upcoming_rotate_occupied"] is True
+    cfg = config_store.update_config(upcoming_rotate_occupied="")  # falsy -> bool False
+    assert cfg["upcoming_rotate_occupied"] is False
+
+
+def test_upcoming_interval_seconds_defaults_and_is_in_the_bounds_table():
+    assert config_store.DEFAULT_CONFIG["upcoming_interval_seconds"] == 20
+    lo, hi = config_store.SETTINGS_BOUNDS["upcoming_interval_seconds"]
+    assert (lo, hi) == (5, 300)
+
+
+def test_upcoming_interval_seconds_clamps_below_the_floor_and_above_the_ceiling():
+    """The 300s ceiling is deliberately below rotation_seconds' 600s (CLAUDE.md)."""
+    below = config_store.update_config(upcoming_interval_seconds=1)
+    assert below["upcoming_interval_seconds"] == 5
+    above = config_store.update_config(upcoming_interval_seconds=1000)
+    assert above["upcoming_interval_seconds"] == 300
+    assert config_store.SETTINGS_BOUNDS["upcoming_interval_seconds"][1] < \
+        config_store.MAX_ROTATION_SECONDS
+
+
 def test_upcoming_words_settings_absent_from_stored_config_read_the_default():
     # A config written before issue #39 has none of these four keys; the merge
     # over DEFAULT_CONFIG must fall back to the schema defaults rather than

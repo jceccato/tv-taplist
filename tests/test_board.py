@@ -556,6 +556,67 @@ def test_teaser_beyond_num_taps_resolves_to_a_null_slot_then_rebinds():
     assert teaser["pinned"] is True
 
 
+def test_cross_fade_true_only_for_a_teaser_bound_to_an_occupied_slot(write_tap):
+    """The matrix from issue #40: cross_fade is the baseline's own resolved answer.
+
+    False for a pinned teaser (bound-and-vacant - it already owns its Slot),
+    false for an unbound teaser (no Slot to fade over), true for a teaser
+    bound to an occupied Slot with rotation on.
+    """
+    config_store.update_config(num_taps=2, show_upcoming_previews=True,
+                                max_upcoming_previews=20,
+                                upcoming_rotate_occupied=True)
+    write_tap("custom", 1, name="Pouring Now")
+    _upcoming("pinned", slot=2, status="completed", revision=1)       # bound + vacant
+    _upcoming("occupied", slot=1, status="completed", revision=1)     # bound + occupied
+    _upcoming("unbound", slot=None, status="completed", revision=1)   # no slot at all
+    b = build_board()
+    by_id = {t["batch_id"]: t for t in b["upcoming"]}
+    assert by_id["pinned"]["pinned"] is True
+    assert by_id["pinned"]["cross_fade"] is False
+    assert by_id["occupied"]["pinned"] is False
+    assert by_id["occupied"]["cross_fade"] is True
+    assert by_id["unbound"]["pinned"] is False
+    assert by_id["unbound"]["cross_fade"] is False
+
+
+def test_cross_fade_is_false_for_every_teaser_when_rotation_is_off(write_tap):
+    """upcoming_rotate_occupied off pushes every occupied-slot teaser to false.
+
+    This is the mutation that would slip past a tautological test: without
+    this assertion, resolve_upcoming could hardcode cross_fade to "bound and
+    not pinned" and every other test here would still pass.
+    """
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20,
+                                upcoming_rotate_occupied=False)
+    write_tap("custom", 1, name="Pouring Now")
+    _upcoming("occupied", slot=1, status="completed", revision=1)
+    b = build_board()
+    assert b["upcoming"][0]["pinned"] is False
+    assert b["upcoming"][0]["cross_fade"] is False
+
+
+def test_upcoming_rotate_occupied_never_reaches_the_board_payload():
+    """Only the resolved `cross_fade` answer travels; the input Setting does not."""
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20,
+                                upcoming_rotate_occupied=False)
+    b = build_board()
+    assert "upcoming_rotate_occupied" not in b
+
+
+def test_upcoming_interval_seconds_travels_on_the_board_only_when_upcoming_is_on():
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                upcoming_interval_seconds=45)
+    on = build_board()
+    assert on["upcoming_interval_seconds"] == 45
+
+    config_store.update_config(show_upcoming_previews=False)
+    off = build_board()
+    assert "upcoming_interval_seconds" not in off
+
+
 def test_teaser_colour_matches_a_tap_with_identical_inputs(write_tap):
     """A teaser's Colour must be the same answer a Tap resolves for the same Beer.
 

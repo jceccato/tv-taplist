@@ -58,6 +58,10 @@
     color_unit: "ebc",
     show_source_badge: false,
     paginate: false, page_size: 6, rotation_seconds: 30,
+    // The one cadence driving every upcoming animation (issue #40) - needed
+    // before the first board arrives because the cross-fade's own timer
+    // starts at boot, same as the carousel's rotation_seconds above.
+    upcoming_interval_seconds: 20,
   };
 
   // ---- state ----
@@ -73,6 +77,7 @@
     venueLogoSrc: null,
     hasRendered: false,
     photoScale: 1,          // last resolved photo scale, re-applied on every remeasure
+    lastBoard: null,        // the most recent raw board, for the cross-fade scheduler (issue #40)
   };
 
   // ---- helpers ----
@@ -151,6 +156,33 @@
     return map;
   }
 
+  // The subset of a resolved teaser's fields that make it drawable as a card,
+  // shared by the pinned-Slot substitution below and the cross-fade overlay
+  // (issue #40) - one function so the two paths cannot drift apart. `label`
+  // is the board-level ribbon text (issue #39): one label for every teaser,
+  // not a per-teaser answer, so callers read it once rather than carrying it
+  // on each entry in `board.upcoming`.
+  function teaserCardFields(u, label) {
+    return {
+      name: u.name, abv: u.abv, ibu: u.ibu, ebc: u.ebc, og: u.og, fg: u.fg,
+      color_hex: u.color_hex, text_color: u.text_color,
+      description: u.description, image_url: u.image_url,
+      // An Upcoming Beer has no Source (CONTEXT.md: it is a projection of a
+      // Batch, not a Tap) - null renders no badge label, same as today's
+      // Vacant card.
+      source: null,
+      abv_visible: u.abv_visible, ibu_visible: u.ibu_visible,
+      ebc_visible: u.ebc_visible, og_visible: u.og_visible,
+      fg_visible: u.fg_visible, swatch_visible: u.swatch_visible,
+      // The teaser's own words (issue #39): all three are resolved answers
+      // off the wire (board.py's resolve_upcoming) - this file reads them
+      // and never recomputes a status word, a subtitle, or whether an ABV
+      // counts as an estimate.
+      teaser_label: label, status_label: u.status_label, subtitle: u.subtitle,
+      abv_estimated: u.abv_estimated,
+    };
+  }
+
   // Substitutes a pinned teaser's fields onto its Vacant Slot's tap entry. The
   // result is drawn with the exact same card renderer a Tap uses (`filledInner`)
   // - name, stats, swatch and image all come from the teaser's own resolved
@@ -160,37 +192,14 @@
   // from the same Settings as every other card (CLAUDE.md: "no size option").
   function withTeasers(board) {
     const pinned = pinnedTeasersBySlot(board);
-    // The ribbon's text (issue #39) is a board-level fact - one label for
-    // every teaser - not a per-teaser answer, so it is read once here rather
-    // than carried on each entry in `board.upcoming`. Absent whenever
-    // `upcoming` itself is (the feature is off), which never reaches this
-    // branch anyway since `pinned` would then be empty.
+    // Absent whenever `upcoming` itself is (the feature is off), which never
+    // reaches this branch anyway since `pinned` would then be empty.
     const label = board.upcoming_label || "Coming up";
     return (board.taps || []).map((t) => {
       if (!t.vacant) return t;
       const u = pinned.get(t.tap);
       if (!u) return t;
-      return {
-        ...t,
-        vacant: false,
-        teaser: true,
-        name: u.name, abv: u.abv, ibu: u.ibu, ebc: u.ebc, og: u.og, fg: u.fg,
-        color_hex: u.color_hex, text_color: u.text_color,
-        description: u.description, image_url: u.image_url,
-        // An Upcoming Beer has no Source (CONTEXT.md: it is a projection of a
-        // Batch, not a Tap) - null renders no badge label, same as today's
-        // Vacant card.
-        source: null,
-        abv_visible: u.abv_visible, ibu_visible: u.ibu_visible,
-        ebc_visible: u.ebc_visible, og_visible: u.og_visible,
-        fg_visible: u.fg_visible, swatch_visible: u.swatch_visible,
-        // The teaser's own words (issue #39): all three are resolved answers
-        // off the wire (board.py's resolve_upcoming) - this file reads them
-        // and never recomputes a status word, a subtitle, or whether an ABV
-        // counts as an estimate.
-        teaser_label: label, status_label: u.status_label, subtitle: u.subtitle,
-        abv_estimated: u.abv_estimated,
-      };
+      return { ...t, vacant: false, teaser: true, ...teaserCardFields(u, label) };
     });
   }
 
@@ -533,6 +542,14 @@
 
   // ---- rendering ----
   function fullRender(board, taps) {
+    // A structural rebuild replaces every card element (and wipes `stage`'s
+    // own children, which is where an in-flight overlay lives), so any
+    // cross-fade in progress can no longer be trusted to be positioned over
+    // anything real. Ending it here - rather than waiting for its own hold
+    // timer - is what keeps a poll from leaving the interlock stuck "busy"
+    // for the rest of that teaser's hold. `crossFadeIndex` (the cycling
+    // position) is untouched: a poll must never reset it, only the overlay.
+    crossFadeForceEnd();
     state.pages = chunk(taps.map((t) => t.tap), pageSize());
     state.layoutKey = layoutSignature(state.pages);
     state.cardEls.clear();
@@ -592,6 +609,15 @@
     pages.forEach((p, i) => p.classList.toggle("active", i === idx));
     state.currentPage = idx;
     renderDots();
+    // The cross-fade's page guard (issue #40): leaving the page that carries
+    // the in-flight overlay's tap pulls it immediately, with no fade-out -
+    // this is reached by manual dot navigation (goToPage) exactly as it is by
+    // the carousel timer, which is the whole reason the guard lives here
+    // rather than in the scheduler that started the overlay.
+    if (crossFadeOverlayTap != null) {
+      const activePage = state.pages[idx] || [];
+      if (!activePage.includes(crossFadeOverlayTap)) crossFadeForceEnd();
+    }
     // Pages are stacked and laid out together (only opacity differs), so a flip
     // does not resize anything today. Re-measuring anyway is one rAF per 30s and
     // keeps the caps correct if that ever changes to a display-toggling page.
@@ -675,6 +701,136 @@
     restartCarousel();
   }
 
+  /* ---- the in-place cross-fade baseline (issue #40) ----
+
+     One clock drives every upcoming animation, now (this cross-fade) and
+     later (the on-deck page / half-board panel surfaces in #41/#42), which is
+     why the interlock and the scheduling shape below are built as shared
+     infrastructure rather than something private to the cross-fade. This is
+     the ONE scheduler; a later surface joins `upcomingBusy` and the same
+     `crossFadeIntervalMs`/multiple pattern instead of building a second one.
+
+     `pinned`, `cross_fade` and (later) `on_surfaces` are resolved answers off
+     the wire (board.py) - this file never re-derives whether a teaser may be
+     shown, only executes the schedule it is told to run.
+
+     Two guards, and they catch different things:
+     - `upcomingBusy` (the interlock): nothing starts while something else is
+       up. A turn arriving while busy is skipped, not queued - see
+       crossFadeTick().
+     - the PAGE guard (crossFadeOverlayTap vs. the active page's tap list):
+       the interlock alone does not stop the overlay landing on the wrong
+       page, because manual dot navigation changes the page without going
+       through this scheduler at all. See showPage() below and the display
+       prototype's README for the bug this was found and fixed against. */
+
+  // How long a teaser stays up, derived from the cadence rather than a
+  // separate Setting (CLAUDE.md): about 58% of the gap, floored at 1.5s so a
+  // fast cadence never produces a flash nobody can read.
+  function holdMs(intervalSeconds) {
+    return Math.max(1500, Math.round((Number(intervalSeconds) || 20) * 1000 * 0.58));
+  }
+
+  // The interlock every upcoming-beer animation shares. Only the cross-fade
+  // exists in this ticket, but the flag lives here (not private to it) so a
+  // later surface can read and set it without a second interlock appearing.
+  let upcomingBusy = false;
+
+  let crossFadeTimer = null;
+  let crossFadeIntervalMs = DEFAULT_SETTINGS.upcoming_interval_seconds * 1000;
+  let crossFadeIndex = 0;          // works through bound teasers one per tick
+  let crossFadeOverlay = null;     // the in-flight overlay element, or null
+  let crossFadeOverlayTap = null;  // which tap number it is covering
+  let crossFadeHoldTimer = null;
+  let crossFadeFadeTimer = null;
+
+  function crossFadePendingTimersClear() {
+    if (crossFadeHoldTimer) { clearTimeout(crossFadeHoldTimer); crossFadeHoldTimer = null; }
+    if (crossFadeFadeTimer) { clearTimeout(crossFadeFadeTimer); crossFadeFadeTimer = null; }
+  }
+
+  // Ends an in-flight cross-fade immediately, with no fade-out: used when the
+  // overlay can no longer be trusted to be in the right place (a structural
+  // re-render replaced the card elements, or the tap page it covers is no
+  // longer showing) rather than when its own hold naturally expires.
+  function crossFadeForceEnd() {
+    crossFadePendingTimersClear();
+    if (crossFadeOverlay) crossFadeOverlay.remove();
+    crossFadeOverlay = null;
+    crossFadeOverlayTap = null;
+    upcomingBusy = false;
+  }
+
+  // Bound teasers the baseline may cycle - `cross_fade` is already the
+  // resolved answer (board.py's resolve_upcoming); this file never re-derives
+  // "occupied" or whether rotation is allowed from the Setting that decides
+  // it - it never even sees that Setting (CLAUDE.md).
+  function crossFadeCandidates() {
+    const b = state.lastBoard;
+    return b && b.upcoming ? b.upcoming.filter((u) => u.cross_fade && u.slot != null) : [];
+  }
+
+  function crossFadeTick() {
+    if (upcomingBusy) return;              // interlock: skip this turn, not queue it
+    const candidates = crossFadeCandidates();
+    if (!candidates.length) return;
+    // One per tick, cycling through the list rather than repeating one -
+    // advanced whether or not this particular attempt ends up showing
+    // anything, so a run of misses (the page guard below) does not stall the
+    // rotation on the same candidate forever.
+    const teaser = candidates[crossFadeIndex % candidates.length];
+    crossFadeIndex++;
+    // The page guard. An inactive carousel page is still laid out (only
+    // faded to opacity 0), so without this the overlay would land in the
+    // right PLACE over the wrong PAGE - a teaser bound to tap 2 sliding
+    // across a page that has no tap 2 on it. Checking against the tap list of
+    // whichever page is active right now (rather than a cached "is this the
+    // tap page" flag) is what makes this correct for pagination too: a
+    // multi-page tap carousel already splits taps across pages today, and it
+    // generalises to a future on-deck page for free, since such a page's tap
+    // list is empty and can never contain the bound slot.
+    const activePage = state.pages[state.currentPage] || [];
+    if (!activePage.includes(teaser.slot)) return;
+    const cell = state.cardEls.get(teaser.slot);
+    if (!cell) return;
+    crossFadeShow(cell, teaser);
+  }
+
+  function crossFadeShow(cell, teaser) {
+    const stageRect = stage.getBoundingClientRect();
+    const rect = cell.getBoundingClientRect();
+    const label = (state.lastBoard && state.lastBoard.upcoming_label) || "Coming up";
+    const overlay = document.createElement("div");
+    overlay.className = "cross-fade-overlay";
+    overlay.style.cssText =
+      "position:absolute;display:grid;pointer-events:none;z-index:5;" +
+      "opacity:0;transition:opacity 500ms ease;" +
+      `left:${rect.left - stageRect.left}px;top:${rect.top - stageRect.top}px;` +
+      `width:${rect.width}px;height:${rect.height}px;`;
+    const card = buildCard({
+      tap: teaser.slot, vacant: false, teaser: true,
+      ...teaserCardFields(teaser, label),
+    });
+    overlay.appendChild(card);
+    stage.appendChild(overlay);
+    crossFadeOverlay = overlay;
+    crossFadeOverlayTap = teaser.slot;
+    upcomingBusy = true;
+    requestAnimationFrame(() => { overlay.style.opacity = "1"; });
+    crossFadeHoldTimer = setTimeout(() => {
+      overlay.style.opacity = "0";
+      crossFadeFadeTimer = setTimeout(crossFadeForceEnd, 500);
+    }, holdMs(state.settings.upcoming_interval_seconds));
+  }
+
+  function setUpcomingInterval(seconds) {
+    const ms = Math.max(5, Number(seconds) || 20) * 1000;
+    if (ms === crossFadeIntervalMs && crossFadeTimer) return;
+    crossFadeIntervalMs = ms;
+    if (crossFadeTimer) clearInterval(crossFadeTimer);
+    crossFadeTimer = setInterval(crossFadeTick, crossFadeIntervalMs);
+  }
+
   // ---- keyboard navigation: Enter / Space advance a page ----
   document.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " " || e.code === "Space" || e.key === "Spacebar") {
@@ -756,6 +912,11 @@
     // is absent from the payload entirely with the feature off, and
     // `withTeasers` treats that exactly like an empty list.
     board = { ...board, taps: withTeasers(board) };
+    // The cross-fade scheduler reads `upcoming` and `upcoming_label` off the
+    // raw board directly (state.lastBoard), rather than off the
+    // teaser-substituted `taps` above - it needs the full Upcoming Beer list,
+    // not just the ones that happen to be pinned into a Vacant Slot.
+    state.lastBoard = board;
 
     applyTheme(board.theme);
     applyCardScales(board);
@@ -770,9 +931,15 @@
       paginate: board.paginate === true,
       page_size: Number(board.page_size) || MAX_CARDS_PER_PAGE,
       rotation_seconds: Number(board.rotation_seconds) || 30,
+      // Absent whenever `upcoming` itself is (the feature off); the default
+      // just keeps the scheduler's own timer sane until a board says
+      // otherwise - it never fires anything with an empty candidate list.
+      upcoming_interval_seconds: Number(board.upcoming_interval_seconds) ||
+        DEFAULT_SETTINGS.upcoming_interval_seconds,
     };
 
     setRotation(state.settings.rotation_seconds);
+    setUpcomingInterval(state.settings.upcoming_interval_seconds);
     updateVenueHeader(board);
 
     const taps = visibleTaps(board);
@@ -830,4 +997,5 @@
   }
   pollLoop();
   restartCarousel();
+  setUpcomingInterval(state.settings.upcoming_interval_seconds);
 })();

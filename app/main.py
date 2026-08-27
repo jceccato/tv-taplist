@@ -593,6 +593,8 @@ class SettingsForm(BaseModel):
     show_upcoming_status: bool = False
     show_upcoming_subtitle: bool = False
     show_upcoming_abv: bool = False
+    upcoming_interval_seconds: int = 20
+    upcoming_rotate_occupied: bool = False
     num_taps: int
     hide_vacant_taps: bool = False
     announcement_text: str = ""

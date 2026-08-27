@@ -62,6 +62,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "show_upcoming_subtitle": False,     # "<label> on tap N" under a BOUND teaser's head;
                                           # an unbound teaser always gets one regardless
     "show_upcoming_abv": False,          # layered on top of show_abv; off wins either way
+    # Scheduling (issue #40). One Setting drives every upcoming animation, now
+    # (the cross-fade) and later (the surfaces in #41/#42): an operator tuning
+    # "how often do I see upcoming beers" is asking one question, not three.
+    # The hold (how long a teaser stays up) is DERIVED from this, not a second
+    # Setting - see display.js's holdMs().
+    "upcoming_interval_seconds": 20,
+    # May a pouring beer be cross-faded out at all? On by default. Off pushes
+    # every occupied-slot teaser into the overflow (a later surface's
+    # business) - this stays OFF the board payload; only the per-teaser
+    # resolved `cross_fade` answer travels (CLAUDE.md, board.resolve_upcoming).
+    "upcoming_rotate_occupied": True,
     "num_taps": 0,
     "hide_vacant_taps": False,
     "announcement_text": "",
@@ -170,6 +181,12 @@ MAX_TAP_TEXT_SCALE = 2.0
 SETTINGS_BOUNDS: dict[str, tuple[float, float | None]] = {
     "num_taps": (0, MAX_NUM_TAPS),
     "max_upcoming_previews": (0, MAX_UPCOMING_PREVIEWS),
+    # 300, not rotation_seconds' 600 (CLAUDE.md): five minutes is already the
+    # point where a customer there for one drink may never see a teaser, and
+    # an operator reaching past it wants the feature off rather than slowed.
+    # The 5-second floor sits well below the derived hold's 1.5s floor, so no
+    # value in this range can produce a teaser that merely flashes.
+    "upcoming_interval_seconds": (5, 300),
     "max_archive_age_days": (0, None),
     "max_archive_storage_mb": (0, None),
     "page_size": (1, MAX_PAGE_SIZE),
@@ -278,9 +295,9 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     # and must never stop the box booting, so clamping is the only safe
     # disposition. The Admin form carries the same numbers as input attributes
     # so an operator is stopped while typing instead. See CONTEXT.md.
-    for key in ("num_taps", "max_upcoming_previews", "max_archive_age_days",
-                "max_archive_storage_mb", "page_size", "rotation_seconds",
-                "venue_logo_height_vh"):
+    for key in ("num_taps", "max_upcoming_previews", "upcoming_interval_seconds",
+                "max_archive_age_days", "max_archive_storage_mb", "page_size",
+                "rotation_seconds", "venue_logo_height_vh"):
         lo, hi = SETTINGS_BOUNDS[key]
         merged[key] = _coerce_int(merged[key], lo, hi, DEFAULT_CONFIG[key])
 
@@ -298,6 +315,7 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     merged["show_upcoming_status"] = bool(merged["show_upcoming_status"])
     merged["show_upcoming_subtitle"] = bool(merged["show_upcoming_subtitle"])
     merged["show_upcoming_abv"] = bool(merged["show_upcoming_abv"])
+    merged["upcoming_rotate_occupied"] = bool(merged["upcoming_rotate_occupied"])
     # Truncate, never reject (CLAUDE.md): a hand-edited config.json has no one
     # to report an error to, the same reasoning the numeric bounds use above,
     # just for a string length instead of a number. An empty (or all-blank)

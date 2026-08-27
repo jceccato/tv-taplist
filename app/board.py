@@ -360,9 +360,23 @@ def resolve_upcoming(entry: UpcomingEntry, cfg: dict[str, Any],
     otherwise be invisible. This is board logic, not a presentation choice
     (CLAUDE.md), so it is decided here and travels as an answer - the display
     never re-derives it from the Slot's own vacancy.
+
+    `cross_fade` (issue #40) answers whether the in-place baseline may cycle
+    this teaser over its Slot. False for a pinned teaser (it already owns its
+    Slot outright, nothing to fade over); false for an unbound teaser (no
+    Slot exists to fade over); false for every teaser when the operator has
+    turned `upcoming_rotate_occupied` off. Otherwise true - a teaser bound to
+    an occupied Slot with rotation on. Resolved here rather than on the
+    display, same as `pinned`: `upcoming_rotate_occupied` never reaches the
+    wire (CLAUDE.md), only this resolved answer does.
     """
     slot = entry.slot if entry.slot is not None and 1 <= entry.slot <= num_taps else None
     pinned = slot is not None and bool(taps[slot - 1]["vacant"])
+    rotate_occupied = bool(cfg.get("upcoming_rotate_occupied",
+                                   DEFAULT_CONFIG["upcoming_rotate_occupied"]))
+    # Occupied means bound and NOT pinned: pinned already covers the
+    # bound-and-Vacant case, so anything left that is bound is occupied.
+    cross_fade = slot is not None and not pinned and rotate_occupied
     # The Upcoming store's own photo, never a Tap's - see _image_url_for.
     card = resolve_beer_card(entry.beer, cfg, entry.image, default_glass,
                              img_prefix="/img/upcoming")
@@ -411,6 +425,7 @@ def resolve_upcoming(entry: UpcomingEntry, cfg: dict[str, Any],
         "batch_id": entry.batch_id,
         "slot": slot,
         "pinned": pinned,
+        "cross_fade": cross_fade,
         "description": (entry.body or "").strip(),
         "status_label": status_label,
         "subtitle": subtitle,
@@ -513,4 +528,11 @@ def build_board() -> dict[str, Any]:
         # feature off there is no ribbon to letter.
         board["upcoming_label"] = str(
             cfg.get("upcoming_label", DEFAULT_CONFIG["upcoming_label"]))
+        # The one cadence driving every upcoming animation (issue #40): a
+        # scheduling fact the display must execute, in the same category as
+        # rotation_seconds - not an input like upcoming_rotate_occupied, which
+        # stays off the wire because the display never decides whether to
+        # rotate, only how fast to run what it is already told to.
+        board["upcoming_interval_seconds"] = int(cfg.get(
+            "upcoming_interval_seconds", DEFAULT_CONFIG["upcoming_interval_seconds"]))
     return board

@@ -84,10 +84,14 @@ def test_display_js_default_settings_carry_no_visibility_flags():
                   "hide_color_when_empty", "hide_og_when_empty",
                   "hide_fg_when_empty"}
     assert mirrored & visibility == set(), mirrored & visibility
-    # The five that legitimately survive: the colour unit, the source badge and
-    # the three pagination/rotation values. Nothing else belongs here.
+    # The six that legitimately survive: the colour unit, the source badge, the
+    # three pagination/rotation values, and (issue #40) the one cadence the
+    # cross-fade scheduler needs running before the first board arrives.
+    # `upcoming_rotate_occupied` must never join this set - it is consumed
+    # entirely into the per-teaser `cross_fade` answer server-side.
     assert mirrored == {"color_unit", "show_source_badge", "paginate",
-                        "page_size", "rotation_seconds"}, mirrored
+                        "page_size", "rotation_seconds",
+                        "upcoming_interval_seconds"}, mirrored
 
 
 def test_display_js_does_not_reimplement_the_visibility_chain():
