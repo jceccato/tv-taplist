@@ -1,9 +1,10 @@
 """Board resolution: custom > brewfather > vacant, hide-vacant flags, colours."""
 from pathlib import Path
 
-from app import config_store
-from app.board import build_board, resolve_tap, resolve_visibility
+from app import config_store, tap_store
+from app.board import build_board, resolve_beer_card, resolve_tap, resolve_visibility
 from app.colors import ebc_to_hex
+from app.config_store import DEFAULT_CONFIG
 
 
 def _glass_url(color_hex: str | None = None, glass: str | None = None) -> str:
@@ -317,6 +318,34 @@ def test_og_fg_values_and_their_resolved_visibility(write_tap):
     r2 = resolve_tap(2)
     assert r2["og"] is None
     assert r2["og_visible"] is False
+
+
+def test_resolve_beer_card_matches_what_tap_resolution_embeds(write_tap):
+    """The extracted Beer-to-card resolution cannot drift from resolve_tap (#34).
+
+    resolve_tap calls resolve_beer_card and adds only what is specific to a
+    Tap - the Slot number, vacancy, Source, description and updated timestamp.
+    This pins that every other field on the resolved Tap - the Attributes, the
+    six Visibility answers, the Colour and the image URL - is exactly what
+    resolve_beer_card produces for the same Beer, Settings and per-Slot
+    override, so a future edit cannot grow a second copy of the chain that
+    only one of the two call sites sees.
+    """
+    write_tap("custom", 1, name="Gravity Beer", abv=5.0, ibu=30, ebc=20,
+             og=1.052, fg=1.010, show_og=True, show_fg=False)
+    cfg = config_store.load_config()
+    tap_file = tap_store.resolve(1)
+    card = resolve_beer_card(tap_file.beer, cfg, tap_file.image,
+                             DEFAULT_CONFIG["glass_type"], tap_file.presentation)
+    tap = resolve_tap(1, DEFAULT_CONFIG["glass_type"], cfg)
+
+    card_fields = (
+        "name", "abv", "ibu", "ebc", "og", "fg", "color_hex", "text_color",
+        "image_url", "abv_visible", "ibu_visible", "ebc_visible",
+        "og_visible", "fg_visible", "swatch_visible",
+    )
+    for field in card_fields:
+        assert tap[field] == card[field], field
 
 
 def test_board_carries_the_resolved_card_scales():

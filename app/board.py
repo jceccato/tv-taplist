@@ -33,6 +33,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .beer import Beer, TapPresentation
 from .beer_glass import DEFAULT_GLASS, normalize_glass
 from .colors import ResolvedColor, resolve_color
 from .config_store import DEFAULT_CONFIG, load_config
@@ -128,6 +129,84 @@ def resolve_visibility(value: Any, global_show: Any, hide_when_empty: Any,
     return not (_is_missing(value) and bool(hide_when_empty))
 
 
+def resolve_beer_card(beer: Beer, cfg: dict[str, Any],
+                      image: Path | None = None,
+                      default_glass: str = DEFAULT_GLASS,
+                      presentation: TapPresentation = TapPresentation(),
+                      ) -> dict[str, Any]:
+    """Resolve a Beer to the card fields shared by every surface that shows one.
+
+    This is the one implementation of the Beer-to-card resolution (issue #34):
+    the Attribute values, the six Visibility answers and the resolved Colour,
+    plus the image URL that is built from that Colour. `resolve_tap` calls this
+    and adds what is specific to a Tap - the Slot number, vacancy, the Source,
+    the description and the updated timestamp. An Upcoming Beer (issue #4) has
+    no Slot and no per-Tap override, so it calls this with the default
+    `presentation` and adds nothing beyond what the caller needs.
+
+    `presentation` carries the per-Slot OG/FG tri-state overrides. It defaults
+    to "no override" (all fields None) rather than requiring every caller to
+    construct one - an Upcoming Beer has no Slot to hold an override, so this
+    is also the value that call site should use.
+
+    `image` is the photo paired with whichever Tap file (or, for an Upcoming
+    Beer, whichever cached record) the caller resolved - never borrowed from
+    elsewhere - so a Beer with no photo of its own shows the Placeholder rather
+    than another Beer's picture. It is a parameter here rather than something
+    this function looks up, because *which* photo belongs to a Beer is a
+    question for the caller's own store, not for this resolution.
+    """
+    def setting(key: str) -> Any:
+        # Fall back to the schema rather than repeating the literals here: a
+        # default changed in config_store must not need changing twice.
+        return cfg.get(key, DEFAULT_CONFIG[key])
+
+    # Colour precedence lives in colors.resolve_color, not here. It answers with
+    # a colour or with Unknown (None); the board forwards that answer to both
+    # surfaces rather than each of them re-deriving it.
+    color = resolve_color(beer.ebc, beer.saturation, beer.color_override)
+    glass = normalize_glass(beer.glass or default_glass)
+    return {
+        # The caller decides the display name's fallback (a Vacant-less Tap
+        # falls back to "Tap N"; an Upcoming Beer may have a different one, or
+        # none) - this resolution only ever reports what the Beer itself holds.
+        "name": beer.name,
+        "abv": beer.abv,
+        "ibu": beer.ibu,
+        "ebc": beer.ebc,
+        "og": beer.og,
+        "fg": beer.fg,
+        # Null when Colour is Unknown. The display's `|| grey` is then the
+        # swatch's own declared fallback rather than a copy of a server value.
+        "color_hex": color.color_hex if color else None,
+        "text_color": color.text_color if color else None,
+        "image_url": _image_url_for(image, color, glass),
+        # Visibility, already resolved. Named for the question each one answers,
+        # not for the Settings that fed it: the display has no business knowing
+        # *why* a stat is hidden, only that it is. OG and FG are the two that
+        # carry a per-Tap override; the rest have only the global toggle.
+        "abv_visible": resolve_visibility(
+            beer.abv, setting("show_abv"), setting("hide_abv_when_empty")),
+        "ibu_visible": resolve_visibility(
+            beer.ibu, setting("show_ibu"), setting("hide_ibu_when_empty")),
+        "ebc_visible": resolve_visibility(
+            beer.ebc, setting("show_color"), setting("hide_color_when_empty")),
+        "og_visible": resolve_visibility(
+            beer.og, setting("show_og"), setting("hide_og_when_empty"),
+            presentation.show_og),
+        "fg_visible": resolve_visibility(
+            beer.fg, setting("show_fg"), setting("hide_fg_when_empty"),
+            presentation.show_fg),
+        # The swatch shares the EBC toggle but asks whether *Colour* is known -
+        # an EBC value OR an override - so passing the resolved Colour instead of
+        # the EBC number is the entire special case. A Beer with only an override
+        # therefore shows a swatch and no EBC number, which is the intent
+        # (ADR-0004), and `color_known` no longer has to travel to explain it.
+        "swatch_visible": resolve_visibility(
+            color, setting("show_color"), setting("hide_color_when_empty")),
+    }
+
+
 def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS,
                 cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     """Resolve a single tap to a display dict.
@@ -139,11 +218,6 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS,
     """
     if cfg is None:
         cfg = load_config()
-
-    def setting(key: str) -> Any:
-        # Fall back to the schema rather than repeating the literals here: a
-        # default changed in config_store must not need changing twice.
-        return cfg.get(key, DEFAULT_CONFIG[key])
 
     # Source precedence (Manual beats Brewfather beats Vacant) belongs to the
     # store; the board only asks for a Slot and is told which Source won.
@@ -176,11 +250,12 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS,
     # or None, never a blank string - so the board reads attributes instead of
     # re-coercing a front-matter dict on every poll from every TV.
     beer = tap_file.beer
-    # Colour precedence lives in colors.resolve_color, not here. It answers with
-    # a colour or with Unknown (None); the board forwards that answer to both
-    # surfaces rather than each of them re-deriving it.
-    color = resolve_color(beer.ebc, beer.saturation, beer.color_override)
-    glass = normalize_glass(beer.glass or default_glass)
+    # The Beer-to-card resolution (issue #34) is the one implementation shared
+    # with whatever later resolves an Upcoming Beer: Attributes, the six
+    # Visibility answers, Colour and the image URL. Everything below is what is
+    # specific to a Tap rather than to a Beer.
+    card = resolve_beer_card(beer, cfg, tap_file.image, default_glass,
+                             tap_file.presentation)
     return {
         "tap": tap,
         "vacant": False,
@@ -188,44 +263,15 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS,
         # written for a human reading the file and is never read back as truth,
         # so a mislabelled file cannot make sync and the display disagree.
         "source": str(tap_file.source),
-        "name": beer.name or f"Tap {tap}",
-        "abv": beer.abv,
-        "ibu": beer.ibu,
-        "ebc": beer.ebc,
-        "og": beer.og,
-        "fg": beer.fg,
-        # Null when Colour is Unknown. The display's `|| grey` is then the
-        # swatch's own declared fallback rather than a copy of a server value.
-        "color_hex": color.color_hex if color else None,
-        "text_color": color.text_color if color else None,
         # The description is the markdown body, a named field on the TapFile
         # rather than a synthesised front-matter key.
         "description": (tap_file.body or "").strip(),
-        "image_url": _image_url_for(tap_file.image, color, glass),
-        # Visibility, already resolved. Named for the question each one answers,
-        # not for the Settings that fed it: the display has no business knowing
-        # *why* a stat is hidden, only that it is. OG and FG are the two that
-        # carry a per-Tap override; the rest have only the global toggle.
-        "abv_visible": resolve_visibility(
-            beer.abv, setting("show_abv"), setting("hide_abv_when_empty")),
-        "ibu_visible": resolve_visibility(
-            beer.ibu, setting("show_ibu"), setting("hide_ibu_when_empty")),
-        "ebc_visible": resolve_visibility(
-            beer.ebc, setting("show_color"), setting("hide_color_when_empty")),
-        "og_visible": resolve_visibility(
-            beer.og, setting("show_og"), setting("hide_og_when_empty"),
-            tap_file.presentation.show_og),
-        "fg_visible": resolve_visibility(
-            beer.fg, setting("show_fg"), setting("hide_fg_when_empty"),
-            tap_file.presentation.show_fg),
-        # The swatch shares the EBC toggle but asks whether *Colour* is known -
-        # an EBC value OR an override - so passing the resolved Colour instead of
-        # the EBC number is the entire special case. A Beer with only an override
-        # therefore shows a swatch and no EBC number, which is the intent
-        # (ADR-0004), and `color_known` no longer has to travel to explain it.
-        "swatch_visible": resolve_visibility(
-            color, setting("show_color"), setting("hide_color_when_empty")),
         "updated": tap_file.updated,
+        **card,
+        # A Tap with no name falls back to its Slot number; that fallback is
+        # specific to a Tap card (an Upcoming Beer has no Slot to fall back to)
+        # so it is applied here rather than inside the shared resolution.
+        "name": card["name"] or f"Tap {tap}",
     }
 
 
