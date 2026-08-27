@@ -119,6 +119,21 @@ seeds two upcoming beers - one on an empty tap, visible immediately with no
 waiting, and one with no tap assigned - so the feature can be evaluated offline
 without a Brewfather account.
 
+**The on-deck page.** The cross-fade cannot reach every beer: one with no tap
+assigned has no card to fade over, and if cross-fading is switched off then
+nothing bound to a pouring tap can be reached either. Those beers are the
+overflow, and an optional **on-deck page** now carries them - a full page in the
+normal rotation, with its own dot, reachable by hand like any other page. It
+appears every third turn by default, adjustable from 1 to 6, so it leaves the
+board showing actual taps most of the time.
+
+A scope setting decides what it lists. **Overflow** (the default) shows only the
+beers nothing else is showing. **All** shows every upcoming beer, including ones
+already sitting on an empty tap - so a page that claims to list everything really
+does. A beer may then appear in both places, which is expected: the differing
+timings mean it is never in two places on screen at the same moment. With nothing
+to carry, the page does not appear at all rather than showing up empty.
+
 **What upgrading costs the operator:** the mapping version moves from 6 to 7, so
 the first sync after upgrading rewrites every cached Brewfather tap file once
 and re-downloads their images once. That is a single slower sync cycle; after it
