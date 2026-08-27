@@ -46,6 +46,22 @@ Brewfather tap file records its batch's status. Neither changes anything on the
 board yet - they are the groundwork the teaser cards are built on, and they are
 landing now so the whole feature costs one cache rewrite rather than several.
 
+There is a new setting, **Show upcoming beer previews**, off by default. With it
+on, each sync works out which batches are coming up - bound to a tap by the
+usual `tap:X` note, or unassigned via the new `upcoming:` note - and caches them
+under `/data/upcoming/` in the mapped data directory. Nothing appears on the TV
+from this yet.
+
+Two things worth knowing about that cache. Turning the setting off **deletes**
+it, which is the only setting on the box that deletes files, so the admin says
+so at the toggle. And it is disposable by design: deleting the directory by hand
+is safe, the next sync rebuilds it, snapshots never carry it, and nothing in it
+is ever archived to `old_beers/`.
+
+Conditioning and fermenting beers still need the matching sync-scope setting
+before they can be teased. Turning previews on does not widen what the box
+fetches from Brewfather, so it costs no extra API calls.
+
 **What upgrading costs the operator:** the mapping version moves from 6 to 7, so
 the first sync after upgrading rewrites every cached Brewfather tap file once
 and re-downloads their images once. That is a single slower sync cycle; after it
