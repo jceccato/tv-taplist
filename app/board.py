@@ -37,19 +37,28 @@ from .beer import Beer, TapPresentation
 from .beer_glass import DEFAULT_GLASS, normalize_glass
 from .colors import ResolvedColor, resolve_color
 from .config_store import DEFAULT_CONFIG, load_config
+from .mapping import status_rank_for_label
 from .paths import venue_logo_path
 from .tap_store import resolve as resolve_tap_file
 from .theme import resolve_theme
+from .upcoming_store import UpcomingEntry, list_all as list_upcoming
 
 
 def _image_url_for(image: Path | None, color: ResolvedColor | None = None,
-                   glass: str | None = None) -> str:
-    """Local image URL for a tap's photo, if it has one.
+                   glass: str | None = None, img_prefix: str = "/img") -> str:
+    """Local image URL for a beer's photo, if it has one.
 
     The store hands out a Path and knows nothing about web routes, so building
     the URL stays here. `image` is the photo paired with the *winning* Tap file
-    only - never borrowed from the other Source, so a Manual Tap with no photo
-    shows the placeholder rather than the Brewfather beer's picture.
+    (or, for an Upcoming Beer, the Upcoming store's own cached copy) only -
+    never borrowed from elsewhere, so a Beer with no photo shows the
+    placeholder rather than another Beer's picture.
+
+    `img_prefix` names which store the photo lives in: `/img` for a Tap's
+    photo (`/img/<filename>`, served from TAPS_DIR) or `/img/upcoming` for an
+    Upcoming Beer's (served from UPCOMING_DIR, its own store - ADR-0006). The
+    two directories can hold files with colliding names, so pointing a teaser
+    at the wrong route would risk serving - or 404ing on - the wrong photo.
 
     With no photo: a beer glass tinted to the beer's Colour. The URL carries the
     **resolved** colour rather than the EBC and saturation that produced it, so
@@ -59,8 +68,7 @@ def _image_url_for(image: Path | None, color: ResolvedColor | None = None,
     else - no template references it - so its shape is free to change.
     """
     if image is not None:
-        # Served by the /img/<filename> route which reads from /data/taps.
-        return f"/img/{image.name}"
+        return f"{img_prefix}/{image.name}"
     params: list[str] = []
     if color is not None:
         params.append("hex=" + color.color_hex.lstrip("#"))
@@ -133,6 +141,7 @@ def resolve_beer_card(beer: Beer, cfg: dict[str, Any],
                       image: Path | None = None,
                       default_glass: str = DEFAULT_GLASS,
                       presentation: TapPresentation = TapPresentation(),
+                      img_prefix: str = "/img",
                       ) -> dict[str, Any]:
     """Resolve a Beer to the card fields shared by every surface that shows one.
 
@@ -155,6 +164,10 @@ def resolve_beer_card(beer: Beer, cfg: dict[str, Any],
     than another Beer's picture. It is a parameter here rather than something
     this function looks up, because *which* photo belongs to a Beer is a
     question for the caller's own store, not for this resolution.
+
+    `img_prefix` says which store `image` was resolved from, so the URL routes
+    back to the right one - see `_image_url_for`. A Tap's caller leaves it at
+    the default; the Upcoming resolution below passes `/img/upcoming`.
     """
     def setting(key: str) -> Any:
         # Fall back to the schema rather than repeating the literals here: a
@@ -180,7 +193,7 @@ def resolve_beer_card(beer: Beer, cfg: dict[str, Any],
         # swatch's own declared fallback rather than a copy of a server value.
         "color_hex": color.color_hex if color else None,
         "text_color": color.text_color if color else None,
-        "image_url": _image_url_for(image, color, glass),
+        "image_url": _image_url_for(image, color, glass, img_prefix),
         # Visibility, already resolved. Named for the question each one answers,
         # not for the Settings that fed it: the display has no business knowing
         # *why* a stat is hidden, only that it is. OG and FG are the two that
@@ -275,6 +288,72 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS,
     }
 
 
+def _order_upcoming(entries: list[UpcomingEntry], cap: int) -> list[UpcomingEntry]:
+    """Order Upcoming Beers for display, and truncate to the cap (issue #37).
+
+    Both steps are display-time, not sync-time (ADR-0006), so changing
+    `max_upcoming_previews` takes effect on the very next poll without a
+    sync - the cap is applied here, against whatever the store already
+    holds, rather than by the store limiting what it writes.
+
+    Sort key: status rank ascending (`mapping.STATUS_PRECEDENCE` - Completed
+    first, unknown last), then recency descending (the newer Batch shown
+    first when two share a status), then Batch id ascending as a final,
+    purely mechanical tie-break. That last term is load-bearing: without it,
+    two entries with identical status and recency sort in whatever order the
+    directory glob happens to return them, which is not guaranteed stable
+    across polls and would make the board's order flicker for no reason a
+    customer could see.
+    """
+    ordered = sorted(
+        entries,
+        key=lambda e: (status_rank_for_label(e.status), -e.revision, str(e.batch_id)),
+    )
+    return ordered[:max(cap, 0)]
+
+
+def resolve_upcoming(entry: UpcomingEntry, cfg: dict[str, Any],
+                     default_glass: str, num_taps: int,
+                     taps: list[dict[str, Any]]) -> dict[str, Any]:
+    """Resolve one Upcoming Beer to the teaser fields the wire carries (issue #37).
+
+    Reuses `resolve_beer_card` for the Attributes, the six Visibility answers
+    and the Colour - the identical chain a Tap uses (ADR-0004, CLAUDE.md's
+    "resolved answers, not inputs"). What is added here is specific to a
+    teaser: the Batch identity, the bound Slot (or none), the description and
+    `pinned`.
+
+    A teaser's Slot resolves to None - becoming unbound - when it names a Slot
+    beyond the *configured* tap count. Sync accepts `tap:1..MAX_NUM_TAPS`
+    regardless of `num_taps` (the tap count must never destroy Beer data), so
+    a cached entry can point past the board the operator has actually built;
+    printing "coming up on tap 12" on an eight-tap board is worse than saying
+    nothing. This is resolved here, at display time, rather than at
+    sync/write time, so raising `num_taps` re-binds a previously
+    out-of-range teaser on the very next poll with no sync needed - the same
+    display-time contract ADR-0006 gives the ordering and the cap.
+
+    `pinned` is true only when the teaser is bound AND that Slot is Vacant
+    (`taps[slot - 1]["vacant"]`): there is no pouring beer for the teaser to
+    defer to, so it shows permanently instead of only while its Batch would
+    otherwise be invisible. This is board logic, not a presentation choice
+    (CLAUDE.md), so it is decided here and travels as an answer - the display
+    never re-derives it from the Slot's own vacancy.
+    """
+    slot = entry.slot if entry.slot is not None and 1 <= entry.slot <= num_taps else None
+    pinned = slot is not None and bool(taps[slot - 1]["vacant"])
+    # The Upcoming store's own photo, never a Tap's - see _image_url_for.
+    card = resolve_beer_card(entry.beer, cfg, entry.image, default_glass,
+                             img_prefix="/img/upcoming")
+    return {
+        "batch_id": entry.batch_id,
+        "slot": slot,
+        "pinned": pinned,
+        "description": (entry.body or "").strip(),
+        **card,
+    }
+
+
 def build_board() -> dict[str, Any]:
     """Build the full board payload consumed by the TV display."""
     cfg = load_config()
@@ -290,6 +369,31 @@ def build_board() -> dict[str, Any]:
         resolved["hidden"] = bool(resolved["vacant"] and hide_vacant)
         taps.append(resolved)
 
+    # Upcoming Beers (issue #37): resolved answers, exactly like the Taps
+    # above, and built from the Taps just resolved so `pinned` can read each
+    # bound Slot's own `vacant` flag rather than re-deriving it.
+    #
+    # This whole block is gated on the toggle, and the "upcoming" key is only
+    # added to the payload when it is on - not sent as an empty list when off.
+    # That is the toggle's contract as CLAUDE.md and issue #37 state it: with
+    # `show_upcoming_previews` off the payload must be identical to what this
+    # function produced before the feature existed, for the same data, and an
+    # extra key would not be identical even if it were always empty.
+    upcoming: list[dict[str, Any]] | None = None
+    if bool(cfg.get("show_upcoming_previews", False)):
+        cap = int(cfg.get("max_upcoming_previews",
+                          DEFAULT_CONFIG["max_upcoming_previews"]) or 0)
+        upcoming = []
+        for entry in _order_upcoming(list_upcoming(), cap):
+            teaser = resolve_upcoming(entry, cfg, default_glass, num_taps, taps)
+            if teaser["pinned"]:
+                # A Vacant Slot carrying a pinned teaser has something to
+                # show, so hide_vacant_taps must not hide it - resolved here,
+                # not forwarded, and answered through the Tap's own already-
+                # resolved `hidden` rather than a new flag (issue #37).
+                taps[teaser["slot"] - 1]["hidden"] = False
+            upcoming.append(teaser)
+
     # Venue logo: only advertise it if the file actually exists. Append the
     # mtime as a cache-buster so the TV reloads when the logo is replaced.
     logo = venue_logo_path()
@@ -301,7 +405,7 @@ def build_board() -> dict[str, Any]:
         except OSError:
             venue_logo_url = "/img/venue-logo"
 
-    return {
+    board: dict[str, Any] = {
         "num_taps": num_taps,
         "hide_vacant_taps": hide_vacant,
         "announcement_text": cfg.get("announcement_text", "") or "",
@@ -336,3 +440,6 @@ def build_board() -> dict[str, Any]:
         # carry upstream API error text. It lives in status.json - a file this
         # module never opens - and is shown only on the authenticated admin page.
     }
+    if upcoming is not None:
+        board["upcoming"] = upcoming
+    return board

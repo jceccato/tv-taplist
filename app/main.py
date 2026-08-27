@@ -7,6 +7,7 @@ Public display:
   GET  /api/board       -> fully-resolved board JSON (frontend never parses md)
   GET  /api/preview-color -> computed swatch colour for the admin live preview
   GET  /img/{filename}  -> tap image from /data/taps (path-sanitised)
+  GET  /img/upcoming/{filename} -> upcoming-beer image from /data/upcoming (path-sanitised)
   GET  /img/placeholder -> fallback image
   GET  /healthz         -> lightweight healthcheck
 
@@ -73,6 +74,7 @@ from .paths import (
     STATIC_DIR,
     TAPS_DIR,
     TEMPLATES_DIR,
+    UPCOMING_DIR,
     VENUE_LOGO_EXTS,
     ensure_dirs,
     placeholder_path,
@@ -219,6 +221,26 @@ def _safe_tap_image(filename: str) -> Path | None:
     return None
 
 
+def _safe_upcoming_image(filename: str) -> Path | None:
+    """Resolve an Upcoming Beer's image filename inside UPCOMING_DIR, rejecting traversal.
+
+    Mirrors `_safe_tap_image` exactly, but scoped to the Upcoming store's own
+    directory (app/upcoming_store.py, ADR-0006) rather than TAPS_DIR - an
+    Upcoming Beer's photo is never a Tap's photo, and the two stores can hold
+    files with colliding names, so the two lookups must stay separate rather
+    than merged into one route that tries both directories.
+    """
+    name = Path(filename).name  # strip any directory components
+    candidate = (UPCOMING_DIR / name).resolve()
+    try:
+        candidate.relative_to(UPCOMING_DIR.resolve())
+    except ValueError:
+        return None
+    if candidate.is_file():
+        return candidate
+    return None
+
+
 def _img_headers(max_age: int) -> dict[str, str]:
     """Common headers for the /img routes: caching + SVG script neutralisation.
 
@@ -281,6 +303,22 @@ async def img_file(filename: str):
     if p is None:
         # Fall back to placeholder rather than 404 so the TV never shows a
         # broken-image icon if a file was archived mid-cycle.
+        return await img_placeholder()
+    return FileResponse(p, headers=_img_headers(60))
+
+
+@app.get("/img/upcoming/{filename}")
+async def img_upcoming_file(filename: str):
+    """Serve an Upcoming Beer's cached photo from /data/upcoming.
+
+    A sibling of `/img/{filename}`, not a fallthrough of it: an Upcoming
+    Beer's photo lives in its own store (app/upcoming_store.py, ADR-0006), so
+    the teaser's `image_url` (board.py's `_image_url_for`) is built with the
+    `/img/upcoming` prefix and always lands here rather than at the Tap
+    route, which would either 404 or - worse - serve a same-named Tap photo.
+    """
+    p = _safe_upcoming_image(filename)
+    if p is None:
         return await img_placeholder()
     return FileResponse(p, headers=_img_headers(60))
 
@@ -542,6 +580,7 @@ class SettingsForm(BaseModel):
     include_conditioning: bool = False
     include_fermenting: bool = False
     show_upcoming_previews: bool = False
+    max_upcoming_previews: int = 3
     num_taps: int
     hide_vacant_taps: bool = False
     announcement_text: str = ""

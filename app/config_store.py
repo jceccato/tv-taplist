@@ -48,6 +48,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # config_store.apply_settings and brewfather.run_sync, the two places
     # that clear it (docs/adr/0006).
     "show_upcoming_previews": False,
+    # How many Upcoming Beers the board shows at once, after ordering by status
+    # then recency then Batch id (app/board.py). Resolved at DISPLAY time, per
+    # ADR-0006, so lowering or raising it takes effect on the very next poll -
+    # no sync required, because the cap never touches what the store caches.
+    "max_upcoming_previews": 3,
     "num_taps": 0,
     "hide_vacant_taps": False,
     "announcement_text": "",
@@ -103,6 +108,10 @@ MAX_VENUE_LOGO_VH = 33
 MAX_PAGE_SIZE = 8
 MIN_ROTATION_SECONDS = 3
 MAX_ROTATION_SECONDS = 600
+# Upper bound on the Upcoming preview cap (issue #37). Not a system limit the
+# way MAX_NUM_TAPS is - it exists so a mistyped value can't ask the board to
+# resolve and sort an unbounded queue - so it is generous rather than tight.
+MAX_UPCOMING_PREVIEWS = 20
 
 # Card sizing bounds. The text range is deliberately wide: we cannot guess the
 # operator's screen (a Fire Stick on a small TV needs different numbers from a 4K
@@ -133,6 +142,7 @@ MAX_TAP_TEXT_SCALE = 2.0
 # in only one of the two. See CONTEXT.md, Known hazards.
 SETTINGS_BOUNDS: dict[str, tuple[float, float | None]] = {
     "num_taps": (0, MAX_NUM_TAPS),
+    "max_upcoming_previews": (0, MAX_UPCOMING_PREVIEWS),
     "max_archive_age_days": (0, None),
     "max_archive_storage_mb": (0, None),
     "page_size": (1, MAX_PAGE_SIZE),
@@ -241,8 +251,9 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     # and must never stop the box booting, so clamping is the only safe
     # disposition. The Admin form carries the same numbers as input attributes
     # so an operator is stopped while typing instead. See CONTEXT.md.
-    for key in ("num_taps", "max_archive_age_days", "max_archive_storage_mb",
-                "page_size", "rotation_seconds", "venue_logo_height_vh"):
+    for key in ("num_taps", "max_upcoming_previews", "max_archive_age_days",
+                "max_archive_storage_mb", "page_size", "rotation_seconds",
+                "venue_logo_height_vh"):
         lo, hi = SETTINGS_BOUNDS[key]
         merged[key] = _coerce_int(merged[key], lo, hi, DEFAULT_CONFIG[key])
 

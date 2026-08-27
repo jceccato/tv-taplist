@@ -365,3 +365,264 @@ def test_board_card_scales_default_to_one():
     b = build_board()
     assert b["tap_image_scale"] == 1.0
     assert b["tap_text_scale"] == 1.0
+
+
+# ---- Upcoming Beers on the board payload (issue #37) -----------------------
+
+from app import upcoming_store
+from app.beer import Beer
+from app.board import resolve_upcoming
+
+
+def _upcoming(batch_id, *, slot=None, status="conditioning", revision=1,
+             name="Teaser Beer", **beer_fields):
+    upcoming_store.write(
+        batch_id, Beer(name=name, **beer_fields), "coming soon",
+        slot=slot, status=status, revision=revision,
+    )
+
+
+def test_toggle_off_payload_is_identical_to_no_upcoming_beers_at_all():
+    """The headline assertion: off means today's behaviour, byte for byte.
+
+    Two boards are built for the *same* Taps: one with Upcoming Beers cached
+    on disk but the toggle off, one with nothing cached at all. If the toggle
+    were only a display filter rather than a real gate, the first board would
+    still differ from the second - either by carrying an "upcoming" key or by
+    some other leak. It must not.
+    """
+    config_store.update_config(num_taps=2, show_upcoming_previews=False)
+    write_tap_baseline = build_board()
+
+    _upcoming("batch-1", slot=1, status="completed", revision=99)
+    _upcoming("batch-2", slot=None, status="fermenting", revision=1)
+    with_cached_entries = build_board()
+
+    assert "upcoming" not in write_tap_baseline
+    assert "upcoming" not in with_cached_entries
+    assert with_cached_entries == write_tap_baseline
+
+
+def test_upcoming_ordering_by_status_rank_beats_batch_id_and_recency():
+    """Status rank decides first, ahead of both recency and the Batch id.
+
+    Batch ids are deliberately chosen so their alphabetical order is the
+    *opposite* of the expected result (0 < a < z, but fermenting must sort
+    last regardless): a test using ids that happen to already sort correctly
+    would pass even if status rank were deleted from the sort key entirely,
+    because the store's own directory listing is itself alphabetical by
+    Batch id. Picking adversarial ids is what makes this assertion mean
+    anything.
+    """
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20)
+    _upcoming("0-should-sort-last", status="fermenting", revision=999)
+    _upcoming("z-should-sort-first", status="completed", revision=1)
+    _upcoming("a-should-sort-second", status="conditioning", revision=1)
+    b = build_board()
+    assert [t["batch_id"] for t in b["upcoming"]] == [
+        "z-should-sort-first", "a-should-sort-second", "0-should-sort-last"]
+
+
+def test_upcoming_ordering_recency_beats_batch_id_within_one_status():
+    """Within one status, the newer Batch (higher revision) sorts first.
+
+    Again the ids are adversarial to alphabetical order (aaa < zzz) so a sort
+    key with recency silently dropped - falling through to the Batch-id
+    tie-break alone - would produce the wrong order rather than an
+    accidentally correct one.
+    """
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20)
+    _upcoming("aaa-older", status="completed", revision=1)
+    _upcoming("zzz-newer", status="completed", revision=99)
+    b = build_board()
+    assert [t["batch_id"] for t in b["upcoming"]] == ["zzz-newer", "aaa-older"]
+
+
+def test_upcoming_ordering_final_tie_break_is_batch_id_ascending(monkeypatch):
+    """Identical status AND recency must still resolve to a stable order.
+
+    Without the Batch-id tie-break, two such entries sort however the
+    directory glob happens to return them - and that glob is *itself*
+    alphabetical by Batch id, so entries fed to `build_board` in on-disk order
+    would pass this assertion even with the tie-break deleted. `list_upcoming`
+    is monkeypatched to hand `build_board` entries in a scrambled order that
+    is emphatically not already sorted, so only board.py's own tie-break can
+    put them back into "aaa, mmm, zzz" - see ADR-0006 and issue #37.
+    """
+    scrambled = [
+        upcoming_store.UpcomingEntry(batch_id="zzz-batch", beer=Beer(name="Z"),
+                                     status="completed", revision=7),
+        upcoming_store.UpcomingEntry(batch_id="aaa-batch", beer=Beer(name="A"),
+                                     status="completed", revision=7),
+        upcoming_store.UpcomingEntry(batch_id="mmm-batch", beer=Beer(name="M"),
+                                     status="completed", revision=7),
+    ]
+    monkeypatch.setattr("app.board.list_upcoming", lambda: scrambled)
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20)
+    b = build_board()
+    assert [t["batch_id"] for t in b["upcoming"]] == [
+        "aaa-batch", "mmm-batch", "zzz-batch"]
+
+
+def test_cap_truncates_the_queue_with_no_sync():
+    """Changing max_upcoming_previews takes effect on the next poll alone.
+
+    Nothing here touches the Upcoming store between the two builds - only the
+    Setting changes - which is the display-time contract ADR-0006 makes for
+    both the ordering and the cap.
+    """
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=1)
+    # Adversarial to alphabetical order, as above: the highest-revision (and so
+    # first-place) Batch id sorts *last* alphabetically.
+    _upcoming("zzz-newest", status="completed", revision=3)
+    _upcoming("mmm-middle", status="completed", revision=2)
+    _upcoming("aaa-oldest", status="completed", revision=1)
+    capped = build_board()
+    assert len(capped["upcoming"]) == 1
+    assert capped["upcoming"][0]["batch_id"] == "zzz-newest"
+
+    config_store.update_config(max_upcoming_previews=2)
+    raised = build_board()
+    assert [t["batch_id"] for t in raised["upcoming"]] == ["zzz-newest", "mmm-middle"]
+
+
+def test_pinned_is_true_only_for_a_teaser_bound_to_a_vacant_slot():
+    config_store.update_config(num_taps=2, show_upcoming_previews=True,
+                                max_upcoming_previews=20)
+    # Slot 1 stays Vacant; slot 2 has no Tap file either, but nothing binds to it.
+    _upcoming("bound-vacant", slot=1, status="completed", revision=1)
+    _upcoming("unbound", slot=None, status="completed", revision=1)
+    b = build_board()
+
+    assert b["taps"][0]["vacant"] is True
+    by_id = {t["batch_id"]: t for t in b["upcoming"]}
+    assert by_id["bound-vacant"]["slot"] == 1
+    assert by_id["bound-vacant"]["pinned"] is True
+    assert by_id["unbound"]["slot"] is None
+    assert by_id["unbound"]["pinned"] is False
+
+
+def test_pinned_is_false_when_bound_to_an_occupied_slot(write_tap):
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20)
+    write_tap("custom", 1, name="Pouring Now")
+    _upcoming("bound-occupied", slot=1, status="completed", revision=1)
+    b = build_board()
+    assert b["taps"][0]["vacant"] is False
+    teaser = b["upcoming"][0]
+    assert teaser["slot"] == 1
+    assert teaser["pinned"] is False
+
+
+def test_pinned_teaser_slot_is_not_hidden_despite_hide_vacant_taps():
+    """A Vacant Slot with a pinned teaser has something to show.
+
+    hide_vacant_taps must not hide it, and the answer travels on the Tap's
+    own already-resolved `hidden` flag rather than a new one (issue #37).
+    """
+    config_store.update_config(num_taps=2, show_upcoming_previews=True,
+                                max_upcoming_previews=20, hide_vacant_taps=True)
+    _upcoming("pinned-batch", slot=1, status="completed", revision=1)
+    b = build_board()
+    assert b["taps"][0]["vacant"] is True
+    assert b["taps"][0]["hidden"] is False  # pinned overrides hide_vacant_taps
+    assert b["taps"][1]["hidden"] is True   # ordinary Vacant slot 2 stays hidden
+    assert b["upcoming"][0]["pinned"] is True
+
+
+def test_teaser_beyond_num_taps_resolves_to_a_null_slot_then_rebinds():
+    """Sync accepts tap:1..MAX_NUM_TAPS regardless of num_taps; the board must not.
+
+    Resolved at display time, so raising num_taps re-binds it on the very
+    next poll with no sync (mirrors the ordering/cap display-time contract).
+    """
+    config_store.update_config(num_taps=2, show_upcoming_previews=True,
+                                max_upcoming_previews=20)
+    _upcoming("far-future", slot=8, status="completed", revision=1)
+    too_small = build_board()
+    teaser = too_small["upcoming"][0]
+    assert teaser["slot"] is None
+    assert teaser["pinned"] is False
+
+    config_store.update_config(num_taps=8)
+    raised = build_board()
+    teaser = raised["upcoming"][0]
+    assert teaser["slot"] == 8
+    assert raised["taps"][7]["vacant"] is True
+    assert teaser["pinned"] is True
+
+
+def test_teaser_colour_matches_a_tap_with_identical_inputs(write_tap):
+    """A teaser's Colour must be the same answer a Tap resolves for the same Beer.
+
+    Mirrors the existing preview-versus-board equivalence test: both surfaces
+    go through colors.resolve_color exactly once (ADR-0004), so an EBC value
+    with no override must paint the same hex on a Tap card and a teaser card.
+    """
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20)
+    write_tap("custom", 1, name="Tap Twin", ebc=25)
+    _upcoming("teaser-twin", slot=None, status="completed", revision=1,
+              name="Teaser Twin", ebc=25)
+    b = build_board()
+    tap_card = b["taps"][0]
+    teaser_card = b["upcoming"][0]
+    assert teaser_card["color_hex"] == tap_card["color_hex"]
+    assert teaser_card["text_color"] == tap_card["text_color"]
+    assert teaser_card["color_hex"] is not None
+
+
+def test_teaser_visibility_answers_come_from_the_same_chain_a_tap_uses():
+    """The six Visibility booleans on a teaser are resolve_beer_card's, not a copy.
+
+    Uses resolve_upcoming and resolve_beer_card directly (rather than going
+    through build_board) so this pins the shared resolution itself, the way
+    test_resolve_beer_card_matches_what_tap_resolution_embeds pins it for a Tap.
+    """
+    cfg = config_store.update_config(show_og=True, show_fg=True)
+    entry = upcoming_store.UpcomingEntry(
+        batch_id="chain-check",
+        beer=Beer(name="Chain Beer", abv=5.5, ibu=None, ebc=None,
+                  og=1.050, fg=None),
+        slot=None, status="completed", revision=1, body="", image=None,
+    )
+    expected = resolve_beer_card(entry.beer, cfg, entry.image,
+                                  DEFAULT_CONFIG["glass_type"])
+    teaser = resolve_upcoming(entry, cfg, DEFAULT_CONFIG["glass_type"],
+                             num_taps=0, taps=[])
+    visibility_fields = ("abv_visible", "ibu_visible", "ebc_visible",
+                         "og_visible", "fg_visible", "swatch_visible")
+    for field in visibility_fields:
+        assert teaser[field] == expected[field], field
+
+
+def test_teaser_image_url_uses_the_upcoming_image_route_not_the_tap_route():
+    """An Upcoming Beer's photo lives in its own store, not the Tap store.
+
+    board.py must build the teaser's image_url from the Upcoming store's own
+    photo via the /img/upcoming/ route, never the Tap route - the two
+    directories can hold files with the same name.
+    """
+    upcoming_store.write(
+        "batch-photo", Beer(name="Photo Beer"), "", slot=None,
+        status="completed", revision=1, image_bytes=b"fake-bytes", image_ext=".jpg",
+    )
+    config_store.update_config(num_taps=0, show_upcoming_previews=True,
+                                max_upcoming_previews=20)
+    b = build_board()
+    teaser = b["upcoming"][0]
+    assert teaser["image_url"].startswith("/img/upcoming/")
+    assert teaser["image_url"].endswith(".jpg")
+
+
+def test_teaser_with_no_photo_falls_back_to_the_tinted_glass_placeholder():
+    config_store.update_config(num_taps=0, show_upcoming_previews=True,
+                                max_upcoming_previews=20)
+    _upcoming("batch-no-photo", status="completed", revision=1, ebc=10)
+    b = build_board()
+    teaser = b["upcoming"][0]
+    assert teaser["image_url"].startswith("/img/beer-glass")

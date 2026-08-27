@@ -94,6 +94,71 @@ def test_safe_tap_image_rejects_traversal():
     assert _safe_tap_image("..\\config.json") is None
 
 
+# ---- Upcoming Beers on the board / their own image route (issue #37) ------
+
+def test_api_board_carries_upcoming_when_toggle_is_on():
+    from app.beer import Beer
+    from app import upcoming_store
+
+    config_store.update_config(num_taps=2, show_upcoming_previews=True,
+                                max_upcoming_previews=20)
+    upcoming_store.write("batch-http", Beer(name="HTTP Beer", ebc=12), "soon",
+                          slot=1, status="completed", revision=1)
+    board = client.get("/api/board").json()
+    assert len(board["upcoming"]) == 1
+    teaser = board["upcoming"][0]
+    assert teaser["batch_id"] == "batch-http"
+    assert teaser["name"] == "HTTP Beer"
+    assert teaser["slot"] == 1
+    assert teaser["pinned"] is True  # Slot 1 has no Tap file, so it is Vacant
+
+
+def test_api_board_has_no_upcoming_key_when_toggle_is_off():
+    config_store.update_config(num_taps=1, show_upcoming_previews=False)
+    board = client.get("/api/board").json()
+    assert "upcoming" not in board
+
+
+def test_img_upcoming_serves_the_cached_photo():
+    from app.beer import Beer
+    from app import upcoming_store
+
+    upcoming_store.write("batch-photo-http", Beer(name="Photo Beer"), "",
+                          slot=None, status="completed", revision=1,
+                          image_bytes=b"upcoming-fake-bytes", image_ext=".jpg")
+    entry = upcoming_store.read("batch-photo-http")
+    r = client.get(f"/img/upcoming/{entry.image.name}")
+    assert r.status_code == 200
+    assert r.content == b"upcoming-fake-bytes"
+
+
+def test_img_upcoming_missing_falls_back_to_placeholder():
+    r = client.get("/img/upcoming/does_not_exist.png")
+    assert r.status_code == 200
+    assert "image" in r.headers["content-type"]
+
+
+def test_safe_upcoming_image_rejects_traversal():
+    from app.main import _safe_upcoming_image
+
+    assert _safe_upcoming_image("../config.json") is None
+    assert _safe_upcoming_image("..\\config.json") is None
+
+
+def test_img_upcoming_route_never_serves_a_tap_photo_of_the_same_name(write_tap):
+    """The two stores can hold same-named files; the routes must not cross.
+
+    A Tap photo saved as custom_tap_1.jpg and an Upcoming photo that happened
+    to land on the same stem must be served from their own directories only -
+    otherwise a teaser could show another beer's photo, or vice versa.
+    """
+    write_tap("custom", 1, name="Tap Photo Beer", image_ext=".jpg")
+    # No file of this name exists under /data/upcoming.
+    r = client.get("/img/upcoming/custom_tap_1.jpg")
+    assert r.status_code == 200
+    assert r.content != b"fake-image-bytes"  # not the Tap's photo bytes
+
+
 # ---- auth --------------------------------------------------------------
 
 def test_admin_requires_login():

@@ -327,6 +327,21 @@ STATUS_PRECEDENCE: tuple[str, ...] = (
 )
 
 
+def status_rank_for_label(label: str) -> int:
+    """Sort key for an already-normalised status label - LOWER is more complete.
+
+    Split out from `status_rank` (issue #37) so the Upcoming ordering in
+    `board.py` can rank the label the Upcoming store already carries
+    (`UpcomingEntry.status`) without reconstructing a Batch dict just to hand
+    it back to `status_label`. An unrecognised or missing label ranks last -
+    see `status_rank`'s docstring for why that matters.
+    """
+    try:
+        return STATUS_PRECEDENCE.index(label)
+    except ValueError:
+        return len(STATUS_PRECEDENCE)
+
+
 def status_rank(batch: dict[str, Any]) -> int:
     """Sort key for Batch status - LOWER is more complete.
 
@@ -336,10 +351,7 @@ def status_rank(batch: dict[str, Any]) -> int:
     conflict resolution falls back to recency - exactly the behaviour that
     shipped before this rule existed.
     """
-    try:
-        return STATUS_PRECEDENCE.index(status_label(batch))
-    except ValueError:
-        return len(STATUS_PRECEDENCE)
+    return status_rank_for_label(status_label(batch))
 
 
 def status_label(batch: dict[str, Any]) -> str:
