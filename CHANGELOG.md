@@ -62,6 +62,22 @@ Conditioning and fermenting beers still need the matching sync-scope setting
 before they can be teased. Turning previews on does not widen what the box
 fetches from Brewfather, so it costs no extra API calls.
 
+The board API now serves those upcoming beers, worked out the same way a tap
+card is: the same stat visibility settings, the same colour rules. They are
+ordered most-ready first, then newest first, and a new **Max upcoming previews
+shown** setting caps how many appear (3 by default, up to 20). That cap is
+applied when the board is drawn rather than when it syncs, so changing it takes
+effect on the next refresh of the TV without waiting for a sync.
+
+An empty tap with a beer assigned to it is the case the feature was built for,
+and it is settled here: that tap advertises the beer permanently, and it stays
+on the board even when "hide vacant taps" is on, because it now has something to
+show. A beer assigned to a tap number higher than the board actually has is
+treated as unassigned rather than pointing at a tap nobody can see; raising the
+tap count re-attaches it on the next refresh.
+
+Still nothing on the TV - the cards themselves come next.
+
 **What upgrading costs the operator:** the mapping version moves from 6 to 7, so
 the first sync after upgrading rewrites every cached Brewfather tap file once
 and re-downloads their images once. That is a single slower sync cycle; after it
