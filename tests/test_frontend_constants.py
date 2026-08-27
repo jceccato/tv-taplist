@@ -112,6 +112,26 @@ def test_display_js_does_not_reimplement_the_visibility_chain():
         "swatch_visible"}
 
 
+def test_display_js_never_reads_the_upcoming_settings():
+    """The display draws a pinned teaser; it never decides whether to (issue #38).
+
+    board.py resolves the whole Upcoming composition - `pinned`, `cross_fade`,
+    `on_surfaces` - from `show_upcoming_previews`, `upcoming_rotate_occupied` and
+    `upcoming_surface_scope`, among other Settings. display.js is handed those
+    three resolved booleans per teaser and must never see the Settings that
+    produced them: reading one here would be the chain from Visibility (this
+    file's other drift guards) reappearing for a different feature. This is the
+    test that fails if a later ticket (#39/#40/#41) reaches for a
+    `show_upcoming_*` toggle instead of the wire answer.
+    """
+    js = _display_js()
+    assert re.search(r"show_upcoming_\w*", js) is None, (
+        "display.js references a show_upcoming_* Setting"
+    )
+    for setting in ("upcoming_rotate_occupied", "upcoming_surface_scope"):
+        assert setting not in js, f"display.js still references {setting}"
+
+
 def test_display_js_theme_vars_match_server_keys():
     # The THEME_VARS object in display.js must cover exactly the server THEME_KEYS,
     # or a themed board would leave some CSS variables unset (or set stray ones).

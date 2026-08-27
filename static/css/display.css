@@ -311,6 +311,17 @@ html, body {
 }
 .card.vacant .name { color: var(--text-dim); }
 
+/* Teaser card (issue #38): a Vacant Slot with a pinned Upcoming Beer. Formatted
+   exactly like a filled Tap card - the JS builds it with the same renderer - and
+   differentiated only by this dashed amber border. Amber is the board's existing
+   accent (var(--accent)), reused rather than inventing a colour, and the dashed
+   style echoes the Vacant card's "not poured yet" above without borrowing its
+   striped background, which would read as empty rather than provisional. No
+   separate size or scale: this rule changes only the border. */
+.card.teaser {
+  border: 2px dashed var(--accent);
+}
+
 /* Source badge (custom vs brewfather) */
 .card .source-badge {
   position: absolute;

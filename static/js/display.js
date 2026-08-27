@@ -135,14 +135,64 @@
     return (board.taps || []).filter((t) => !t.hidden);
   }
 
+  // A Vacant Slot with a pinned Upcoming Beer (issue #38) renders a teaser card
+  // in that Slot instead of the dashed Vacant card. `pinned` already answers
+  // "does this Slot show a teaser permanently" - board.py decides that from the
+  // Slot's own vacancy, so this file only reads the answer and never asks
+  // whether a Slot is Vacant itself. When two Upcoming Beers are pinned to the
+  // same Slot (CONTEXT.md: "there is no dedup"), `board.upcoming` is already in
+  // display order, so the first one wins the Slot's one card - a display
+  // bookkeeping choice, not a re-run of any domain rule.
+  function pinnedTeasersBySlot(board) {
+    const map = new Map();
+    (board.upcoming || []).forEach((u) => {
+      if (u.pinned && u.slot != null && !map.has(u.slot)) map.set(u.slot, u);
+    });
+    return map;
+  }
+
+  // Substitutes a pinned teaser's fields onto its Vacant Slot's tap entry. The
+  // result is drawn with the exact same card renderer a Tap uses (`filledInner`)
+  // - name, stats, swatch and image all come from the teaser's own resolved
+  // answers - with only a `teaser` marker added so the card picks up the dashed
+  // amber border instead of the Vacant stripes. No size or layout decision is
+  // made here: a teaser occupies its Slot's normal position in the normal grid,
+  // from the same Settings as every other card (CLAUDE.md: "no size option").
+  function withTeasers(board) {
+    const pinned = pinnedTeasersBySlot(board);
+    return (board.taps || []).map((t) => {
+      if (!t.vacant) return t;
+      const u = pinned.get(t.tap);
+      if (!u) return t;
+      return {
+        ...t,
+        vacant: false,
+        teaser: true,
+        name: u.name, abv: u.abv, ibu: u.ibu, ebc: u.ebc, og: u.og, fg: u.fg,
+        color_hex: u.color_hex, text_color: u.text_color,
+        description: u.description, image_url: u.image_url,
+        // An Upcoming Beer has no Source (CONTEXT.md: it is a projection of a
+        // Batch, not a Tap) - null renders no badge label, same as today's
+        // Vacant card.
+        source: null,
+        abv_visible: u.abv_visible, ibu_visible: u.ibu_visible,
+        ebc_visible: u.ebc_visible, og_visible: u.og_visible,
+        fg_visible: u.fg_visible, swatch_visible: u.swatch_visible,
+      };
+    });
+  }
+
   // The six resolved Visibility booleans are part of the signature, not just the
   // values: a global toggle no longer reaches this file at all, so a flip is only
-  // observable as a change in the answers the board sends.
+  // observable as a change in the answers the board sends. `teaser` joins them
+  // for the same reason a pinned teaser can replace another pinned teaser (or a
+  // real Tap can reclaim its Slot) without the `vacant` flag itself changing -
+  // see the structural-refill check in fillCard().
   function tapSignature(t) {
     return [
-      t.vacant ? 1 : 0, t.name, t.abv, t.ibu, t.ebc, t.og, t.fg, t.color_hex,
-      t.abv_visible, t.ibu_visible, t.ebc_visible, t.og_visible, t.fg_visible,
-      t.swatch_visible, t.description, t.image_url, t.source,
+      t.vacant ? 1 : 0, t.teaser ? 1 : 0, t.name, t.abv, t.ibu, t.ebc, t.og, t.fg,
+      t.color_hex, t.abv_visible, t.ibu_visible, t.ebc_visible, t.og_visible,
+      t.fg_visible, t.swatch_visible, t.description, t.image_url, t.source,
     ].join("|");
   }
 
@@ -244,7 +294,7 @@
   // ---- card building ----
   function buildCard(t) {
     const card = document.createElement("article");
-    card.className = "card" + (t.vacant ? " vacant" : "");
+    card.className = "card" + (t.vacant ? " vacant" : "") + (t.teaser ? " teaser" : "");
     card.dataset.tap = String(t.tap);
     fillCard(card, t, true);
     return card;
@@ -254,10 +304,16 @@
     const prev = state.dataByTap.get(t.tap);
     const changed = (field) => force || !prev || prev[field] !== t[field];
 
-    // Vacant <-> filled transition requires a structural refill.
+    // Vacant <-> filled transition requires a structural refill - and so does a
+    // teaser taking over, or leaving, a Slot whose `vacant` flag does not itself
+    // change (a different pinned teaser replacing this one, or a real Tap
+    // reclaiming the Slot the instant it stops being Vacant): either way the
+    // border treatment and the inner markup both have to be redrawn.
     const wasVacant = prev ? prev.vacant : null;
-    if (force || wasVacant !== t.vacant) {
+    const wasTeaser = prev ? !!prev.teaser : false;
+    if (force || wasVacant !== t.vacant || wasTeaser !== !!t.teaser) {
       card.classList.toggle("vacant", !!t.vacant);
+      card.classList.toggle("teaser", !!t.teaser);
       card.innerHTML = t.vacant ? vacantInner(t) : filledInner(t);
       bindImage(card, t);
       measureMarquee(card.querySelector(".name"));
@@ -635,6 +691,14 @@
   }
 
   function applyBoard(board) {
+    // A Vacant Slot's pinned teaser (issue #38) is substituted in before
+    // anything below looks at `board.taps` - layout, paging, the diff and every
+    // signature all key off `t.tap`/`t.vacant`, so folding the substitution in
+    // here once means none of them need to know teasers exist at all. `upcoming`
+    // is absent from the payload entirely with the feature off, and
+    // `withTeasers` treats that exactly like an empty list.
+    board = { ...board, taps: withTeasers(board) };
+
     applyTheme(board.theme);
     applyCardScales(board);
 
