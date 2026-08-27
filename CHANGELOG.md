@@ -86,6 +86,21 @@ nothing coming still shows the ordinary Vacant card.
 Teaser cards obey the same stat visibility settings as tap cards, so a board with
 OG and FG switched off does not sprout them on a teaser.
 
+The card now says what it means. A ribbon carries wording the operator chooses -
+"Coming up", "Up next", "Coming soon", "Just around the bend", or anything typed
+in, up to 32 characters with a live counter in the admin. Under the beer's name
+a status line answers the question a customer actually has, which is not "is
+something coming" but "how soon": it reads **Ready**, **Conditioning**,
+**Fermenting**, **Brewing** or **Planned**, in plain language rather than
+Brewfather's own words. That line can be switched off.
+
+Two smaller choices. An upcoming beer's ABV is **off by default**, because a
+number on an unfinished beer is a target rather than a promise; switched on, it
+always carries a `~` so nobody reads it as final. And a beer with no tap assigned
+yet always says so on the card, since nothing else on it would. A beer that does
+have a tap does not repeat itself by default, but there is a setting for
+operators who want the tap number spelled out in words.
+
 **What upgrading costs the operator:** the mapping version moves from 6 to 7, so
 the first sync after upgrading rewrites every cached Brewfather tap file once
 and re-downloads their images once. That is a single slower sync cycle; after it
