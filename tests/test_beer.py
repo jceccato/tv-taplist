@@ -219,6 +219,29 @@ def test_all_three_writers_produce_a_beer(monkeypatch):
     assert isinstance(taps.read(seeded[0], taps.Source.BREWFATHER).beer, Beer)
     assert set(BEER_KEYS) <= _front_matter_keys(f"bf_tap_{seeded[0]}.md")
 
+    # 3b. The demo seeder also seeds two Upcoming Beers (issue #43) through
+    # the same typed Beer, one bound to a Slot it keeps Vacant (so the pinned
+    # teaser needs no sync) and one unbound (so the overflow queue is not
+    # empty either). This is the one that would have caught a seeder that
+    # built the Upcoming front matter by hand instead of via Beer.
+    from app import upcoming_store
+
+    demo_entries = upcoming_store.list_all()
+    assert len(demo_entries) == 2, "expected exactly two seeded demo Upcoming Beers"
+    for entry in demo_entries:
+        assert isinstance(entry.beer, Beer)
+    bound = [e for e in demo_entries if e.slot is not None]
+    unbound = [e for e in demo_entries if e.slot is None]
+    assert len(bound) == 1 and len(unbound) == 1
+    # The bound demo entry's Slot must be Vacant (no Tap file) so the board
+    # marks it pinned without waiting for a sync - the whole point of #43.
+    assert bound[0].slot not in seeded
+    assert bound[0].slot not in taps.occupied_slots(taps.Source.MANUAL)
+
+    from app.config_store import load_config as _load_config
+
+    assert _load_config()["show_upcoming_previews"] is True
+
     # 4. The Upcoming store (issue #36), whose writer is handed a Beer built
     # by Mapping (in provisional mode) rather than building one itself - but
     # it is still a distinct write path with its own front matter, so it gets

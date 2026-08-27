@@ -4,6 +4,15 @@ demoed and screenshotted fully offline with no Brewfather credentials.
 Enabled with DEMO_MODE=true. Seeding only happens when /data/taps has no tap
 files yet, so it never clobbers real data on a configured box. Beer-glass
 images are generated on-the-fly from EBC values (fully offline).
+
+Also seeds two Upcoming Beers (issue #43) behind the same freshness guard, so
+an evaluator sees the teaser feature (issue #4) without configuring Brewfather
+or waiting for a sync. One is bound to a Slot past the sample taps (kept
+genuinely Vacant, so it renders `pinned` on the very first paint - no
+animation to wait for); the other is unbound, so the overflow queue has
+something in it the moment `show_upcoming_previews` is switched on. Two is
+enough to show both shapes; see docs/adr/0006 for why the store is disposable
+and separate from the Tap file store this module also seeds.
 """
 from __future__ import annotations
 
@@ -11,6 +20,7 @@ import logging
 import os
 
 from . import tap_store as taps
+from . import upcoming_store
 from .beer import Beer
 from .config_store import load_config, save_config
 from .paths import ensure_dirs
@@ -25,6 +35,22 @@ SAMPLE_TAPS = [
     (4, "Irish Dry Stout", 4.4, 40, 79, "brewfather", "Roasty coffee, dry, creamy nitro pour."),
     (5, "Saison du Tap", 6.1, 28, 9, "brewfather", "Peppery phenols, lemony tartness, sparkling."),
     (6, "Vienna Lager", 5.0, 24, 26, "custom", "Toasty amber malt, balanced, smooth."),
+]
+
+# The Slot the pinned demo teaser binds to. One past the last sample tap, so
+# raising num_taps to include it (below) creates a Slot with no Tap file at
+# all - genuinely Vacant, which is what makes the teaser resolve `pinned` on
+# the very first board build rather than depending on operator action.
+_PINNED_UPCOMING_SLOT = len(SAMPLE_TAPS) + 1
+
+# (batch_id, name, abv, ibu, ebc, status, slot, description)
+SAMPLE_UPCOMING = [
+    ("demo-upcoming-pinned", "Foggy Horizon NEIPA", 6.5, 42, 14, "conditioning",
+     _PINNED_UPCOMING_SLOT,
+     "Tropical hop bomb clearing in the tank - lined up for the next pour."),
+    ("demo-upcoming-unbound", "Bourbon Barrel Stout", 9.2, 38, 140, "fermenting",
+     None,
+     "Rich vanilla and oak, still resting in the barrel."),
 ]
 
 
@@ -68,10 +94,27 @@ def maybe_seed_demo() -> None:
         # say).
         taps.write(tap, taps.Source(source), beer, desc)
 
+    log.info("seeding %d demo upcoming beers", len(SAMPLE_UPCOMING))
+    for batch_id, name, abv, ibu, ebc, status, slot, desc in SAMPLE_UPCOMING:
+        # Same reasoning as the Tap Beers above: build the typed Beer and let
+        # the store serialise it, rather than hand-assembling front matter
+        # (the drift issue #32 closed). The Upcoming store's writer produces
+        # its own file shape from this Beer - see test_all_three_writers_produce_a_beer,
+        # which this seeder's Beer now also exercises.
+        beer = Beer(name=name, abv=abv, ibu=ibu, ebc=ebc)
+        upcoming_store.write(batch_id, beer, desc, slot=slot, status=status, revision=1)
+
     # Set a tap count and an announcement so the display looks intentional.
+    # num_taps is raised past _PINNED_UPCOMING_SLOT so that Slot exists on the
+    # board and is Vacant (no Tap file was written for it above) - the
+    # precondition board.resolve_upcoming checks before calling a teaser
+    # pinned.
     cfg = load_config()
-    cfg["num_taps"] = max(cfg.get("num_taps", 0), len(SAMPLE_TAPS))
+    cfg["num_taps"] = max(cfg.get("num_taps", 0), _PINNED_UPCOMING_SLOT)
     if not cfg.get("announcement_text"):
         cfg["announcement_text"] = "Now pouring - ask staff for samples!  •  Demo mode"
+    # Turn the teaser feature on so a fresh demo box shows it without the
+    # operator finding the toggle first - the whole point of issue #43.
+    cfg["show_upcoming_previews"] = True
     save_config(cfg)
     log.info("demo seed complete: num_taps=%d", cfg["num_taps"])
