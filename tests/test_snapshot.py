@@ -137,6 +137,24 @@ def test_snapshot_carries_no_status_and_no_data_dir_id(write_tap, no_credential_
     assert ".data_dir_id" not in names
 
 
+def test_snapshot_never_enumerates_the_upcoming_store_even_when_full(write_tap, no_credential_env):
+    # ADR-0006: an Upcoming Beer is a projection, disposable like Status, and
+    # is never carried in a Snapshot - restoring one onto a box with a working
+    # key gets rewritten within minutes anyway, and onto a keyless box it
+    # would advertise beers that may already have poured and gone.
+    from app import upcoming_store
+    from app.beer import Beer
+
+    write_tap("custom", 1, name="Hand Pour")
+    upcoming_store.write("batch-1", Beer(name="Saison"), "coming soon",
+                          slot=None, status="fermenting", revision=1,
+                          image_bytes=b"photo", image_ext=".jpg")
+
+    names = zipfile.ZipFile(io.BytesIO(_export_bytes())).namelist()
+    assert not any(name.startswith("upcoming/") for name in names)
+    assert names == ["config.json", "taps/custom_tap_1.md"]
+
+
 def test_snapshot_skips_files_that_are_not_taps(write_tap, no_credential_env):
     # A half-finished atomic write and an operator's stray note both sit in
     # taps/. Membership is decided by the Tap file store's predicate, which is
@@ -292,6 +310,7 @@ def test_export_never_carries_an_environment_credential(monkeypatch):
     ({"taps/bf_tap_03.md": b"x"}, "not part of a Snapshot"),
     ({"taps/deeper/custom_tap_1.md": b"x"}, "not part of a Snapshot"),
     ({"old_beers/custom_tap_1.md": b"x"}, "not part of a Snapshot"),
+    ({"upcoming/upcoming_s_batch1.md": b"x"}, "not part of a Snapshot"),
     ({"venue_logo.png": b"a", "venue_logo.svg": b"b"}, "more than one venue logo"),
 ])
 def test_an_archive_with_a_wrong_layout_is_refused_and_says_why(members, expected):
@@ -379,6 +398,29 @@ def test_a_rejected_import_leaves_every_existing_file_unchanged(write_tap, no_cr
     )
     with pytest.raises(snapshot.SnapshotRejected):
         snapshot.import_snapshot(_stage(payload))
+
+    after = _tree_state()
+    del after[str(snapshot.STAGED_UPLOAD_PATH.relative_to(paths.DATA_DIR))]
+    assert after == before
+
+
+def test_an_archive_containing_an_upcoming_member_is_refused_and_changes_nothing(
+        write_tap, no_credential_env):
+    # The acceptance criterion in one test: an `upcoming/` member is not a
+    # layout mistake to tolerate, it is refused whole, with the same
+    # bytes-and-mtimes guarantee every other refusal gives (ADR-0006: this
+    # directory is never part of a Snapshot in either direction).
+    write_tap("custom", 1, name="Hand Pour", image_ext=".png")
+    config_store.update_config(num_taps=4)
+    before = _tree_state()
+
+    payload = _build_snapshot(
+        dict(config_store.DEFAULT_CONFIG),
+        {"upcoming/upcoming_s_batch1.md": b"---\nname: Sneaked In\n---\n"},
+    )
+    with pytest.raises(snapshot.SnapshotRejected) as exc:
+        snapshot.import_snapshot(_stage(payload))
+    assert "not part of a Snapshot" in str(exc.value)
 
     after = _tree_state()
     del after[str(snapshot.STAGED_UPLOAD_PATH.relative_to(paths.DATA_DIR))]
@@ -731,7 +773,12 @@ def test_the_import_route_is_not_bound_by_the_image_upload_cap():
 
 # ---- the filename seam ----------------------------------------------------
 
-_FILENAME_MARKERS = ("custom_tap_", "bf_tap_")
+# Not the bare "upcoming_" prefix: `show_upcoming_previews` (the Setting,
+# issue #36) is legitimate prose/code everywhere and contains "upcoming_p" as
+# a substring. The Upcoming store's real filename tags are "upcoming_s_" and
+# "upcoming_h_" (see _SAFE_TAG / _HASH_TAG in app/upcoming_store.py) - that is
+# what a caller would have to spell to construct one of its filenames.
+_FILENAME_MARKERS = ("custom_tap_", "bf_tap_", "upcoming_s_", "upcoming_h_")
 
 
 def _non_docstring_strings(tree: ast.AST) -> list[str]:
@@ -758,11 +805,18 @@ def test_no_module_outside_the_tap_file_store_spells_a_tap_filename():
     Validating a Snapshot's layout means recognising a Tap filename, which is
     exactly the knowledge this project keeps in one module. The temptation was
     a regex in the import code; this fails if anyone gives in to it.
+
+    Extended by issue #36 to cover the Upcoming store's own filename prefix
+    (ADR-0006), which is private to `app/upcoming_store.py` for the identical
+    reason: `tests/test_upcoming_store.py` has its own copy of this guard for
+    fast, focused failures, and this copy keeps the Snapshot's own reasoning -
+    "validating a Snapshot means recognising a filename, which lives in one
+    place" - true for all three stores rather than just the first one.
     """
     app_dir = Path(taps.__file__).parent
     offenders = {}
     for path in sorted(app_dir.glob("*.py")):
-        if path.name == "tap_store.py":
+        if path.name in ("tap_store.py", "upcoming_store.py"):
             continue
         strings = _non_docstring_strings(ast.parse(path.read_text(encoding="utf-8")))
         found = [s for s in strings if any(marker in s for marker in _FILENAME_MARKERS)]

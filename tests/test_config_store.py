@@ -109,6 +109,51 @@ def test_include_fermenting_absent_from_stored_config_reads_false():
     assert config_store._coerce({"num_taps": 4})["include_fermenting"] is False
 
 
+# ---- show_upcoming_previews (issue #36) -----------------------------------
+
+def test_show_upcoming_previews_defaults_false_and_coerces_bool():
+    assert config_store.DEFAULT_CONFIG["show_upcoming_previews"] is False
+    cfg = config_store.update_config(show_upcoming_previews="yes")  # truthy -> bool True
+    assert cfg["show_upcoming_previews"] is True
+
+
+def test_show_upcoming_previews_absent_from_stored_config_reads_false():
+    assert config_store._coerce({"num_taps": 4})["show_upcoming_previews"] is False
+
+
+def test_apply_settings_flipping_the_toggle_off_clears_the_upcoming_store():
+    # This is the one Setting that deletes files (ADR-0006), and the clearing
+    # has to happen right at the write seam so the operator sees /data become
+    # honest the instant they save - not on the next sync.
+    from app import upcoming_store
+    from app.beer import Beer
+
+    config_store.apply_settings(show_upcoming_previews=True, num_taps=4,
+                                 max_archive_age_days=1, max_archive_storage_mb=1)
+    upcoming_store.write("batch-1", Beer(name="Saison"), "",
+                          slot=None, status="fermenting", revision=1)
+    assert upcoming_store.list_all() != []
+
+    config_store.apply_settings(show_upcoming_previews=False, num_taps=4,
+                                 max_archive_age_days=1, max_archive_storage_mb=1)
+    assert upcoming_store.list_all() == []
+
+
+def test_apply_settings_leaves_the_upcoming_store_alone_when_already_off():
+    # A save that does not flip the toggle (off staying off, or on staying on)
+    # must not touch the store at all - only the on-to-off transition clears.
+    from app import upcoming_store
+    from app.beer import Beer
+
+    upcoming_store.write("batch-2", Beer(name="Lager"), "",
+                          slot=None, status="fermenting", revision=1)
+    config_store.apply_settings(show_upcoming_previews=False, num_taps=4,
+                                 max_archive_age_days=1, max_archive_storage_mb=1)
+    # The write above did not go through the gate (it bypassed sync), so this
+    # only pins that an off->off save is not itself a clearing trigger.
+    assert upcoming_store.read("batch-2") is not None
+
+
 # ---- card sizing ---------------------------------------------------------
 
 def test_card_sizing_defaults_to_default_at_scale_one():

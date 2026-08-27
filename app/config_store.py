@@ -20,7 +20,8 @@ import os
 import time
 from typing import Any
 
-from .atomic import atomic_write_text
+from . import upcoming_store
+from .atomic import JOB_LOCK, atomic_write_text
 from .beer_glass import DEFAULT_GLASS, normalize_glass
 from .paths import CONFIG_PATH, ensure_dirs
 from .theme import DEFAULT_THEME, coerce_custom_theme, normalize_theme_name
@@ -39,6 +40,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # still needs a `tap:X` note token to reach a Slot; this only decides which
     # Batches are fetched, never which are displayed.
     "include_fermenting": False,
+    # Master toggle for the Upcoming Beer feature (issue #4). Off means
+    # today's behaviour exactly: nothing is fetched differently (that is
+    # still entirely include_conditioning/include_fermenting's business,
+    # see brewfather.py), and /data/upcoming/ is not written at all. This is
+    # the ONE Setting that deletes files when it goes from on to off - see
+    # config_store.apply_settings and brewfather.run_sync, the two places
+    # that clear it (docs/adr/0006).
+    "show_upcoming_previews": False,
     "num_taps": 0,
     "hide_vacant_taps": False,
     "announcement_text": "",
@@ -246,6 +255,7 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     merged["brewfather_api_key"] = str(merged["brewfather_api_key"] or "").strip()
     merged["include_conditioning"] = bool(merged["include_conditioning"])
     merged["include_fermenting"] = bool(merged["include_fermenting"])
+    merged["show_upcoming_previews"] = bool(merged["show_upcoming_previews"])
     merged["update_check_enabled"] = bool(merged["update_check_enabled"])
 
     # Display options.
@@ -469,7 +479,16 @@ def apply_settings(**fields: Any) -> dict[str, Any]:
 
     Deliberately validates nothing itself. An out-of-range value is clamped; the
     Admin form's inputs are what stop an operator entering one. See CONTEXT.md.
+
+    One exception to "validates nothing": `show_upcoming_previews` going from
+    on to off clears `/data/upcoming/` immediately, right here at the write
+    seam, rather than waiting for the next sync's own convergence check
+    (`brewfather.run_sync` clears it too, for a hand-edited config.json - see
+    docs/adr/0006). It is the only Setting that deletes files, which is why
+    the admin's checkbox carries its own warning rather than this being a
+    surprise.
     """
+    was_on = bool(load_config().get("show_upcoming_previews", False))
     fields = dict(fields)
     # The two axes resolve independently - picking a photo preset must not move
     # the text scale - and each is resolved only when the caller submitted it.
@@ -479,4 +498,8 @@ def apply_settings(**fields: Any) -> dict[str, Any]:
     if "tap_text_preset" in fields:
         fields["tap_text_preset"], fields["tap_text_scale"] = resolve_tap_text_preset(
             fields["tap_text_preset"], fields.get("tap_text_scale"))
-    return update_config(**fields)
+    saved = update_config(**fields)
+    if was_on and not saved.get("show_upcoming_previews", False):
+        with JOB_LOCK:
+            upcoming_store.clear()
+    return saved

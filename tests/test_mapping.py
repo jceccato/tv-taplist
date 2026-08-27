@@ -445,3 +445,158 @@ def test_status_rank_orders_the_whole_lifecycle():
 
 def test_no_tap_token_is_ignored():
     assert mapping.desired_map([{"_id": "a", "status": "Completed", "batchNotes": "x"}]) == {}
+
+
+# ---- the Occupancy pass (issue #4 / #36) --------------------------------
+
+def _batch(bid, status, tap=None, upcoming=False, rev=0):
+    notes = []
+    if tap is not None:
+        notes.append(f"tap:{tap}")
+    if upcoming:
+        notes.append("upcoming:")
+    return {"_id": bid, "name": bid, "status": status,
+            "batchNotes": " ".join(notes), "_timestamp_ms": rev}
+
+
+def test_occupancy_completed_claims_first():
+    batches = [_batch("a", "Completed", tap=1, rev=100)]
+    occupied = mapping.resolve_occupancy(batches)
+    assert occupied[1]["batch"]["_id"] == "a"
+
+
+def test_occupancy_completed_recency_tie_break():
+    batches = [
+        _batch("old", "Completed", tap=1, rev=100),
+        _batch("new", "Completed", tap=1, rev=200),
+    ]
+    assert mapping.resolve_occupancy(batches)[1]["batch"]["_id"] == "new"
+    assert mapping.resolve_occupancy(list(reversed(batches)))[1]["batch"]["_id"] == "new"
+
+
+def test_occupancy_conditioning_fills_only_slots_completed_left_free():
+    batches = [
+        _batch("completed", "Completed", tap=1, rev=100),
+        _batch("conditioning-same-slot", "Conditioning", tap=1, rev=900),
+        _batch("conditioning-free-slot", "Conditioning", tap=2, rev=100),
+    ]
+    occupied = mapping.resolve_occupancy(batches)
+    # Slot 1: Completed wins outright, however much newer the Conditioning
+    # claimant is - completeness beats recency, it is not a tie-break.
+    assert occupied[1]["batch"]["_id"] == "completed"
+    # Slot 2: nothing Completed claimed it, so Conditioning fills it.
+    assert occupied[2]["batch"]["_id"] == "conditioning-free-slot"
+
+
+def test_occupancy_conditioning_recency_tie_break():
+    batches = [
+        _batch("old", "Conditioning", tap=3, rev=100),
+        _batch("new", "Conditioning", tap=3, rev=200),
+    ]
+    assert mapping.resolve_occupancy(batches)[3]["batch"]["_id"] == "new"
+
+
+def test_occupancy_fermenting_and_lower_never_occupy():
+    for status in ("Fermenting", "Brewing", "Planning"):
+        batches = [_batch("a", status, tap=1, rev=100)]
+        assert mapping.resolve_occupancy(batches) == {}
+
+
+def test_occupancy_a_manual_slot_counts_as_occupied():
+    # The deliberate exception: a Conditioning Batch must not take a Slot a
+    # Manual Tap already holds, even though nothing Brewfather claimed it.
+    batches = [_batch("a", "Conditioning", tap=5, rev=100)]
+    assert mapping.resolve_occupancy(batches, manual_slots={5}) == {}
+    # A Completed Batch is unaffected by manual_slots - Source precedence
+    # (Manual beats Brewfather for display) is a separate question from
+    # whether sync writes/considers the Brewfather Tap at all.
+    completed = [_batch("a", "Completed", tap=5, rev=100)]
+    assert mapping.resolve_occupancy(completed, manual_slots={5})[5]["batch"]["_id"] == "a"
+
+
+def test_occupancy_with_no_batches_or_no_claims_is_empty():
+    assert mapping.resolve_occupancy([]) == {}
+    assert mapping.resolve_occupancy([_batch("a", "Completed", rev=1)]) == {}
+
+
+# ---- the Upcoming Beer set (issue #4 / #36) ------------------------------
+
+def test_upcoming_path_a_bound_non_completed_loser():
+    # A Conditioning Batch that carries tap:X but lost the Slot (here: behind
+    # a Manual Tap) becomes a bound Upcoming Beer.
+    batches = [_batch("a", "Conditioning", tap=5, rev=100)]
+    occupied = mapping.resolve_occupancy(batches, manual_slots={5})
+    entries = mapping.upcoming_beers(batches, occupied)
+    assert entries == [{"batch": batches[0], "slot": 5}]
+
+
+def test_upcoming_path_a_fermenting_never_occupies_but_is_bound():
+    batches = [_batch("a", "Fermenting", tap=7, rev=100)]
+    occupied = mapping.resolve_occupancy(batches)
+    entries = mapping.upcoming_beers(batches, occupied)
+    assert entries == [{"batch": batches[0], "slot": 7}]
+
+
+def test_upcoming_path_b_unbound_upcoming_token_any_status():
+    for status in ("Completed", "Conditioning", "Fermenting", "Brewing", "Planning"):
+        batches = [_batch("a", status, upcoming=True, rev=1)]
+        entries = mapping.upcoming_beers(batches, mapping.resolve_occupancy(batches))
+        assert entries == [{"batch": batches[0], "slot": None}]
+
+
+def test_completed_tap_losers_are_excluded_outright():
+    # A beer pulled off its Slot by a fresher Completed claimant is not
+    # "coming up" - it is gone. This is the case ADR-0006 calls out by name.
+    batches = [
+        _batch("winner", "Completed", tap=1, rev=200),
+        _batch("loser", "Completed", tap=1, rev=100),
+    ]
+    occupied = mapping.resolve_occupancy(batches)
+    entries = mapping.upcoming_beers(batches, occupied)
+    assert entries == []
+
+
+def test_tap_beats_upcoming_on_one_batch_whichever_way_it_goes():
+    # A Batch carrying both tokens is judged only by the tap:X path, never
+    # falls through to the upcoming: path - whether it wins its Slot...
+    occupying = [_batch("a", "Completed", tap=1, upcoming=True, rev=100)]
+    occ = mapping.resolve_occupancy(occupying)
+    assert mapping.upcoming_beers(occupying, occ) == []  # it's a Tap, not a teaser
+
+    # ...loses its Slot as a non-Completed Batch (becomes bound, not unbound)...
+    losing = [
+        _batch("winner", "Completed", tap=2, rev=200),
+        _batch("both-tokens", "Conditioning", tap=2, upcoming=True, rev=100),
+    ]
+    occ = mapping.resolve_occupancy(losing)
+    entries = mapping.upcoming_beers(losing, occ)
+    assert entries == [{"batch": losing[1], "slot": 2}]
+
+    # ...or is a Completed loser (excluded outright, not merely "not bound").
+    completed_losing = [
+        _batch("winner", "Completed", tap=3, rev=200),
+        _batch("both-tokens", "Completed", tap=3, upcoming=True, rev=100),
+    ]
+    occ = mapping.resolve_occupancy(completed_losing)
+    assert mapping.upcoming_beers(completed_losing, occ) == []
+
+
+def test_two_upcoming_beers_may_bind_to_one_slot_with_no_dedup():
+    batches = [
+        _batch("a", "Fermenting", tap=4, rev=100),
+        _batch("b", "Conditioning", tap=4, rev=50),  # loses slot 4 to nobody...
+    ]
+    # ...unless something else claims it. Give slot 4 to a Completed Batch so
+    # BOTH non-Completed claimants become bound Upcoming Beers on it.
+    batches.append(_batch("c", "Completed", tap=4, rev=900))
+    occupied = mapping.resolve_occupancy(batches)
+    entries = mapping.upcoming_beers(batches, occupied)
+    bound_to_4 = [e for e in entries if e["slot"] == 4]
+    assert {e["batch"]["_id"] for e in bound_to_4} == {"a", "b"}
+    assert len(bound_to_4) == 2  # no dedup: both survive as separate entries
+
+
+def test_no_upcoming_beers_with_no_qualifying_batches():
+    batches = [_batch("a", "Completed", tap=1, rev=1)]
+    occupied = mapping.resolve_occupancy(batches)
+    assert mapping.upcoming_beers(batches, occupied) == []

@@ -24,6 +24,14 @@ TAPS_DIR = DATA_DIR / "taps"
 # Archive of removed beers (md + image pairs with a datetime suffix).
 OLD_BEERS_DIR = DATA_DIR / "old_beers"
 
+# Cached, disposable Upcoming Beer previews (md + image pairs, keyed by Batch
+# id) - see app/upcoming_store.py and
+# docs/adr/0006-the-upcoming-store-is-disposable-and-separate.md. Written only
+# while show_upcoming_previews is on; cleared - never Archived, never pruned -
+# the moment it goes off, both at the Settings write seam and at the start of
+# the next sync cycle.
+UPCOMING_DIR = DATA_DIR / "upcoming"
+
 # Operator Settings, including the Brewfather credentials (atomic-written).
 CONFIG_PATH = DATA_DIR / "config.json"
 
@@ -45,7 +53,7 @@ BUNDLED_PLACEHOLDER = STATIC_DIR / "placeholder.svg"
 
 def ensure_dirs() -> None:
     """Create the data directory tree if it does not exist yet (first run)."""
-    for d in (DATA_DIR, TAPS_DIR, OLD_BEERS_DIR):
+    for d in (DATA_DIR, TAPS_DIR, OLD_BEERS_DIR, UPCOMING_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
 

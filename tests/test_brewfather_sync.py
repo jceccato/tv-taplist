@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from app import brewfather, config_store, mapping, paths, status_store, tap_store as taps
+from app import upcoming_store
 from app.beer import BEER_KEYS
 
 
@@ -611,3 +612,162 @@ def test_sync_downloads_images_with_the_unauthenticated_client(mock_network):
     # Guard against a vacuous pass: no download attempt means nothing was checked.
     assert len(mock_network["download_clients"]) == 1
     assert mock_network["download_clients"][0].auth is None
+
+
+# ---- the Upcoming store, gated on show_upcoming_previews (issue #36) ------
+
+def test_sync_writes_nothing_to_the_upcoming_store_with_the_feature_off(mock_network):
+    # Off is the default and is contract: today's behaviour exactly.
+    _set_creds()
+    mock_network["batches"] = [_batch("b1", None, "Someday IPA", status="Fermenting",
+                                      batchNotes="upcoming:")]
+    config_store.update_config(include_fermenting=True)
+    brewfather.run_sync()
+    assert upcoming_store.list_all() == []
+
+
+def test_sync_populates_the_upcoming_store_with_the_feature_on(mock_network):
+    _set_creds()
+    config_store.update_config(show_upcoming_previews=True)
+    mock_network["batches"] = [_batch(
+        "b1", None, "Someday IPA", status="Completed", batchNotes="upcoming:")]
+    result = brewfather.run_sync()
+    assert result["ok"] is True
+    assert result["upcoming"] == 1
+    entries = upcoming_store.list_all()
+    assert len(entries) == 1
+    assert entries[0].beer.name == "Someday IPA"
+    assert entries[0].slot is None
+    assert entries[0].status == "completed"
+
+
+def test_sync_populates_both_acquisition_paths(mock_network):
+    _set_creds()
+    config_store.update_config(show_upcoming_previews=True, include_fermenting=True)
+    mock_network["batches"] = [
+        # (a) bound: a Fermenting Batch with tap:X that never occupies.
+        _batch("bound", 5, "Bound Stout", status="Fermenting"),
+        # (b) unbound: upcoming: with no tap:X, on a Completed Batch.
+        _batch("unbound", None, "Unbound Saison", status="Completed", batchNotes="upcoming:"),
+    ]
+    brewfather.run_sync()
+    entries = {e.beer.name: e for e in upcoming_store.list_all()}
+    assert entries["Bound Stout"].slot == 5
+    assert entries["Unbound Saison"].slot is None
+
+
+def test_a_batch_that_stops_qualifying_leaves_no_file_behind(mock_network):
+    _set_creds()
+    config_store.update_config(show_upcoming_previews=True)
+    mock_network["batches"] = [_batch(
+        "b1", None, "Fading Ale", status="Completed", batchNotes="upcoming:")]
+    brewfather.run_sync()
+    assert len(upcoming_store.list_all()) == 1
+
+    mock_network["batches"] = []  # the Batch no longer qualifies at all
+    brewfather.run_sync()
+    assert upcoming_store.list_all() == []
+    assert list(paths.OLD_BEERS_DIR.glob("*")) == []  # never Archived
+
+
+def test_completed_tap_losers_never_reach_the_upcoming_store(mock_network):
+    _set_creds()
+    config_store.update_config(show_upcoming_previews=True, include_conditioning=True)
+    mock_network["batches"] = [
+        _batch("winner", 1, "Fresh Batch", status="Completed", _timestamp_ms=900),
+        _batch("loser", 1, "Pulled Batch", status="Completed", _timestamp_ms=100),
+    ]
+    brewfather.run_sync()
+    assert taps.read(1, taps.Source.BREWFATHER).beer.name == "Fresh Batch"
+    assert upcoming_store.list_all() == []
+
+
+def test_a_manual_tap_counts_as_occupied_for_the_upcoming_gate(mock_network, write_tap):
+    # A Conditioning beer physically warming a Manual-overridden Slot must not
+    # be torn off it and shown as "coming up" instead.
+    write_tap("custom", 2, name="Guest Cask")
+    _set_creds()
+    config_store.update_config(show_upcoming_previews=True, include_conditioning=True)
+    mock_network["batches"] = [_batch("b1", 2, "Behind The Override", status="Conditioning")]
+    brewfather.run_sync()
+    entries = upcoming_store.list_all()
+    assert len(entries) == 1
+    assert entries[0].slot == 2  # bound, because it lost occupancy to the Manual Tap
+    # The Manual Tap itself was never touched.
+    assert taps.read(2, taps.Source.MANUAL).beer.name == "Guest Cask"
+
+
+def test_upcoming_beers_use_the_provisional_recipe_rule(mock_network):
+    _set_creds()
+    config_store.update_config(show_upcoming_previews=True, include_fermenting=True)
+    mock_network["batches"] = [_batch(
+        "b1", 3, "Recipe Read Stout", status="Fermenting",
+        recipe={"name": "Recipe Read Stout", "abv": 7.0, "ibu": 45, "color": 60,
+                "og": 1.070, "fg": 1.014},
+        measuredAbv=2.1, measuredFg=1.040,  # mid-ferment: must NOT be used
+    )]
+    brewfather.run_sync()
+    beer = upcoming_store.list_all()[0].beer
+    assert beer.abv == 7.0
+    assert beer.fg == 1.014
+
+
+def test_turning_the_feature_off_via_a_hand_edited_config_clears_the_directory(mock_network):
+    # The second of the two clearing points (ADR-0006): a sync converges even
+    # when nobody used the admin Save. Runs before the credentials check, so
+    # this needs no _set_creds() at all.
+    from app.beer import Beer
+    upcoming_store.write("stale", Beer(name="Stale"), "", slot=None,
+                         status="fermenting", revision=1)
+    assert upcoming_store.list_all() != []
+
+    assert config_store.load_config()["show_upcoming_previews"] is False
+    brewfather.run_sync()
+    assert upcoming_store.list_all() == []
+
+
+def test_show_upcoming_previews_does_not_widen_the_fetch(mock_network):
+    _set_creds()
+    config_store.update_config(include_conditioning=True, include_fermenting=True)
+    mock_network["batches"] = []
+
+    config_store.update_config(show_upcoming_previews=False)
+    brewfather.run_sync()
+    off_statuses = [r.url.params["status"] for r in mock_network["requests"]]
+
+    mock_network["requests"].clear()
+    config_store.update_config(show_upcoming_previews=True)
+    brewfather.run_sync()
+    on_statuses = [r.url.params["status"] for r in mock_network["requests"]]
+
+    assert off_statuses == on_statuses == ["Completed", "Conditioning", "Fermenting"]
+
+
+def test_failed_sync_makes_no_destructive_change_to_the_upcoming_store(mock_network):
+    _set_creds()
+    config_store.update_config(show_upcoming_previews=True)
+    from app.beer import Beer
+    upcoming_store.write("existing", Beer(name="Existing Beer"), "kept",
+                         slot=None, status="fermenting", revision=1)
+    before = upcoming_store.read("existing")
+
+    def down(request):
+        raise httpx.ConnectError("network down")
+
+    mock_network["respond"] = down
+    result = brewfather.run_sync()
+
+    assert result["ok"] is False
+    after = upcoming_store.read("existing")
+    assert after is not None
+    assert (after.beer, after.body) == (before.beer, before.body)
+
+
+def test_a_batch_that_becomes_upcoming_is_logged_by_name(mock_network, caplog):
+    _set_creds()
+    config_store.update_config(show_upcoming_previews=True)
+    mock_network["batches"] = [_batch(
+        "b1", None, "Loggable Lager", status="Completed", batchNotes="upcoming:")]
+    with caplog.at_level("INFO", logger="taplist.sync"):
+        brewfather.run_sync()
+    assert "Loggable Lager" in caplog.text

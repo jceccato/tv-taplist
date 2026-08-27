@@ -29,7 +29,7 @@ from app import auth, config_store, paths  # noqa: E402
 def clean_state():
     """Reset the data tree, config, and auth rate-limit state before each test."""
     paths.ensure_dirs()
-    for d in (paths.TAPS_DIR, paths.OLD_BEERS_DIR):
+    for d in (paths.TAPS_DIR, paths.OLD_BEERS_DIR, paths.UPCOMING_DIR):
         for f in list(d.iterdir()):
             try:
                 f.unlink()

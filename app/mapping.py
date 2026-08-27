@@ -54,7 +54,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Any, Iterable
 
 from .beer import Beer, SourceRevision
 from .beer_glass import GLASS_KEYS
@@ -557,6 +557,131 @@ def is_current(cached: SourceRevision | None, batch: dict[str, Any], rev: int) -
     lets cached files pick up new fields.
     """
     return cached is not None and cached.matches(source_revision(batch, rev))
+
+
+def _pick_by_recency(claims: dict[int, dict[str, Any]], tap: int,
+                      batch: dict[str, Any], *, kind: str) -> None:
+    """Fold one more same-status claimant into `claims[tap]`, newest winning ties.
+
+    A smaller sibling of `desired_map`'s conflict resolution: this only ever
+    compares Batches of the *same* status against each other (Completed
+    against Completed, Conditioning against Conditioning), because the
+    cross-status precedence for issue #4's Occupancy pass is "Completed
+    always beats Conditioning outright", not a recency comparison at all -
+    see `resolve_occupancy`.
+    """
+    candidate = {"batch": batch, "updated_ms": revision(batch)}
+    existing = claims.get(tap)
+    if existing is None:
+        claims[tap] = candidate
+        return
+    if candidate["updated_ms"] != existing["updated_ms"]:
+        winner = candidate if candidate["updated_ms"] > existing["updated_ms"] else existing
+        log.warning(
+            "tap:%d %s conflict between '%s' and '%s'; keeping '%s' (more recent)",
+            tap, kind, beer_name(candidate["batch"]), beer_name(existing["batch"]),
+            beer_name(winner["batch"]),
+        )
+        claims[tap] = winner
+    # Equal recency: keep whichever was already there (matches desired_map's
+    # ">=" tie behaviour without a pointless log line for a genuine tie).
+
+
+def resolve_occupancy(batches: list[dict[str, Any]],
+                       manual_slots: Iterable[int] = ()) -> dict[int, dict[str, Any]]:
+    """Slot -> the Batch occupying it, under issue #4's Occupancy pass.
+
+    Only reachable meaning while `show_upcoming_previews` is on - with the
+    feature off, `desired_map` alone still decides what pours, which is what
+    keeps "off" meaning today's behaviour exactly. Two independently
+    recency-tie-broken sub-passes:
+
+    1. Completed Batches with `tap:X` claim their Slots first.
+    2. Conditioning Batches then fill any Slot pass 1 left unclaimed, AND
+       that is not in `manual_slots` - the deliberate exception that keeps a
+       Conditioning beer physically on tap from being pushed into the
+       Upcoming queue by this feature. A Slot a Completed Batch already
+       claimed is not reopened for Conditioning to compete for; completeness
+       beats recency outright, it does not merely go first in a tie-break.
+
+    Fermenting, Brewing and Planning Batches never occupy a Slot, whatever
+    `tap:X` they carry - that is the whole point of the feature: a Batch
+    still in primary describes a beer that does not exist at a servable
+    reading yet.
+
+    `manual_slots` is plain data (Slot ints), not a live look at the Tap file
+    store, so this function stays as pure and clientless as the rest of the
+    module (the import-purity AST guard forbids importing tap_store here);
+    the caller, which does own the store, computes it and passes it in.
+    """
+    manual = {int(s) for s in manual_slots}
+
+    completed: dict[int, dict[str, Any]] = {}
+    for batch in batches:
+        if status_label(batch) != "completed":
+            continue
+        tap = slot_claim(batch)
+        if tap is not None:
+            _pick_by_recency(completed, tap, batch, kind="Completed occupancy")
+
+    conditioning: dict[int, dict[str, Any]] = {}
+    for batch in batches:
+        if status_label(batch) != "conditioning":
+            continue
+        tap = slot_claim(batch)
+        if tap is not None:
+            _pick_by_recency(conditioning, tap, batch, kind="Conditioning occupancy")
+
+    occupied = dict(completed)
+    for tap, candidate in conditioning.items():
+        if tap in occupied or tap in manual:
+            continue
+        occupied[tap] = candidate
+    return occupied
+
+
+def upcoming_beers(batches: list[dict[str, Any]],
+                    occupied: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+    """The Upcoming Beer set for one sync cycle - see CONTEXT.md, Upcoming Beer.
+
+    Unordered on purpose: ordering and the display cap (`max_upcoming_previews`)
+    are display-time per ADR-0006, not sync-time, so they are #37's job and do
+    not belong here. Each entry is ``{"batch": ..., "slot": int | None}``.
+
+    Two acquisition paths merge into one list:
+
+    (a) A non-Completed Batch carrying `tap:X` that did not win its claimed
+        Slot in `occupied` - bound to that Slot. Includes a Conditioning
+        Batch that lost to a Completed claimant or to a Manual Tap, and any
+        Fermenting/Brewing/Planning Batch (which never occupies at all).
+    (b) A Batch carrying `upcoming:` and no `tap:X` - unbound, whatever its
+        status, including Completed.
+
+    `tap:X` beats `upcoming:` on a Batch carrying both: such a Batch is
+    judged only by path (a) - whether it occupies, loses, or is excluded for
+    having been Completed and lost - and never falls through to check
+    `upcoming:` at all.
+
+    **Completed `tap:X` losers are excluded outright**, from both paths: a
+    beer that was pulled off a Slot by a fresher Completed Batch is not
+    "coming up" just because it lost. **Two Upcoming Beers may bind to one
+    Slot and both survive - there is no dedup here or anywhere else in this
+    function.**
+    """
+    entries: list[dict[str, Any]] = []
+    for batch in batches:
+        tap = slot_claim(batch)
+        if tap is not None:
+            occupant = occupied.get(tap)
+            if occupant is not None and str(batch_id(occupant["batch"])) == str(batch_id(batch)):
+                continue  # this Batch IS the occupant: a Tap, not a teaser
+            if status_label(batch) == "completed":
+                continue  # a pulled beer is not coming up
+            entries.append({"batch": batch, "slot": tap})
+            continue
+        if is_upcoming(batch):
+            entries.append({"batch": batch, "slot": None})
+    return entries
 
 
 def desired_map(batches: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:

@@ -96,3 +96,23 @@ def test_cleanup_counts_both_files_toward_total():
     cleanup.run_cleanup()
     remaining = list(paths.OLD_BEERS_DIR.glob("*.md"))
     assert len(remaining) == 1  # only one 2MB pair fits under 3MB
+
+
+def test_cleanup_never_touches_the_upcoming_store():
+    # ADR-0006: an Upcoming Beer is never Archived and never pruned - the daily
+    # cleanup does not know /data/upcoming/ exists. Even an entry old and large
+    # enough to trip both cleanup limits must survive untouched.
+    from app import upcoming_store
+    from app.beer import Beer
+
+    upcoming_store.write("stale-batch", Beer(name="Ancient Saison"), "x" * (2 * 1024 * 1024),
+                         slot=None, status="fermenting", revision=1)
+    entry_path = next(paths.UPCOMING_DIR.glob("*.md"))
+    old = time.time() - 9999 * 86400
+    os.utime(entry_path, (old, old))
+
+    config_store.update_config(max_archive_age_days=1, max_archive_storage_mb=0)
+    cleanup.run_cleanup()
+
+    assert upcoming_store.read("stale-batch") is not None
+    assert entry_path.exists()

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from app import admin_ops, board, demo, mapping, tap_store as taps
+from app import admin_ops, board, demo, mapping, paths, tap_store as taps
 from app.beer import BEER_KEYS, Beer, SourceRevision, TapPresentation
 
 
@@ -218,6 +218,21 @@ def test_all_three_writers_produce_a_beer(monkeypatch):
     assert seeded, "the demo seeder wrote nothing"
     assert isinstance(taps.read(seeded[0], taps.Source.BREWFATHER).beer, Beer)
     assert set(BEER_KEYS) <= _front_matter_keys(f"bf_tap_{seeded[0]}.md")
+
+    # 4. The Upcoming store (issue #36), whose writer is handed a Beer built
+    # by Mapping (in provisional mode) rather than building one itself - but
+    # it is still a distinct write path with its own front matter, so it gets
+    # its own structural check rather than riding on Mapping's alone.
+    from app import upcoming_store
+
+    upcoming_beer = mapping.beer({"_id": "b2", "recipe": {"name": "Saison"}}, provisional=True)
+    upcoming_store.write("b2", upcoming_beer, "", slot=None, status="fermenting", revision=1)
+    entry = upcoming_store.read("b2")
+    assert isinstance(entry.beer, Beer)
+    text = (paths.UPCOMING_DIR / next(
+        p.name for p in paths.UPCOMING_DIR.glob("*.md")
+    )).read_text(encoding="utf-8")
+    assert set(BEER_KEYS) <= set(taps.parse_markdown(text)[0])
 
 
 # ---- the two records that travel beside the Beer -----------------------

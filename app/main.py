@@ -541,6 +541,7 @@ class SettingsForm(BaseModel):
     brewfather_api_key: str = ""
     include_conditioning: bool = False
     include_fermenting: bool = False
+    show_upcoming_previews: bool = False
     num_taps: int
     hide_vacant_taps: bool = False
     announcement_text: str = ""

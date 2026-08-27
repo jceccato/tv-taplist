@@ -40,6 +40,7 @@ import httpx
 
 from . import mapping
 from . import tap_store as taps
+from . import upcoming_store
 from .archive import archive_tap
 from .atomic import JOB_LOCK
 from .config_store import (
@@ -52,13 +53,19 @@ from .timezone import iso_now
 
 log = logging.getLogger("taplist.sync")
 
-# The one Source this module is ever allowed to address. Passing it to every
-# store call is what makes "sync never touches a Manual Tap" *structural* rather
-# than remembered: the store derives the filename from the Source, so there is
-# no spelling of a call in here - not a typo, not a copy-paste - that could name
-# a custom_tap_X file. Every read, write, image save, enumeration and archive
-# below passes SYNC_SOURCE, and sync no longer asks about the Manual Source at
-# all - so the rule holds without a single guard to forget.
+# The one Source this module is ever allowed to WRITE, IMAGE-SAVE or ARCHIVE.
+# Passing it to every mutating store call is what makes "sync never writes a
+# Manual Tap" *structural* rather than remembered: the store derives the
+# filename from the Source, so there is no spelling of a call in here - not a
+# typo, not a copy-paste - that could name a custom_tap_X file for a write.
+#
+# Issue #4 (the Upcoming Beer feature) adds one narrow, deliberate exception:
+# sync now READS whether a Manual Tap exists for a Slot
+# (`taps.occupied_slots(taps.Source.MANUAL)` in `run_sync`), because "a Manual
+# Tap means the Slot is occupied" is part of the Occupancy rule that decides
+# what becomes an Upcoming Beer. That is existence only, never content, and
+# never a write/save/archive call - those three remain exclusively
+# SYNC_SOURCE, below and throughout this module.
 SYNC_SOURCE = taps.Source.BREWFATHER
 
 
@@ -254,6 +261,42 @@ def _write_bf_tap(img_client: httpx.Client, tap: int, batch: dict[str, Any], rev
              tap, SYNC_SOURCE, beer.name, image_name)
 
 
+def _write_upcoming_entry(img_client: httpx.Client, batch: dict[str, Any],
+                           slot: int | None) -> None:
+    """Cache one Batch as an Upcoming Beer: fetch its photo, write the entry.
+
+    Mirrors `_write_bf_tap`'s shape - Mapping builds the Beer, this function
+    fetches and stores the photo - but the destination is `upcoming_store`,
+    which the caller rebuilds (`upcoming_store.rebuild`) once every qualifying
+    Batch this cycle has been written. `provisional=True` is what makes the
+    Beer read its Attributes from the recipe for an unfinished Batch, per
+    issue #35 - an Upcoming Beer describes the beer the customer will be
+    handed, not the half-fermented liquid in the tank today.
+
+    Every Batch that reaches here is logged by name, so an operator can tell a
+    `tap:`/`upcoming:` token that worked from one that was mistyped.
+    """
+    batch_ident = mapping.batch_id(batch)
+    beer = mapping.beer(batch, provisional=True)
+    url = mapping.image_url(batch)
+    image_bytes: bytes | None = None
+    image_ext: str | None = None
+    if url:
+        downloaded = _download_image(img_client, url)
+        if downloaded is not None:
+            image_bytes, image_ext = downloaded
+    upcoming_store.write(
+        batch_ident, beer, mapping.description(batch),
+        slot=slot, status=mapping.status_label(batch), revision=mapping.revision(batch),
+        image_bytes=image_bytes, image_ext=image_ext,
+    )
+    log.info(
+        "upcoming: '%s' (%s)%s",
+        beer.name, mapping.status_label(batch),
+        f" bound to tap {slot}" if slot is not None else " (unbound)",
+    )
+
+
 def _is_unchanged(tap: int, batch: dict[str, Any], rev: int) -> bool:
     """True if the stored Brewfather Tap already reflects this batch at this revision.
 
@@ -277,9 +320,22 @@ def _is_unchanged(tap: int, batch: dict[str, Any], rev: int) -> bool:
 def run_sync() -> dict[str, Any]:
     """Execute one full sync. Returns a small status dict. Never raises."""
     ensure_dirs()
+    cfg = load_config()
+    show_upcoming = bool(cfg.get("show_upcoming_previews", False))
+    if not show_upcoming:
+        # Gate convergence (docs/adr/0006): a hand-edited config.json that
+        # turns the feature off must reach an honest /data even without a
+        # fresh Settings save. This is deliberately NOT a fallback for
+        # `config_store.apply_settings`'s own clear on an admin Save - that one
+        # gives immediate feedback, this one guarantees convergence, and
+        # neither substitutes for the other. Runs even when sync is about to
+        # skip below for missing credentials: the gate is about the Setting,
+        # not about whether Brewfather is reachable.
+        with JOB_LOCK:
+            upcoming_store.clear()
+
     creds = brewfather_credentials()
     user_id, api_key = creds["user_id"], creds["api_key"]
-    cfg = load_config()
     # The configured tap count is deliberately NOT read here: it is a display
     # setting, and sync depends only on what Brewfather claims. See
     # `mapping.slot_claim` and `_archive_undesired`.
@@ -349,6 +405,25 @@ def run_sync() -> dict[str, Any]:
                 # Archive any existing bf_tap no Batch claims any more.
                 archived = _archive_undesired(desired)
 
+                # Upcoming Beers (issue #4): gated on show_upcoming_previews,
+                # and computed from the SAME `batches` list already fetched
+                # above - fetch scope is unchanged by this feature. Manual
+                # occupancy is read (never written) here, see the SYNC_SOURCE
+                # note: "a Manual Tap means the Slot is occupied" is part of
+                # the Occupancy rule that decides what counts as Upcoming.
+                teased = 0
+                if show_upcoming:
+                    manual_slots = taps.occupied_slots(taps.Source.MANUAL)
+                    occupied = mapping.resolve_occupancy(batches, manual_slots=manual_slots)
+                    upcoming_entries = mapping.upcoming_beers(batches, occupied)
+                    keep_ids = [mapping.batch_id(item["batch"]) for item in upcoming_entries]
+                    for item in upcoming_entries:
+                        _write_upcoming_entry(img_client, item["batch"], item["slot"])
+                        teased += 1
+                    # Rebuilt, not merged (ADR-0006): a Batch that stopped
+                    # qualifying since the last cycle leaves no file behind.
+                    upcoming_store.rebuild(keep_ids)
+
         except httpx.HTTPStatusError as exc:
             # Auth / API / rate-limit errors: make NO destructive changes.
             sc = exc.response.status_code
@@ -369,14 +444,15 @@ def run_sync() -> dict[str, Any]:
         ts = iso_now()
         _record_status(last_sync_success=ts, last_sync_error=None, last_sync_attempt=ts)
         log.info(
-            "sync finished: %d written, %d unchanged, %d archived",
-            written, unchanged, archived,
+            "sync finished: %d written, %d unchanged, %d archived, %d upcoming",
+            written, unchanged, archived, teased,
         )
         return {
             "ok": True,
             "written": written,
             "unchanged": unchanged,
             "archived": archived,
+            "upcoming": teased,
             "timestamp": ts,
         }
 
