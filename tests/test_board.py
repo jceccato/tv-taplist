@@ -912,3 +912,96 @@ def test_upcoming_deck_enabled_reflects_the_toggle_off_too():
                                 show_upcoming_deck_page=False)
     b = build_board()
     assert b["upcoming_deck_enabled"] is False
+
+
+# ---- The half-board panel's scheduling facts (issue #42) --------------------
+
+def test_upcoming_panel_scheduling_facts_travel_only_when_upcoming_is_on():
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                show_upcoming_panel=True,
+                                upcoming_panel_multiple=5)
+    on = build_board()
+    assert on["upcoming_panel_enabled"] is True
+    assert on["upcoming_panel_multiple"] == 5
+
+    config_store.update_config(show_upcoming_previews=False)
+    off = build_board()
+    assert "upcoming_panel_enabled" not in off
+    assert "upcoming_panel_multiple" not in off
+
+
+def test_upcoming_panel_enabled_reflects_the_toggle_off_too():
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                show_upcoming_panel=False)
+    b = build_board()
+    assert b["upcoming_panel_enabled"] is False
+
+
+def test_upcoming_panel_multiple_is_independent_of_the_deck_multiple_on_the_wire():
+    """The panel and the on-deck page carry separate multiples on the payload.
+
+    A regression here would be a stray copy/paste that piped one Setting's
+    value onto both wire fields.
+    """
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                show_upcoming_deck_page=True, upcoming_deck_multiple=4,
+                                show_upcoming_panel=True, upcoming_panel_multiple=2)
+    b = build_board()
+    assert b["upcoming_deck_multiple"] == 4
+    assert b["upcoming_panel_multiple"] == 2
+
+
+# ---- The admin's resolved counts (issue #42) --------------------------------
+
+from app.board import resolve_upcoming_summary
+
+
+def test_resolve_upcoming_summary_matches_the_boards_own_upcoming_list(write_tap):
+    """The headline guard: the admin's numbers cannot disagree with the board's.
+
+    Four Upcoming Beers set up so every count differs from every other one
+    (1 pinned, 2 cross-fade-reachable, 1 overflow, 4 total) - a summary that
+    swapped which resolved flag it was counting (e.g. counting `pinned` for
+    `overflow`) would still pass a test built from all-equal counts, so the
+    numbers here are deliberately distinct.
+    """
+    config_store.update_config(num_taps=3, show_upcoming_previews=True,
+                                max_upcoming_previews=20,
+                                upcoming_surface_scope="overflow",
+                                upcoming_rotate_occupied=True)
+    write_tap("custom", 1, name="Pouring One")
+    write_tap("custom", 2, name="Pouring Two")
+    _upcoming("pinned", slot=3, status="completed", revision=1)            # bound + vacant
+    _upcoming("cross-fade-1", slot=1, status="completed", revision=1)      # bound + occupied, rotation on
+    _upcoming("cross-fade-2", slot=2, status="completed", revision=1)      # bound + occupied, rotation on
+    _upcoming("unbound", slot=None, status="completed", revision=1)        # no slot -> overflow
+
+    b = build_board()
+    upcoming = b["upcoming"]
+    # Expectations computed independently, straight off the board's own list,
+    # never by calling resolve_upcoming_summary a second time - a bug in the
+    # summary's own counting logic must be visible against this.
+    expected = {
+        "total": len(upcoming),
+        "pinned": sum(1 for u in upcoming if u["pinned"]),
+        "cross_fade": sum(1 for u in upcoming if u["cross_fade"]),
+        "overflow": sum(1 for u in upcoming if u["on_surfaces"]),
+    }
+    assert expected == {"total": 4, "pinned": 1, "cross_fade": 2, "overflow": 1}, expected
+    assert resolve_upcoming_summary() == expected
+
+
+def test_resolve_upcoming_summary_is_all_zero_with_the_feature_off(write_tap):
+    config_store.update_config(num_taps=1, show_upcoming_previews=False)
+    _upcoming("cached-but-off", slot=None, status="completed", revision=1)
+    assert resolve_upcoming_summary() == {
+        "total": 0, "pinned": 0, "cross_fade": 0, "overflow": 0,
+    }
+
+
+def test_resolve_upcoming_summary_is_all_zero_with_nothing_cached():
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20)
+    assert resolve_upcoming_summary() == {
+        "total": 0, "pinned": 0, "cross_fade": 0, "overflow": 0,
+    }

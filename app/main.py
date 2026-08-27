@@ -47,7 +47,7 @@ from . import admin_ops, auth, snapshot, tap_store as taps
 from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
 from .beer import Beer, TapPresentation
 from .beer_glass import DEFAULT_GLASS, GLASS_TYPES, beer_glass_svg
-from .board import build_board
+from .board import build_board, resolve_upcoming_summary
 from .brewfather import run_sync
 from .colors import (
     UNKNOWN_SWATCH_HEX,
@@ -426,6 +426,27 @@ async def admin_page(request: Request):
             # single declaration.
             "upcoming_label_max": MAX_UPCOMING_LABEL_LEN,
             "upcoming_label_presets": UPCOMING_LABEL_PRESETS,
+            # The admin's own report of what is actually resolved (issue #42):
+            # how many Upcoming Beers exist and how the baseline/surfaces
+            # divide them up, read through the same resolution the board
+            # itself uses rather than a second implementation. An operator who
+            # enables a surface and sees no change needs a reason, not a
+            # second guess.
+            "upcoming_summary": resolve_upcoming_summary(),
+            # Which Brewfather fetch-scope toggles are off, named for the
+            # admin's hint (issue #42): show_upcoming_previews deliberately
+            # does not widen the fetch (CLAUDE.md/CONTEXT.md), so a Batch
+            # tagged `upcoming:`/`tap:` while still Fermenting stays invisible
+            # until include_fermenting is also on, and likewise for
+            # Conditioning. Read directly off cfg - this is a plain Settings
+            # check, not a board resolution, so it does not go through
+            # resolve_upcoming_summary above.
+            "upcoming_scope_gaps": [
+                name for name, key in (
+                    ("Conditioning", "include_conditioning"),
+                    ("Fermenting", "include_fermenting"),
+                ) if not cfg.get(key, False)
+            ],
             # Theme + glassware pickers.
             "themes": THEMES,
             "theme_fields": THEME_FIELD_LABELS,
@@ -597,6 +618,8 @@ class SettingsForm(BaseModel):
     upcoming_rotate_occupied: bool = False
     show_upcoming_deck_page: bool = False
     upcoming_deck_multiple: int = 3
+    show_upcoming_panel: bool = False
+    upcoming_panel_multiple: int = 2
     upcoming_surface_scope: str = "overflow"
     num_taps: int
     hide_vacant_taps: bool = False

@@ -467,3 +467,48 @@ def test_upcoming_deck_settings_absent_from_stored_config_read_the_default():
     assert merged["show_upcoming_deck_page"] is False
     assert merged["upcoming_deck_multiple"] == 3
     assert merged["upcoming_surface_scope"] == "overflow"
+
+
+# ---- The half-board panel surface (issue #42) -------------------------------
+
+def test_show_upcoming_panel_defaults_false_and_coerces_bool():
+    assert config_store.DEFAULT_CONFIG["show_upcoming_panel"] is False
+    cfg = config_store.update_config(show_upcoming_panel="yes")
+    assert cfg["show_upcoming_panel"] is True
+    cfg = config_store.update_config(show_upcoming_panel="")
+    assert cfg["show_upcoming_panel"] is False
+
+
+def test_upcoming_panel_multiple_defaults_and_is_in_the_bounds_table():
+    # The default is 2, not the on-deck page's 3 (CLAUDE.md/#42): the panel
+    # is a cheaper interruption - the top half of the board stays readable
+    # underneath it - so it can afford to take its turn more often.
+    assert config_store.DEFAULT_CONFIG["upcoming_panel_multiple"] == 2
+    assert config_store.SETTINGS_BOUNDS["upcoming_panel_multiple"] == (1, 6)
+
+
+def test_upcoming_panel_multiple_clamps_below_the_floor_and_above_the_ceiling():
+    below = config_store.update_config(upcoming_panel_multiple=0)
+    assert below["upcoming_panel_multiple"] == 1
+    above = config_store.update_config(upcoming_panel_multiple=99)
+    assert above["upcoming_panel_multiple"] == 6
+
+
+def test_upcoming_panel_multiple_is_independent_of_the_deck_multiple():
+    """Two surfaces, two independent knobs (issue #42's acceptance criteria).
+
+    Saving one must never move the other - the deck page and the panel are
+    not the same control wearing two names.
+    """
+    cfg = config_store.update_config(upcoming_deck_multiple=5, upcoming_panel_multiple=1)
+    assert cfg["upcoming_deck_multiple"] == 5
+    assert cfg["upcoming_panel_multiple"] == 1
+    cfg = config_store.update_config(upcoming_panel_multiple=6)
+    assert cfg["upcoming_deck_multiple"] == 5   # untouched by the panel's own save
+    assert cfg["upcoming_panel_multiple"] == 6
+
+
+def test_upcoming_panel_settings_absent_from_stored_config_read_the_default():
+    merged = config_store._coerce({"num_taps": 4})
+    assert merged["show_upcoming_panel"] is False
+    assert merged["upcoming_panel_multiple"] == 2

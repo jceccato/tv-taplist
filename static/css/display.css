@@ -451,6 +451,45 @@ html, body {
   text-align: center;
 }
 
+/* ---- The half-board panel (issue #42) ----
+   An optional overflow surface, sibling to the on-deck page, spanning the
+   full width across the BOTTOM HALF of the stage. It has to read as an
+   INTERRUPTION, not as how the board is laid out (CLAUDE.md): the display
+   prototype's first attempt drew a single dashed line along the top, and at
+   a glance the bottom row read as a permanent divider - board furniture,
+   not something floating on top of it. Four things fix that together: a
+   lighter ground than the board behind it (--bg-card-2, one step up from
+   --bg - it visibly sits ON something), a dashed border all the way round
+   (not just one edge), a corner radius, and an inset margin (`--gap` on
+   every side, including the bottom) so the panel never touches the board's
+   own edges. The drop shadow reads as a floating object rather than a
+   region carved out of the layout. Appended directly to the stage (not a
+   `.page`) and toggled with the same opacity-fade `.show` class the
+   cross-fade overlay uses, so it can appear over whichever page is active
+   without joining the carousel itself. */
+.upcoming-panel {
+  position: absolute;
+  left: var(--gap);
+  right: var(--gap);
+  bottom: var(--gap);
+  height: calc(50% - var(--gap) / 2);
+  z-index: 5;
+  display: grid;
+  grid-template-columns: repeat(var(--panel-count, 3), 1fr);
+  grid-template-rows: 1fr;
+  gap: var(--gap);
+  padding: var(--gap);
+  background: var(--bg-card-2);
+  border: 2px dashed var(--accent);
+  border-radius: 1.4vmin;
+  box-shadow: 0 -0.8vmin 3vmin rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 500ms ease;
+}
+.upcoming-panel.show { opacity: 1; }
+.upcoming-panel .card { width: 100%; height: 100%; }
+
 .boot-error {
   position: fixed;
   inset: 0;
@@ -463,6 +502,7 @@ html, body {
 
 @media (prefers-reduced-motion: reduce) {
   .page { transition: none; }
+  .upcoming-panel { transition: none; }
   /* Don't push scrolling text off-screen when motion is disabled. */
   .ticker-text.scroll {
     animation: none;

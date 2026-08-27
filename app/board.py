@@ -565,4 +565,42 @@ def build_board() -> dict[str, Any]:
             "show_upcoming_deck_page", DEFAULT_CONFIG["show_upcoming_deck_page"]))
         board["upcoming_deck_multiple"] = int(cfg.get(
             "upcoming_deck_multiple", DEFAULT_CONFIG["upcoming_deck_multiple"]))
+        # The half-board panel's own scheduling facts (issue #42): the same
+        # category as the on-deck page's pair just above, and resolved the
+        # same way - `upcoming_surface_scope` still never reaches the wire,
+        # because both surfaces read the identical `on_surfaces` answer
+        # already carried on each teaser. With nothing to carry the display
+        # simply does not render the panel (issue #42's "not rendered at
+        # all"), which again needs no extra flag here - the same contract
+        # `upcoming_deck_enabled` already keeps for the on-deck page.
+        board["upcoming_panel_enabled"] = bool(cfg.get(
+            "show_upcoming_panel", DEFAULT_CONFIG["show_upcoming_panel"]))
+        board["upcoming_panel_multiple"] = int(cfg.get(
+            "upcoming_panel_multiple", DEFAULT_CONFIG["upcoming_panel_multiple"]))
     return board
+
+
+def resolve_upcoming_summary() -> dict[str, int]:
+    """Counts of resolved Upcoming Beers, for the admin (issue #42).
+
+    Reads through `build_board()` - the same resolution the TV consumes -
+    rather than re-deriving anything: the ticket's whole point is that the
+    admin's numbers cannot disagree with the board's, and the only way to
+    guarantee that structurally (not just by care) is to have the admin ask
+    the board's own output rather than run a second pass over the Upcoming
+    store. `on_surfaces` already answers "does this teaser belong on an
+    overflow surface" (board.resolve_upcoming) for whichever scope the
+    operator chose, so summing it is the overflow count for either scope with
+    no branching here.
+
+    With the feature off, `build_board()` carries no "upcoming" key at all
+    (its own toggle contract), so every count is zero - which is also the
+    correct thing to tell an operator who has not turned the feature on yet.
+    """
+    upcoming = build_board().get("upcoming") or []
+    return {
+        "total": len(upcoming),
+        "pinned": sum(1 for u in upcoming if u["pinned"]),
+        "cross_fade": sum(1 for u in upcoming if u["cross_fade"]),
+        "overflow": sum(1 for u in upcoming if u["on_surfaces"]),
+    }

@@ -80,6 +80,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # beer late in the cross-fade's list never gets a turn (CLAUDE.md).
     "show_upcoming_deck_page": False,
     "upcoming_deck_multiple": 3,
+    # The half-board panel (issue #42): a second, independent overflow
+    # surface. Off by default, same as the on-deck page, and carries its own
+    # multiplier for the same starving-a-late-beer reason `upcoming_deck_multiple`
+    # does - the two surfaces are not tied together, so an operator can run
+    # either, both (at their own paces) or neither. 2x reads well as the
+    # default (the prototype's own default, see CLAUDE.md) - the panel
+    # interrupts more often than the on-deck page's 3x because it costs the
+    # customer less: the top half of the board stays readable underneath it.
+    "show_upcoming_panel": False,
+    "upcoming_panel_multiple": 2,
     # What a surface carries. "overflow" (default) is only what the baseline
     # cannot reach - a pinned teaser already owns its Vacant Slot outright, the
     # strongest presentation available, so it is correctly excluded. "all"
@@ -201,6 +211,10 @@ SETTINGS_BOUNDS: dict[str, tuple[float, float | None]] = {
     # one-teaser-per-tick cycling could starve outright; 6 is generous enough
     # that "practically never" is already reachable well before the ceiling.
     "upcoming_deck_multiple": (1, 6),
+    # Same range and the same reasoning as upcoming_deck_multiple above, for
+    # the panel's own multiplier (issue #42) - a second, independent surface,
+    # not a second control on the same one.
+    "upcoming_panel_multiple": (1, 6),
     # 300, not rotation_seconds' 600 (CLAUDE.md): five minutes is already the
     # point where a customer there for one drink may never see a teaser, and
     # an operator reaching past it wants the feature off rather than slowed.
@@ -317,7 +331,8 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     # so an operator is stopped while typing instead. See CONTEXT.md.
     for key in ("num_taps", "max_upcoming_previews", "upcoming_interval_seconds",
                 "max_archive_age_days", "max_archive_storage_mb", "page_size",
-                "rotation_seconds", "venue_logo_height_vh", "upcoming_deck_multiple"):
+                "rotation_seconds", "venue_logo_height_vh", "upcoming_deck_multiple",
+                "upcoming_panel_multiple"):
         lo, hi = SETTINGS_BOUNDS[key]
         merged[key] = _coerce_int(merged[key], lo, hi, DEFAULT_CONFIG[key])
 
@@ -337,6 +352,7 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     merged["show_upcoming_abv"] = bool(merged["show_upcoming_abv"])
     merged["upcoming_rotate_occupied"] = bool(merged["upcoming_rotate_occupied"])
     merged["show_upcoming_deck_page"] = bool(merged["show_upcoming_deck_page"])
+    merged["show_upcoming_panel"] = bool(merged["show_upcoming_panel"])
     # Unrecognised coerces to "overflow" rather than being rejected (CLAUDE.md):
     # a hand-edited config.json has no one to report an error to. "overflow" is
     # also the safer default to fall back to - it never shows a beer twice.

@@ -224,6 +224,159 @@ def test_save_settings_unchecked_deck_page_saves_as_false():
     assert config_store.load_config()["show_upcoming_deck_page"] is False
 
 
+# ---- The half-board panel surface (issue #42) ------------------------------
+
+def test_api_board_carries_panel_facts_but_not_the_scope_input():
+    from app.beer import Beer
+    from app import upcoming_store
+
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20,
+                                upcoming_surface_scope="all",
+                                show_upcoming_panel=True,
+                                upcoming_panel_multiple=4)
+    upcoming_store.write("batch-panel", Beer(name="Panel Beer"), "soon",
+                          slot=None, status="completed", revision=1)
+    board = client.get("/api/board").json()
+    teaser = board["upcoming"][0]
+    assert teaser["on_surfaces"] is True
+    assert board["upcoming_panel_enabled"] is True
+    assert board["upcoming_panel_multiple"] == 4
+    assert "upcoming_surface_scope" not in board
+
+
+def test_admin_page_offers_the_panel_controls():
+    c = _login(TestClient(app))
+    html = c.get("/admin").text
+    for needle in ('name="show_upcoming_panel"', 'name="upcoming_panel_multiple"'):
+        assert needle in html, needle
+
+
+def test_save_settings_persists_the_panel_settings():
+    c = _login(TestClient(app))
+    r = c.post("/admin/settings", data={
+        "num_taps": "1", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
+        "show_upcoming_panel": "true", "upcoming_panel_multiple": "5",
+    })
+    assert r.status_code == 200 and r.json()["ok"] is True
+    cfg = config_store.load_config()
+    assert cfg["show_upcoming_panel"] is True
+    assert cfg["upcoming_panel_multiple"] == 5
+
+
+def test_save_settings_unchecked_panel_saves_as_false():
+    """The checkbox-direction risk this ticket adds a new boolean into."""
+    c = _login(TestClient(app))
+    config_store.update_config(show_upcoming_panel=True)
+    r = c.post("/admin/settings", data={
+        "num_taps": "1", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
+        "show_upcoming_panel": "false",
+    })
+    assert r.status_code == 200
+    assert config_store.load_config()["show_upcoming_panel"] is False
+
+
+def test_save_settings_unchecked_panel_defaults_off_when_previously_true_and_omitted():
+    """The other checkbox direction: posting neither surface must not leave one on.
+
+    Distinct from the previous test (which explicitly posts "false") - this
+    posts nothing for the panel at all, the shape a real unchecked HTML
+    checkbox actually takes.
+    """
+    c = _login(TestClient(app))
+    config_store.update_config(show_upcoming_panel=True, show_upcoming_deck_page=True)
+    r = c.post("/admin/settings", data={
+        "num_taps": "1", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
+    })
+    assert r.status_code == 200
+    cfg = config_store.load_config()
+    assert cfg["show_upcoming_panel"] is False
+    assert cfg["show_upcoming_deck_page"] is False
+
+
+# ---- The admin's resolved counts (issue #42) --------------------------------
+
+def test_admin_page_renders_the_resolved_upcoming_counts(write_tap):
+    from app.beer import Beer
+    from app import upcoming_store
+
+    config_store.update_config(num_taps=2, show_upcoming_previews=True,
+                                max_upcoming_previews=20,
+                                upcoming_surface_scope="overflow",
+                                upcoming_rotate_occupied=True)
+    write_tap("custom", 1, name="Pouring Now")
+    upcoming_store.write("pinned", Beer(name="Pinned"), "", slot=2,
+                          status="completed", revision=1)
+    upcoming_store.write("unbound", Beer(name="Unbound"), "", slot=None,
+                          status="completed", revision=1)
+    c = _login(TestClient(app))
+    html = c.get("/admin").text
+    # These are the very numbers resolve_upcoming_summary() computed - the
+    # admin route has no second counting logic of its own to disagree with it.
+    from app.board import resolve_upcoming_summary
+    summary = resolve_upcoming_summary()
+    assert summary == {"total": 2, "pinned": 1, "cross_fade": 0, "overflow": 1}
+    assert f'id="upcoming-summary-total">{summary["total"]}<' in html
+    assert f'id="upcoming-summary-pinned">{summary["pinned"]}<' in html
+    assert f'id="upcoming-summary-cross-fade">{summary["cross_fade"]}<' in html
+    assert f'id="upcoming-summary-overflow">{summary["overflow"]}<' in html
+
+
+def test_admin_page_explains_an_enabled_surface_with_empty_overflow(write_tap):
+    """Issue #42's informational fix: a toggle that looks broken says why.
+
+    Everything here is pinned or cross-fade-reachable, so the overflow is
+    correctly empty; with a surface enabled the admin must say so rather than
+    leaving the operator to conclude the toggle does nothing.
+    """
+    from app.beer import Beer
+    from app import upcoming_store
+
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20,
+                                upcoming_surface_scope="overflow",
+                                upcoming_rotate_occupied=True,
+                                show_upcoming_deck_page=True)
+    write_tap("custom", 1, name="Pouring Now")
+    upcoming_store.write("cross-fade-only", Beer(name="CF"), "", slot=1,
+                          status="completed", revision=1)
+    c = _login(TestClient(app))
+    html = c.get("/admin").text
+    assert "overflow is empty right now" in html
+
+
+def test_admin_page_says_nothing_is_cached_when_the_feature_is_on_but_empty():
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20)
+    c = _login(TestClient(app))
+    html = c.get("/admin").text
+    assert "No Upcoming Beers are cached" in html
+
+
+def test_admin_page_says_previews_are_off_when_the_master_toggle_is_off():
+    config_store.update_config(num_taps=1, show_upcoming_previews=False)
+    c = _login(TestClient(app))
+    html = c.get("/admin").text
+    assert "Upcoming beer previews are off" in html
+
+
+def test_admin_page_names_the_missing_fetch_scope_toggles():
+    """The dependency note: show_upcoming_previews never widens the fetch."""
+    config_store.update_config(include_conditioning=False, include_fermenting=False)
+    c = _login(TestClient(app))
+    html = c.get("/admin").text
+    assert "Conditioning and Fermenting batches are not fetched" in html
+
+    config_store.update_config(include_conditioning=True, include_fermenting=False)
+    html = c.get("/admin").text
+    assert 'Fermenting batches are not fetched' in html
+    assert "Conditioning and Fermenting" not in html
+
+    config_store.update_config(include_conditioning=True, include_fermenting=True)
+    html = c.get("/admin").text
+    assert "batches are not fetched" not in html
+
+
 def test_img_upcoming_serves_the_cached_photo():
     from app.beer import Beer
     from app import upcoming_store

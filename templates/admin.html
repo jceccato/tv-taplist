@@ -208,12 +208,59 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             <input id="upcoming_deck_multiple" name="upcoming_deck_multiple" type="number" {{ bounds_for('upcoming_deck_multiple') }} step="1" value="{{ cfg.upcoming_deck_multiple }}">
             <p class="hint">The cross-fade shows one teaser per tick, so a surface taking over too often could starve a beer late in the list of its turn. Slower surfaces leave the baseline room to work through it.</p>
 
+            <label class="checkbox">
+              <input type="checkbox" name="show_upcoming_panel" {{ 'checked' if cfg.show_upcoming_panel else '' }}>
+              Add a half-board panel
+            </label>
+            <p class="hint">A panel spanning the full width across the bottom half of the board, carrying whatever this scope resolves to. Reads as an interruption (lighter ground, dashed border, drop shadow) rather than as board furniture. Not shown at all when there is nothing to carry.</p>
+
+            <label for="upcoming_panel_multiple">Half-board panel every (x the cadence above)</label>
+            <input id="upcoming_panel_multiple" name="upcoming_panel_multiple" type="number" {{ bounds_for('upcoming_panel_multiple') }} step="1" value="{{ cfg.upcoming_panel_multiple }}">
+            <p class="hint">Independent of the on-deck page's own multiple above - the two surfaces run at their own paces. Both enabled at once is a valid choice but is not designed around: the shared cadence's interlock stops them landing on top of each other, at the cost of each one getting fewer turns.</p>
+
             <label for="upcoming_surface_scope">Surface carries</label>
             <select id="upcoming_surface_scope" name="upcoming_surface_scope">
               <option value="overflow" {{ 'selected' if cfg.upcoming_surface_scope == 'overflow' else '' }}>Overflow only</option>
               <option value="all" {{ 'selected' if cfg.upcoming_surface_scope == 'all' else '' }}>All upcoming</option>
             </select>
             <p class="hint">"Overflow only" never shows a beer twice at once. "All upcoming" includes a teaser already pinned permanently to a Vacant Slot, so a dedicated surface is genuinely complete - the same beer may then appear in two places, at different moments, which is expected.</p>
+
+            <hr class="panel-sep">
+            <h3>What's actually resolved</h3>
+            {# The overflow can legitimately be empty (no unbound teasers, rotation
+               on) - correct behaviour that reads as a broken toggle to an operator
+               who just enabled a surface and sees no change. These counts are read
+               through resolve_upcoming_summary(), the SAME resolution the board
+               itself uses (app/board.py) - there is no second implementation here
+               for the numbers to disagree with. #}
+            <div class="status-grid" id="upcoming-summary">
+              <div>
+                <span class="k">Upcoming Beers</span>
+                <span class="v" id="upcoming-summary-total">{{ upcoming_summary.total }}</span>
+              </div>
+              <div>
+                <span class="k">Pinned to a vacant slot</span>
+                <span class="v" id="upcoming-summary-pinned">{{ upcoming_summary.pinned }}</span>
+              </div>
+              <div>
+                <span class="k">Reached by the cross-fade</span>
+                <span class="v" id="upcoming-summary-cross-fade">{{ upcoming_summary.cross_fade }}</span>
+              </div>
+              <div>
+                <span class="k">Overflow (on-deck page / half-board panel)</span>
+                <span class="v" id="upcoming-summary-overflow">{{ upcoming_summary.overflow }}</span>
+              </div>
+            </div>
+            {% if not cfg.show_upcoming_previews %}
+            <p class="hint">Upcoming beer previews are off, so there is nothing to resolve yet - turn on "Show upcoming beer previews" above.</p>
+            {% elif upcoming_summary.total == 0 %}
+            <p class="hint">No Upcoming Beers are cached. A Batch needs an <code>upcoming:</code> or <code>tap:</code> note token in Brewfather, and the sync that reads it has to reach that Batch's status - see the scope note below.</p>
+            {% elif (cfg.show_upcoming_deck_page or cfg.show_upcoming_panel) and upcoming_summary.overflow == 0 %}
+            <p class="hint">A surface is enabled but the overflow is empty right now - every Upcoming Beer is either pinned to a vacant slot or already reachable by the cross-fade. This is correct: nothing renders on the enabled surface until a teaser exists that only the overflow can reach.</p>
+            {% endif %}
+            {% if upcoming_scope_gaps %}
+            <p class="hint"><strong>{{ upcoming_scope_gaps|join(' and ') }} batches are not fetched</strong> from Brewfather - turn on {{ 'Include Conditioning batches / Include Fermenting batches' if upcoming_scope_gaps|length > 1 else ('"Include Conditioning batches"' if upcoming_scope_gaps[0] == 'Conditioning' else '"Include Fermenting batches"') }} above before a Batch in that status can become an Upcoming Beer. "Show upcoming beer previews" does not widen the fetch by itself.</p>
+            {% endif %}
           </fieldset>
 
           <fieldset>

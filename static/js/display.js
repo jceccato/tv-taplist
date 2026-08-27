@@ -91,6 +91,19 @@
   let deckHoldTimer = null;
   let deckReturnTimer = null;
 
+  // The half-board panel's own state (issue #42). An overlay element, not a
+  // page - it floats over whichever page is active rather than joining
+  // state.pages - so it is kept module-scoped for the same reason the
+  // deck-page vars above are: purely a scheduling/layout concern of this
+  // surface. `panelEl` is null whenever there is nothing to carry, which is
+  // what makes "not rendered at all" (rather than rendered empty) automatic:
+  // panelTick() below is a no-op against a null element.
+  let panelEl = null;
+  let panelMultiple = 2;        // the operator's multiple of the shared interval
+  let panelTickCounter = 0;     // counts shared-interval ticks; the panel's own cadence
+  let panelHoldTimer = null;
+  let panelFadeTimer = null;
+
   // ---- helpers ----
   function chunk(arr, size) {
     const out = [];
@@ -237,14 +250,27 @@
     return pages.map((p) => p.join(",")).join(";");
   }
 
-  // The teasers the on-deck page carries (issue #41): `on_surfaces` is
-  // already the resolved answer (board.py's resolve_upcoming) - this file
-  // never re-derives it from the scope Setting, which it never even sees
-  // (CLAUDE.md). Absent whenever `upcoming` itself is, same as every other
-  // upcoming-beer read here.
+  // The teasers ANY overflow surface may carry: `on_surfaces` is already the
+  // resolved answer (board.py's resolve_upcoming) - this file never
+  // re-derives it from the scope Setting, which it never even sees
+  // (CLAUDE.md). Both the on-deck page and the half-board panel read the
+  // identical set through this one function, because they carry the same
+  // surface set (issue #42) - there is no per-surface scope, only a
+  // per-surface enable toggle and multiple.
+  function overflowTeasers(board) {
+    return board.upcoming ? board.upcoming.filter((u) => u.on_surfaces) : [];
+  }
+
+  // The teasers the on-deck page carries (issue #41): empty whenever the page
+  // itself is disabled, so a caller never has to check the toggle twice.
   function deckTeasers(board) {
-    return board.upcoming_deck_enabled && board.upcoming
-      ? board.upcoming.filter((u) => u.on_surfaces) : [];
+    return board.upcoming_deck_enabled ? overflowTeasers(board) : [];
+  }
+
+  // The teasers the half-board panel carries (issue #42): same shape as
+  // deckTeasers above, gated on the panel's own toggle instead.
+  function panelTeasers(board) {
+    return board.upcoming_panel_enabled ? overflowTeasers(board) : [];
   }
 
   // A change signature for the deck page's own content, folded into the
@@ -254,6 +280,20 @@
   // happened to force a full re-render.
   function deckSignature(board) {
     return deckTeasers(board).map((u) => [
+      u.batch_id, u.name, u.abv, u.ibu, u.ebc, u.og, u.fg, u.color_hex,
+      u.abv_visible, u.ibu_visible, u.ebc_visible, u.og_visible, u.fg_visible,
+      u.swatch_visible, u.description, u.image_url, u.status_label,
+      u.subtitle, u.abv_estimated,
+    ].join(",")).join(";");
+  }
+
+  // The half-board panel's own change signature (issue #42), the same
+  // shape and the same reason as deckSignature above: the panel is not a
+  // Tap and is not itself a carousel page, so a teaser being added, dropped
+  // or edited would otherwise go unnoticed by layoutSignature() /
+  // settingsSignature() / deckSignature() alone and leave the panel stale.
+  function panelSignature(board) {
+    return panelTeasers(board).map((u) => [
       u.batch_id, u.name, u.abv, u.ibu, u.ebc, u.og, u.fg, u.color_hex,
       u.abv_visible, u.ibu_visible, u.ebc_visible, u.og_visible, u.fg_visible,
       u.swatch_visible, u.description, u.image_url, u.status_label,
@@ -586,6 +626,7 @@
     // position) is untouched: a poll must never reset it, only the overlay.
     crossFadeForceEnd();
     deckForceEnd();
+    panelForceEnd();
     state.pages = chunk(taps.map((t) => t.tap), pageSize());
     state.layoutKey = layoutSignature(state.pages);
     state.cardEls.clear();
@@ -645,6 +686,34 @@
       deckPageIndex = state.pages.length - 1;
     } else {
       deckPageIndex = -1;
+    }
+
+    // The half-board panel (issue #42): an overlay appended directly to the
+    // stage, not a page - it floats over the bottom half of whichever page is
+    // active rather than joining the carousel. With nothing to carry it is
+    // never appended at all (`panelEl` stays null), matching the on-deck
+    // page's own "not rendered" contract just above rather than being built
+    // and left invisible.
+    const panelList = panelTeasers(board);
+    if (panelList.length) {
+      const label = board.upcoming_label || "Coming up";
+      const panel = document.createElement("div");
+      panel.className = "upcoming-panel";
+      panel.style.setProperty("--panel-count", String(panelList.length));
+      panelList.forEach((u, i) => {
+        // Same synthetic string `tap` id scheme as the deck page's cards:
+        // never looked up by tap number, and a string can never collide with
+        // a real integer tap number.
+        const card = buildCard({
+          tap: "panel-" + (u.batch_id != null ? u.batch_id : i),
+          vacant: false, teaser: true, ...teaserCardFields(u, label),
+        });
+        panel.appendChild(card);
+      });
+      stage.appendChild(panel);
+      panelEl = panel;
+    } else {
+      panelEl = null;
     }
 
     taps.forEach((t) => state.dataByTap.set(t.tap, t));
@@ -939,11 +1008,47 @@
     upcomingBusy = false;
   }
 
-  // The one shared interval (issue #40/#41): every later surface's own turn
-  // is driven off this same tick rather than a timer of its own.
+  /* ---- the half-board panel's own turn (issue #42) ----
+
+     Built on the same shared scheduler as the on-deck page above: its own
+     tick counter against its own multiple, the same `upcomingBusy` interlock
+     (a turn arriving while the cross-fade or the deck page is up is skipped,
+     not queued), and the same derived `holdMs()`. Unlike the deck page's
+     "turn" (a page navigation), the panel's turn is an overlay fade - closer
+     in shape to the cross-fade's own show/hide - because the panel floats
+     over the board rather than replacing what is on screen. */
+
+  function panelTick() {
+    panelTickCounter++;
+    if (!panelEl) return;                              // disabled, or nothing to carry
+    if (panelTickCounter % Math.max(1, panelMultiple) !== 0) return;
+    if (upcomingBusy) return;                           // interlock: skip this turn, not queue it
+    upcomingBusy = true;
+    panelEl.classList.add("show");
+    panelHoldTimer = setTimeout(() => {
+      panelHoldTimer = null;
+      panelEl.classList.remove("show");
+      panelFadeTimer = setTimeout(() => { panelFadeTimer = null; upcomingBusy = false; }, 500);
+    }, holdMs(state.settings.upcoming_interval_seconds));
+  }
+
+  // Ends an in-flight panel turn immediately: used exactly when
+  // crossFadeForceEnd()/deckForceEnd() are - a structural re-render is about
+  // to replace (or remove) the panel element itself, so any pending
+  // hide/release would otherwise fire against a node no longer on screen.
+  function panelForceEnd() {
+    if (panelHoldTimer) { clearTimeout(panelHoldTimer); panelHoldTimer = null; }
+    if (panelFadeTimer) { clearTimeout(panelFadeTimer); panelFadeTimer = null; }
+    panelEl = null;
+    upcomingBusy = false;
+  }
+
+  // The one shared interval (issue #40/#41/#42): every surface's own turn is
+  // driven off this same tick rather than a timer of its own.
   function upcomingTick() {
     crossFadeTick();
     deckPageTick();
+    panelTick();
   }
 
   function setUpcomingInterval(seconds) {
@@ -1070,6 +1175,10 @@
     // changed multiple takes effect on its very next tick rather than
     // waiting for some unrelated layout change to force a rebuild.
     deckMultiple = Math.max(1, Math.min(6, Number(board.upcoming_deck_multiple) || 3));
+    // The half-board panel's own multiple (issue #42): updated every poll for
+    // the same reason deckMultiple is above - a changed value takes effect on
+    // its very next tick rather than waiting for some unrelated full re-render.
+    panelMultiple = Math.max(1, Math.min(6, Number(board.upcoming_panel_multiple) || 2));
 
     const taps = visibleTaps(board);
     const pages = chunk(taps.map((t) => t.tap), pageSize());
@@ -1078,7 +1187,7 @@
     // unnoticed by layoutSignature()/settingsSignature() alone and leave the
     // page stale.
     const key = layoutSignature(pages) + "#" + settingsSignature(state.settings) +
-      "#deck:" + deckSignature(board);
+      "#deck:" + deckSignature(board) + "#panel:" + panelSignature(board);
     if (!state.hasRendered || key !== state.layoutKey) {
       fullRender(board, taps);
       state.layoutKey = key;   // fullRender sets the layout-only key; override it
