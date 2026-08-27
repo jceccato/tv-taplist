@@ -24,15 +24,68 @@ from __future__ import annotations
 import io
 import json
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from app.beer_glass import (  # noqa: E402
-    _GLASS_FILL, _GLASS_STROKE, _SILHOUETTES, DEFAULT_GLASS, GLASS_TYPES,
+    _GLASS_FILL, _GLASS_STROKE, _HEAD_BLOBS, _SILHOUETTES, DEFAULT_GLASS,
+    GLASS_TYPES,
 )
 from mug_lab import flatten  # noqa: E402
+
+
+def _span(outline, y: float) -> tuple[float, float]:
+    """The pour's left and right edge at one height, off the flattened outline."""
+    xs = []
+    for a, b in zip(outline, outline[1:]):
+        if (a[1] - y) * (b[1] - y) <= 0 and a[1] != b[1]:
+            xs.append(a[0] + (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]))
+    return (min(xs), max(xs)) if xs else (150.0, 150.0)
+
+
+def _settled(key: str, outline) -> dict[str, float]:
+    """Every knob, read back out of what the glass actually ships.
+
+    The lab used to open on a shared default with the depth seeded from each
+    glass's height, which was the right start when nothing had been decided.
+    It is the wrong start now: the head is settled, so opening anywhere else
+    means the first thing seen is a shape nobody chose, and a knob nudged from
+    there is being judged against the wrong neighbour.
+
+    Reading production back rather than pasting a table of numbers in is what
+    keeps this honest - edit a row in `app/beer_glass.py`, regenerate, and the
+    lab opens on the new value with nothing here to update. The head's own
+    parameters come out of `_SILHOUETTES`; the mound comes out of the shared
+    `_HEAD_BLOBS`, which is where production keeps it.
+    """
+    s = _SILHOUETTES[key]
+    top = min(p[1] for p in outline)
+    left, right = _span(outline, top + 1.5)
+    half = (right - left) / 2
+    cy, rx, ry = s.head
+    # The foam band, written back to front: its straight edge sits curve/2 above
+    # the depth line and its control point 1.5 * curve below, which is the pair
+    # this reads to recover both. See `head()` in the page for the forward form.
+    nums = [float(n) for n in re.findall(r"-?\d+\.?\d*", s.foam)]
+    edge, ctrl = nums[5], nums[9]
+    curve = (ctrl - edge) / 2
+    return {
+        "width": round(rx / half, 3),
+        "ry": round(ry / rx, 3),
+        "sit": round(cy - top, 2),
+        "depth": round(edge + curve / 2 - cy, 2),
+        "curve": round(curve, 2),
+        # Not implemented in production at all: the underside settled on a hard
+        # edge everywhere, so there is nothing to read back. The knob stays -
+        # it is the first thing to try if a head ever reads as painted on.
+        "fade": 0,
+        "blob": _HEAD_BLOBS[0][2],
+        "spread": _HEAD_BLOBS[2][0],
+        "lift": -_HEAD_BLOBS[0][1],
+    }
 
 
 def build() -> str:
@@ -40,15 +93,14 @@ def build() -> str:
     for key, label in GLASS_TYPES:
         s = _SILHOUETTES[key]
         outline = flatten(s.pour)
-        ys = [p[1] for p in outline]
         glasses[key] = {
             "label": label,
             "pour": s.pour,
             "outline": outline,
-            # Seeded proportionally: the depth the maintainer liked on the Willi
-            # Becher (46 units over a 159-unit pour), scaled to each glass's own
-            # height. A fixed depth reads far deeper on a shallow teku bowl.
-            "depth": round(46 * (max(ys) - min(ys)) / 159, 1),
+            # Where this glass ships, so the lab opens on it rather than on a
+            # seed - which also makes "Reset" mean "back to what production
+            # draws" rather than "back to the day nothing was decided".
+            "settled": _settled(key, outline),
             "stem": s.stem or "",
             "etch": s.etch or "",
             "sheen": s.sheen or "",
@@ -96,8 +148,8 @@ _TEMPLATE = r"""<!doctype html>
   <h1>Head shape</h1>
   <p class="note">The rim is measured from each pour, not typed in. Width 1.00
   means the foam is exactly as wide as the mouth. <b>Every knob below applies
-  to <i data-for></i> alone</b> - the row of seven at the bottom shows what the
-  others are set to.</p>
+  to <i data-for></i> alone</b> - the row at the bottom shows where every other
+  glass is set.</p>
 
   <label>Glass</label>
   <div class="seg" id="glass"></div>
@@ -152,12 +204,13 @@ _TEMPLATE = r"""<!doctype html>
 </div>
 <script>
 const DATA = __DATA__;
-/* Width 1.0 and no depth is TODAY's geometry made honest: production's
-   hand-entered rx is narrower than the mouth on every glass but the mug. */
+/* The shared baseline. Every glass overrides all of it from its own shipped
+   row on load - this is only what a knob falls back to if production ever
+   stops carrying one. */
 const D = {width:1.0, ry:0.32, sit:0, depth:0, curve:0, fade:0,
            blob:0.30, spread:0.55, lift:0.30};
 /* EVERY knob is per glass while the shapes are being tuned. Some of these will
-   turn out to hold the same value on all seven - width and the mound almost
+   turn out to hold the same value on every glass - width and the mound almost
    certainly will, being ratios of each glass's own mouth - and those collapse
    back to one shared default when they fold into production. Until then it is
    cheaper to let each glass disagree than to argue about which ones may. */
@@ -344,9 +397,9 @@ function load() {
   bg = q.get("bg") || bg;
   colour = q.get("colour") || colour;
   Object.keys(DATA.glasses).forEach(function (k) {
-    // Depth is seeded from the glass's own height; everything else starts
-    // shared, and diverges only where the maintainer pulls it apart.
-    S[k] = Object.assign({}, D, {depth: DATA.glasses[k].depth});
+    // Open on what the glass ships, so the first thing on screen is the
+    // decision that was made rather than a starting point nobody chose.
+    S[k] = Object.assign({}, D, DATA.glasses[k].settled);
     const packed = q.get(k);
     if (packed) packed.split(",").forEach(function (v, i) {
       if (KNOBS[i] && v !== "") S[k][KNOBS[i]] = +v;
@@ -364,12 +417,12 @@ document.getElementById("apply-all").onclick = function () {
   render();
 };
 document.getElementById("reset-one").onclick = function () {
-  S[glass] = Object.assign({}, D, {depth: DATA.glasses[glass].depth});
+  S[glass] = Object.assign({}, D, DATA.glasses[glass].settled);
   render();
 };
 document.getElementById("reset").onclick = function () {
   Object.keys(DATA.glasses).forEach(k =>
-    S[k] = Object.assign({}, D, {depth: DATA.glasses[k].depth}));
+    S[k] = Object.assign({}, D, DATA.glasses[k].settled));
   render();
 };
 document.getElementById("shipped").onclick = function () {
