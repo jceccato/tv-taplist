@@ -821,3 +821,94 @@ def test_board_carries_the_operators_teaser_label_only_when_upcoming_is_on():
     config_store.update_config(show_upcoming_previews=False)
     b = build_board()
     assert "upcoming_label" not in b
+
+
+# ---- on_surfaces: the on-deck page's overflow resolution (issue #41) -------
+
+def test_on_surfaces_under_overflow_scope_covers_only_what_the_baseline_cannot_reach(write_tap):
+    """The full matrix for the default scope, in one board build.
+
+    - pinned (bound + Vacant): the strongest presentation already exists ->
+      excluded.
+    - bound + occupied + rotation ON (cross_fade reaches it): excluded.
+    - bound + occupied + rotation OFF (cross_fade cannot reach it): included.
+    - unbound (no Slot at all): always included, whatever rotation says.
+    """
+    config_store.update_config(num_taps=2, show_upcoming_previews=True,
+                                max_upcoming_previews=20,
+                                upcoming_surface_scope="overflow",
+                                upcoming_rotate_occupied=False)
+    write_tap("custom", 1, name="Pouring Now")
+    _upcoming("pinned", slot=2, status="completed", revision=1)        # bound + vacant
+    _upcoming("occupied-off", slot=1, status="completed", revision=1)  # bound + occupied, rotation off
+    _upcoming("unbound", slot=None, status="completed", revision=1)    # no slot
+    b = build_board()
+    by_id = {t["batch_id"]: t for t in b["upcoming"]}
+    assert by_id["pinned"]["on_surfaces"] is False
+    assert by_id["occupied-off"]["on_surfaces"] is True
+    assert by_id["unbound"]["on_surfaces"] is True
+
+    # Flip rotation back on: the occupied teaser becomes cross-fade-reachable
+    # and must drop out of the overflow, while the other two answers hold.
+    config_store.update_config(upcoming_rotate_occupied=True)
+    b = build_board()
+    by_id = {t["batch_id"]: t for t in b["upcoming"]}
+    assert by_id["pinned"]["on_surfaces"] is False
+    assert by_id["occupied-off"]["on_surfaces"] is False
+    assert by_id["unbound"]["on_surfaces"] is True
+
+
+def test_on_surfaces_under_all_scope_includes_pinned_teasers(write_tap):
+    """The named regression this ticket exists to pin (CLAUDE.md, issue #41).
+
+    The prototype excluded a pinned teaser under BOTH scopes, which made "all
+    upcoming" quietly untrue - a beer sitting in a Vacant Slot was missing
+    from the page that claims to list everything. Under "all" scope, EVERY
+    teaser answers on_surfaces True, pinned ones included.
+    """
+    config_store.update_config(num_taps=2, show_upcoming_previews=True,
+                                max_upcoming_previews=20,
+                                upcoming_surface_scope="all",
+                                upcoming_rotate_occupied=True)
+    write_tap("custom", 1, name="Pouring Now")
+    _upcoming("pinned", slot=2, status="completed", revision=1)      # bound + vacant
+    _upcoming("occupied", slot=1, status="completed", revision=1)    # bound + occupied, cross-fade reaches it
+    _upcoming("unbound", slot=None, status="completed", revision=1)  # no slot
+    b = build_board()
+    by_id = {t["batch_id"]: t for t in b["upcoming"]}
+    # Sanity: this teaser is genuinely pinned - if it weren't, the assertion
+    # below would be trivially true for the wrong reason.
+    assert by_id["pinned"]["pinned"] is True
+    assert by_id["pinned"]["on_surfaces"] is True
+    assert by_id["occupied"]["on_surfaces"] is True
+    assert by_id["unbound"]["on_surfaces"] is True
+
+
+def test_upcoming_surface_scope_never_reaches_the_board_payload():
+    """Only the resolved on_surfaces answer travels; the scope input does not."""
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20,
+                                upcoming_surface_scope="all")
+    b = build_board()
+    assert "upcoming_surface_scope" not in b
+
+
+def test_upcoming_deck_scheduling_facts_travel_only_when_upcoming_is_on():
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                show_upcoming_deck_page=True,
+                                upcoming_deck_multiple=4)
+    on = build_board()
+    assert on["upcoming_deck_enabled"] is True
+    assert on["upcoming_deck_multiple"] == 4
+
+    config_store.update_config(show_upcoming_previews=False)
+    off = build_board()
+    assert "upcoming_deck_enabled" not in off
+    assert "upcoming_deck_multiple" not in off
+
+
+def test_upcoming_deck_enabled_reflects_the_toggle_off_too():
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                show_upcoming_deck_page=False)
+    b = build_board()
+    assert b["upcoming_deck_enabled"] is False

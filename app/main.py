@@ -595,6 +595,9 @@ class SettingsForm(BaseModel):
     show_upcoming_abv: bool = False
     upcoming_interval_seconds: int = 20
     upcoming_rotate_occupied: bool = False
+    show_upcoming_deck_page: bool = False
+    upcoming_deck_multiple: int = 3
+    upcoming_surface_scope: str = "overflow"
     num_taps: int
     hide_vacant_taps: bool = False
     announcement_text: str = ""

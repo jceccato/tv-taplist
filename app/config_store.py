@@ -73,6 +73,21 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # business) - this stays OFF the board payload; only the per-teaser
     # resolved `cross_fade` answer travels (CLAUDE.md, board.resolve_upcoming).
     "upcoming_rotate_occupied": True,
+    # The overflow surfaces (issue #41/#42): homes for a teaser the baseline
+    # cross-fade cannot reach. Each carries its own on/off toggle and its own
+    # multiplier of upcoming_interval_seconds - the multiplier is not
+    # decoration, it is what stops a surface stealing so many ticks that a
+    # beer late in the cross-fade's list never gets a turn (CLAUDE.md).
+    "show_upcoming_deck_page": False,
+    "upcoming_deck_multiple": 3,
+    # What a surface carries. "overflow" (default) is only what the baseline
+    # cannot reach - a pinned teaser already owns its Vacant Slot outright, the
+    # strongest presentation available, so it is correctly excluded. "all"
+    # means ALL, pinned teasers included: the named regression from the
+    # prototype, which excluded them under both scopes and so made "all
+    # upcoming" quietly untrue (issue #41). Unrecognised values coerce to
+    # "overflow" below, never rejected.
+    "upcoming_surface_scope": "overflow",
     "num_taps": 0,
     "hide_vacant_taps": False,
     "announcement_text": "",
@@ -181,6 +196,11 @@ MAX_TAP_TEXT_SCALE = 2.0
 SETTINGS_BOUNDS: dict[str, tuple[float, float | None]] = {
     "num_taps": (0, MAX_NUM_TAPS),
     "max_upcoming_previews": (0, MAX_UPCOMING_PREVIEWS),
+    # 1x to 6x the shared cadence (issue #41). The floor of 1 keeps a surface
+    # from being configured to steal every single tick, which the cross-fade's
+    # one-teaser-per-tick cycling could starve outright; 6 is generous enough
+    # that "practically never" is already reachable well before the ceiling.
+    "upcoming_deck_multiple": (1, 6),
     # 300, not rotation_seconds' 600 (CLAUDE.md): five minutes is already the
     # point where a customer there for one drink may never see a teaser, and
     # an operator reaching past it wants the feature off rather than slowed.
@@ -297,7 +317,7 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     # so an operator is stopped while typing instead. See CONTEXT.md.
     for key in ("num_taps", "max_upcoming_previews", "upcoming_interval_seconds",
                 "max_archive_age_days", "max_archive_storage_mb", "page_size",
-                "rotation_seconds", "venue_logo_height_vh"):
+                "rotation_seconds", "venue_logo_height_vh", "upcoming_deck_multiple"):
         lo, hi = SETTINGS_BOUNDS[key]
         merged[key] = _coerce_int(merged[key], lo, hi, DEFAULT_CONFIG[key])
 
@@ -316,6 +336,12 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     merged["show_upcoming_subtitle"] = bool(merged["show_upcoming_subtitle"])
     merged["show_upcoming_abv"] = bool(merged["show_upcoming_abv"])
     merged["upcoming_rotate_occupied"] = bool(merged["upcoming_rotate_occupied"])
+    merged["show_upcoming_deck_page"] = bool(merged["show_upcoming_deck_page"])
+    # Unrecognised coerces to "overflow" rather than being rejected (CLAUDE.md):
+    # a hand-edited config.json has no one to report an error to. "overflow" is
+    # also the safer default to fall back to - it never shows a beer twice.
+    scope = str(merged["upcoming_surface_scope"] or "").strip().lower()
+    merged["upcoming_surface_scope"] = scope if scope in ("overflow", "all") else "overflow"
     # Truncate, never reject (CLAUDE.md): a hand-edited config.json has no one
     # to report an error to, the same reasoning the numeric bounds use above,
     # just for a string length instead of a number. An empty (or all-blank)

@@ -136,6 +136,42 @@ def test_display_js_never_reads_the_upcoming_settings():
         assert setting not in js, f"display.js still references {setting}"
 
 
+def test_display_js_reads_on_surfaces_as_a_resolved_answer():
+    """The on-deck page reads `on_surfaces`; it never re-derives it (issue #41).
+
+    board.py resolves `on_surfaces` from `upcoming_surface_scope` (among
+    pinned/cross_fade); the assertion above already pins that Setting off the
+    file entirely, so this pins the other half - that the resolved boolean is
+    actually read, not silently unused while some other filter (e.g. plain
+    `!pinned`) stands in for it.
+    """
+    js = _display_js()
+    assert "on_surfaces" in js, "display.js never reads on_surfaces"
+    assert re.search(r"\bu\.on_surfaces\b", js), (
+        "display.js does not read on_surfaces off a teaser entry")
+
+
+def test_display_js_deck_page_scheduling_runs_off_the_shared_interval():
+    """The on-deck page must not spin up a second timer (CLAUDE.md, issue #41).
+
+    `setUpcomingInterval` owns the ONE interval; a later surface joins it and
+    the shared `upcomingBusy` interlock rather than building a private
+    `setInterval`. This greps for exactly one `setInterval` call feeding the
+    cross-fade/deck scheduling family, which is what would break if a second,
+    independent timer were introduced for the deck page's own cadence.
+    """
+    js = _display_js()
+    scheduling_intervals = re.findall(r"setInterval\(\s*(\w+)\s*,", js)
+    # carouselTick's own setInterval is a separate, pre-existing timer
+    # (the page-rotation clock); the upcoming family must contribute exactly
+    # one more, driving both the cross-fade and the deck page's own tick.
+    assert scheduling_intervals.count("upcomingTick") == 1, scheduling_intervals
+    assert "crossFadeTick" not in scheduling_intervals, (
+        "the deck page must not have reverted to its own timer, and "
+        "crossFadeTick must be invoked through the shared upcomingTick "
+        "dispatcher rather than registered as its own setInterval callback")
+
+
 def test_display_js_renders_teaser_words_from_resolved_answers_not_derived():
     """The teaser card's words are resolved answers (issue #39), not JS logic.
 

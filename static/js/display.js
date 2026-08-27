@@ -80,6 +80,17 @@
     lastBoard: null,        // the most recent raw board, for the cross-fade scheduler (issue #40)
   };
 
+  // The on-deck page's own state (issue #41). Kept module-scoped rather than
+  // on `state` because it is entirely a scheduling/layout concern of this
+  // surface, mirroring how the cross-fade's own timers below live outside
+  // `state` too.
+  let deckPageIndex = -1;     // index into state.pages this layout, or -1 (absent/empty)
+  let deckMultiple = 3;       // the operator's multiple of the shared interval
+  let deckTickCounter = 0;    // counts shared-interval ticks; the deck's own cadence
+  let deckReturnPage = 0;     // the page to return to once the deck's turn ends
+  let deckHoldTimer = null;
+  let deckReturnTimer = null;
+
   // ---- helpers ----
   function chunk(arr, size) {
     const out = [];
@@ -224,6 +235,30 @@
 
   function layoutSignature(pages) {
     return pages.map((p) => p.join(",")).join(";");
+  }
+
+  // The teasers the on-deck page carries (issue #41): `on_surfaces` is
+  // already the resolved answer (board.py's resolve_upcoming) - this file
+  // never re-derives it from the scope Setting, which it never even sees
+  // (CLAUDE.md). Absent whenever `upcoming` itself is, same as every other
+  // upcoming-beer read here.
+  function deckTeasers(board) {
+    return board.upcoming_deck_enabled && board.upcoming
+      ? board.upcoming.filter((u) => u.on_surfaces) : [];
+  }
+
+  // A change signature for the deck page's own content, folded into the
+  // layout key in applyBoard(): the deck page is not itself a Tap page, so
+  // layoutSignature()/settingsSignature() alone would miss a teaser being
+  // added, dropped, or edited and leave the page stale until something else
+  // happened to force a full re-render.
+  function deckSignature(board) {
+    return deckTeasers(board).map((u) => [
+      u.batch_id, u.name, u.abv, u.ibu, u.ebc, u.og, u.fg, u.color_hex,
+      u.abv_visible, u.ibu_visible, u.ebc_visible, u.og_visible, u.fg_visible,
+      u.swatch_visible, u.description, u.image_url, u.status_label,
+      u.subtitle, u.abv_estimated,
+    ].join(",")).join(";");
   }
 
   // ---- theme ----
@@ -550,6 +585,7 @@
     // for the rest of that teaser's hold. `crossFadeIndex` (the cycling
     // position) is untouched: a poll must never reset it, only the overlay.
     crossFadeForceEnd();
+    deckForceEnd();
     state.pages = chunk(taps.map((t) => t.tap), pageSize());
     state.layoutKey = layoutSignature(state.pages);
     state.cardEls.clear();
@@ -576,6 +612,39 @@
         });
         stage.appendChild(page);
       });
+    }
+
+    // The on-deck page (issue #41): one more page, joining the carousel like
+    // any other - the dots and manual navigation below key off
+    // `state.pages.length` alone and need no special case. Its own tap list
+    // is `[]` (it carries teasers, not Taps), which is what makes the
+    // cross-fade's existing page guard in showPage() already correct here
+    // with no change: an empty list can never contain a bound Slot number.
+    // With nothing to carry the page is simply not added at all (issue #41's
+    // "not rendered", not "rendered empty") - `deckPageIndex` stays -1 and
+    // deckPageTick() below is a no-op.
+    const deckList = deckTeasers(board);
+    if (deckList.length) {
+      const label = board.upcoming_label || "Coming up";
+      const page = document.createElement("div");
+      page.className = "page";
+      page.dataset.count = String(deckList.length);
+      deckList.forEach((u, i) => {
+        // A synthetic, string `tap` id: deck cards are never looked up by tap
+        // number (that map is `state.cardEls`, used only for cross-fade cell
+        // lookups and the Tap diff path) and a string can never collide with
+        // a real integer tap number.
+        const card = buildCard({
+          tap: "deck-" + (u.batch_id != null ? u.batch_id : i),
+          vacant: false, teaser: true, ...teaserCardFields(u, label),
+        });
+        page.appendChild(card);
+      });
+      stage.appendChild(page);
+      state.pages.push([]);
+      deckPageIndex = state.pages.length - 1;
+    } else {
+      deckPageIndex = -1;
     }
 
     taps.forEach((t) => state.dataByTap.set(t.tap, t));
@@ -823,12 +892,66 @@
     }, holdMs(state.settings.upcoming_interval_seconds));
   }
 
+  /* ---- the on-deck page's own turn (issue #41) ----
+
+     This is the first surface built on the shared scheduler #40 set up:
+     it runs off the SAME `crossFadeTimer` interval as the cross-fade (see
+     upcomingTick() below) rather than a timer of its own, ticking its own
+     counter and acting only every `deckMultiple` ticks - the multiplier
+     CLAUDE.md and the ticket call load-bearing, not decoration: the
+     cross-fade already shows one teaser per tick, so a surface stealing too
+     many ticks could starve a beer late in its list of ever getting a turn.
+
+     Unlike the cross-fade (an overlay that fades in over a Slot), the deck
+     page's "turn" is a page navigation: jump to it, hold, jump back. It
+     shares the one interlock (`upcomingBusy`) with the cross-fade - a turn
+     arriving while either is busy is skipped, not queued - and reuses
+     `holdMs()`, the same derived hold every upcoming animation uses. */
+
+  function deckPageTick() {
+    deckTickCounter++;
+    if (deckPageIndex < 0) return;                    // disabled, or nothing to carry
+    if (deckTickCounter % Math.max(1, deckMultiple) !== 0) return;
+    if (upcomingBusy) return;                          // interlock: skip this turn, not queue it
+    if (state.currentPage === deckPageIndex) return;   // already showing (e.g. manual nav)
+    deckReturnPage = state.currentPage;
+    upcomingBusy = true;
+    showPage(deckPageIndex);
+    deckHoldTimer = setTimeout(() => {
+      deckHoldTimer = null;
+      showPage(deckReturnPage);
+      // No fade transition to await here (a page swap, not an overlay), but
+      // release on the next tick of the event loop rather than synchronously
+      // inside the timeout, matching the shape of the cross-fade's own
+      // two-step release and leaving room for a future fade without another
+      // interlock-shaped change.
+      deckReturnTimer = setTimeout(() => { upcomingBusy = false; }, 0);
+    }, holdMs(state.settings.upcoming_interval_seconds));
+  }
+
+  // Ends an in-flight deck turn immediately: used exactly when
+  // crossFadeForceEnd() is - a structural re-render is about to replace every
+  // page element, so any pending "jump back" would target a page index that
+  // may no longer mean the same thing.
+  function deckForceEnd() {
+    if (deckHoldTimer) { clearTimeout(deckHoldTimer); deckHoldTimer = null; }
+    if (deckReturnTimer) { clearTimeout(deckReturnTimer); deckReturnTimer = null; }
+    upcomingBusy = false;
+  }
+
+  // The one shared interval (issue #40/#41): every later surface's own turn
+  // is driven off this same tick rather than a timer of its own.
+  function upcomingTick() {
+    crossFadeTick();
+    deckPageTick();
+  }
+
   function setUpcomingInterval(seconds) {
     const ms = Math.max(5, Number(seconds) || 20) * 1000;
     if (ms === crossFadeIntervalMs && crossFadeTimer) return;
     crossFadeIntervalMs = ms;
     if (crossFadeTimer) clearInterval(crossFadeTimer);
-    crossFadeTimer = setInterval(crossFadeTick, crossFadeIntervalMs);
+    crossFadeTimer = setInterval(upcomingTick, crossFadeIntervalMs);
   }
 
   // ---- keyboard navigation: Enter / Space advance a page ----
@@ -942,9 +1065,20 @@
     setUpcomingInterval(state.settings.upcoming_interval_seconds);
     updateVenueHeader(board);
 
+    // The on-deck page's own multiple (issue #41): updated on every poll,
+    // independent of whether this poll triggers a full re-render, so a
+    // changed multiple takes effect on its very next tick rather than
+    // waiting for some unrelated layout change to force a rebuild.
+    deckMultiple = Math.max(1, Math.min(6, Number(board.upcoming_deck_multiple) || 3));
+
     const taps = visibleTaps(board);
     const pages = chunk(taps.map((t) => t.tap), pageSize());
-    const key = layoutSignature(pages) + "#" + settingsSignature(state.settings);
+    // The deck page's own content is folded into the key: it is not a Tap
+    // page, so a teaser being added, dropped or edited would otherwise go
+    // unnoticed by layoutSignature()/settingsSignature() alone and leave the
+    // page stale.
+    const key = layoutSignature(pages) + "#" + settingsSignature(state.settings) +
+      "#deck:" + deckSignature(board);
     if (!state.hasRendered || key !== state.layoutKey) {
       fullRender(board, taps);
       state.layoutKey = key;   // fullRender sets the layout-only key; override it

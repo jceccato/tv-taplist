@@ -193,6 +193,27 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
               Show ABV on a teaser
             </label>
             <p class="hint">Off hides ABV on every teaser regardless of the Stats &amp; Colour toggle below. When shown, it is always marked with a "~" - even a measured reading on an unfinished beer is an estimate.</p>
+
+            <hr class="panel-sep">
+            <h3>Surfaces</h3>
+            <p class="hint">The baseline cross-fade cannot reach an unbound teaser, or an occupied-slot teaser once "Allow a pouring beer to be cross-faded out" is off. Those are the overflow; a surface is where they can live.</p>
+
+            <label class="checkbox">
+              <input type="checkbox" name="show_upcoming_deck_page" {{ 'checked' if cfg.show_upcoming_deck_page else '' }}>
+              Add an on-deck carousel page
+            </label>
+            <p class="hint">A dedicated page joining the carousel, carrying whatever this scope resolves to. Not shown at all when there is nothing to carry.</p>
+
+            <label for="upcoming_deck_multiple">On-deck page every (x the cadence above)</label>
+            <input id="upcoming_deck_multiple" name="upcoming_deck_multiple" type="number" {{ bounds_for('upcoming_deck_multiple') }} step="1" value="{{ cfg.upcoming_deck_multiple }}">
+            <p class="hint">The cross-fade shows one teaser per tick, so a surface taking over too often could starve a beer late in the list of its turn. Slower surfaces leave the baseline room to work through it.</p>
+
+            <label for="upcoming_surface_scope">Surface carries</label>
+            <select id="upcoming_surface_scope" name="upcoming_surface_scope">
+              <option value="overflow" {{ 'selected' if cfg.upcoming_surface_scope == 'overflow' else '' }}>Overflow only</option>
+              <option value="all" {{ 'selected' if cfg.upcoming_surface_scope == 'all' else '' }}>All upcoming</option>
+            </select>
+            <p class="hint">"Overflow only" never shows a beer twice at once. "All upcoming" includes a teaser already pinned permanently to a Vacant Slot, so a dedicated surface is genuinely complete - the same beer may then appear in two places, at different moments, which is expected.</p>
           </fieldset>
 
           <fieldset>

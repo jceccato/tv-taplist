@@ -169,6 +169,61 @@ def test_save_settings_persists_the_scheduling_settings():
     assert cfg["upcoming_rotate_occupied"] is False
 
 
+# ---- The on-deck page surface (issue #41) ----------------------------------
+
+def test_api_board_carries_on_surfaces_and_deck_facts_but_not_the_scope_input():
+    from app.beer import Beer
+    from app import upcoming_store
+
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=20,
+                                upcoming_surface_scope="all",
+                                show_upcoming_deck_page=True,
+                                upcoming_deck_multiple=5)
+    upcoming_store.write("batch-deck", Beer(name="Deck Beer"), "soon",
+                          slot=None, status="completed", revision=1)
+    board = client.get("/api/board").json()
+    teaser = board["upcoming"][0]
+    assert teaser["on_surfaces"] is True
+    assert board["upcoming_deck_enabled"] is True
+    assert board["upcoming_deck_multiple"] == 5
+    assert "upcoming_surface_scope" not in board
+
+
+def test_admin_page_offers_the_surface_controls():
+    c = _login(TestClient(app))
+    html = c.get("/admin").text
+    for needle in ('name="show_upcoming_deck_page"', 'name="upcoming_deck_multiple"',
+                   'name="upcoming_surface_scope"'):
+        assert needle in html, needle
+
+
+def test_save_settings_persists_the_surface_settings():
+    c = _login(TestClient(app))
+    r = c.post("/admin/settings", data={
+        "num_taps": "1", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
+        "show_upcoming_deck_page": "true", "upcoming_deck_multiple": "5",
+        "upcoming_surface_scope": "all",
+    })
+    assert r.status_code == 200 and r.json()["ok"] is True
+    cfg = config_store.load_config()
+    assert cfg["show_upcoming_deck_page"] is True
+    assert cfg["upcoming_deck_multiple"] == 5
+    assert cfg["upcoming_surface_scope"] == "all"
+
+
+def test_save_settings_unchecked_deck_page_saves_as_false():
+    """The checkbox-direction risk this ticket adds a new boolean into."""
+    c = _login(TestClient(app))
+    config_store.update_config(show_upcoming_deck_page=True)
+    r = c.post("/admin/settings", data={
+        "num_taps": "1", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
+        "show_upcoming_deck_page": "false",
+    })
+    assert r.status_code == 200
+    assert config_store.load_config()["show_upcoming_deck_page"] is False
+
+
 def test_img_upcoming_serves_the_cached_photo():
     from app.beer import Beer
     from app import upcoming_store

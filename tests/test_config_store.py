@@ -410,3 +410,60 @@ def test_upcoming_words_settings_absent_from_stored_config_read_the_default():
     assert merged["show_upcoming_status"] is True
     assert merged["show_upcoming_subtitle"] is False
     assert merged["show_upcoming_abv"] is False
+
+
+# ---- The on-deck page surface (issue #41) ----------------------------------
+
+def test_show_upcoming_deck_page_defaults_false_and_coerces_bool():
+    assert config_store.DEFAULT_CONFIG["show_upcoming_deck_page"] is False
+    cfg = config_store.update_config(show_upcoming_deck_page="yes")
+    assert cfg["show_upcoming_deck_page"] is True
+    cfg = config_store.update_config(show_upcoming_deck_page="")
+    assert cfg["show_upcoming_deck_page"] is False
+
+
+def test_upcoming_deck_multiple_defaults_and_is_in_the_bounds_table():
+    assert config_store.DEFAULT_CONFIG["upcoming_deck_multiple"] == 3
+    assert config_store.SETTINGS_BOUNDS["upcoming_deck_multiple"] == (1, 6)
+
+
+def test_upcoming_deck_multiple_clamps_below_the_floor_and_above_the_ceiling():
+    below = config_store.update_config(upcoming_deck_multiple=0)
+    assert below["upcoming_deck_multiple"] == 1
+    above = config_store.update_config(upcoming_deck_multiple=99)
+    assert above["upcoming_deck_multiple"] == 6
+
+
+def test_upcoming_surface_scope_defaults_to_overflow():
+    assert config_store.DEFAULT_CONFIG["upcoming_surface_scope"] == "overflow"
+    cfg = config_store.update_config(num_taps=1)
+    assert cfg["upcoming_surface_scope"] == "overflow"
+
+
+def test_upcoming_surface_scope_accepts_all():
+    cfg = config_store.update_config(upcoming_surface_scope="all")
+    assert cfg["upcoming_surface_scope"] == "all"
+
+
+def test_upcoming_surface_scope_is_case_insensitive_and_trims_whitespace():
+    cfg = config_store.update_config(upcoming_surface_scope="  All  ")
+    assert cfg["upcoming_surface_scope"] == "all"
+
+
+def test_unrecognised_upcoming_surface_scope_coerces_to_overflow():
+    """The stated regression guard: junk must never be rejected or raise.
+
+    A hand-edited config.json (or a value from a future version this build
+    does not know) has no one to report an error to (CLAUDE.md), and the
+    fallback is deliberately the scope that never shows a beer twice.
+    """
+    for junk in ("", "bogus", "OVERFLOW-ish", None, 123, "everything"):
+        cfg = config_store.update_config(upcoming_surface_scope=junk)
+        assert cfg["upcoming_surface_scope"] == "overflow", junk
+
+
+def test_upcoming_deck_settings_absent_from_stored_config_read_the_default():
+    merged = config_store._coerce({"num_taps": 4})
+    assert merged["show_upcoming_deck_page"] is False
+    assert merged["upcoming_deck_multiple"] == 3
+    assert merged["upcoming_surface_scope"] == "overflow"

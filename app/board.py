@@ -369,6 +369,19 @@ def resolve_upcoming(entry: UpcomingEntry, cfg: dict[str, Any],
     an occupied Slot with rotation on. Resolved here rather than on the
     display, same as `pinned`: `upcoming_rotate_occupied` never reaches the
     wire (CLAUDE.md), only this resolved answer does.
+
+    `on_surfaces` (issue #41) answers whether this teaser belongs on the
+    overflow surfaces (the on-deck page, and #42's half-board panel). Under
+    the default `"overflow"` scope it is exactly the teaser the baseline
+    cannot already reach: `not pinned and not cross_fade` - true for an
+    unbound teaser (both are always false there) and for a bound-and-occupied
+    teaser only when rotation is off (cross_fade is false there too), false
+    for a pinned teaser (it already owns its Slot, the strongest presentation
+    available, so it is not overflow) and for a bound-and-occupied teaser the
+    cross-fade can already cycle. Under `"all"` scope it is unconditionally
+    true, pinned teasers included - the named regression from the prototype
+    (CLAUDE.md), which is what makes "all upcoming" actually mean all rather
+    than silently omitting a beer already sitting in a Vacant Slot.
     """
     slot = entry.slot if entry.slot is not None and 1 <= entry.slot <= num_taps else None
     pinned = slot is not None and bool(taps[slot - 1]["vacant"])
@@ -377,6 +390,8 @@ def resolve_upcoming(entry: UpcomingEntry, cfg: dict[str, Any],
     # Occupied means bound and NOT pinned: pinned already covers the
     # bound-and-Vacant case, so anything left that is bound is occupied.
     cross_fade = slot is not None and not pinned and rotate_occupied
+    scope = cfg.get("upcoming_surface_scope", DEFAULT_CONFIG["upcoming_surface_scope"])
+    on_surfaces = True if scope == "all" else (not pinned and not cross_fade)
     # The Upcoming store's own photo, never a Tap's - see _image_url_for.
     card = resolve_beer_card(entry.beer, cfg, entry.image, default_glass,
                              img_prefix="/img/upcoming")
@@ -426,6 +441,7 @@ def resolve_upcoming(entry: UpcomingEntry, cfg: dict[str, Any],
         "slot": slot,
         "pinned": pinned,
         "cross_fade": cross_fade,
+        "on_surfaces": on_surfaces,
         "description": (entry.body or "").strip(),
         "status_label": status_label,
         "subtitle": subtitle,
@@ -535,4 +551,18 @@ def build_board() -> dict[str, Any]:
         # rotate, only how fast to run what it is already told to.
         board["upcoming_interval_seconds"] = int(cfg.get(
             "upcoming_interval_seconds", DEFAULT_CONFIG["upcoming_interval_seconds"]))
+        # The on-deck page's own scheduling facts (issue #41): whether it is
+        # enabled at all, and its multiple of the one interval - the same
+        # category as upcoming_interval_seconds, something the display must
+        # execute rather than decide. `upcoming_surface_scope` is deliberately
+        # NOT here: it is fully consumed into each teaser's `on_surfaces`
+        # answer above, and CLAUDE.md/CONTEXT.md require it stay off the wire.
+        # Whether the page actually has anything to draw is left to the
+        # display filtering `upcoming` by `on_surfaces` itself - with nothing
+        # to carry the page is not rendered at all (issue #41), which needs no
+        # extra flag here.
+        board["upcoming_deck_enabled"] = bool(cfg.get(
+            "show_upcoming_deck_page", DEFAULT_CONFIG["show_upcoming_deck_page"]))
+        board["upcoming_deck_multiple"] = int(cfg.get(
+            "upcoming_deck_multiple", DEFAULT_CONFIG["upcoming_deck_multiple"]))
     return board
