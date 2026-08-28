@@ -9,6 +9,7 @@ A tour of what the app does and why. For getting it running, see
 - [How do I display this on a TV?](#how-do-i-display-this-on-a-tv)
 - [How does a beer get on the board?](#how-does-a-beer-get-on-the-board)
 - [Brewfather sync](#brewfather-sync)
+- [Upcoming beers](#upcoming-beers)
 - [What happens when the internet goes down?](#what-happens-when-the-internet-goes-down)
 - [Colours](#colours)
 - [Themes](#themes)
@@ -156,6 +157,7 @@ Put any of these in the **Batch Notes** field:
 | `colour:#780606` | Force an exact swatch + glass colour, overriding the EBC-derived colour. `color:` also works. |
 | `glass:willibecher` | Glass silhouette: `willibecher` (the default), `nonicpint`, `default` (the shaker pint - a historical key name), `schooner`, `tulip`, `teku`, `dimpledmug`. |
 | `saturation:60` | Mute the colour to 60 % (a percentage, or a `0`–`1` fraction). |
+| `upcoming:` | Tease this beer as coming up, with no tap assigned. Takes no value, and is ignored on a batch that already carries a `tap:N`. See [Upcoming beers](#upcoming-beers). |
 
 The sync scans the **Batch Notes** and **Taste Notes** for these tokens. Any token
 found anywhere is applied, and all tokens are stripped from the description text
@@ -229,6 +231,133 @@ pouring off the board.
 > The sync maps defensively - it tries several field names, prefers *measured* over
 > *estimated* values, handles EBC vs SRM colour, and keeps OG/FG only when they read
 > as a plausible specific gravity - and logs what it found.
+
+---
+
+## Upcoming beers
+
+The board can show what is coming next as well as what is pouring. An **upcoming
+beer** is a beer that is not on a tap yet, drawn as a teaser card: the same
+layout as a tap card, marked out by a dashed amber border and a ribbon reading
+"Coming up".
+
+None of this happens until **Show upcoming beer previews** is ticked on the admin
+Settings tab. With it off the board behaves exactly as it does without the
+feature at all.
+
+### Which batches count as coming up
+
+Two Batch Notes tokens decide it:
+
+- **`tap:N` on a batch that is not Completed.** The batch names the tap it is
+  headed for, and its teaser is *bound* to that tap. A conditioning batch that
+  lost tap 3 to a completed one or to a manual override, and a fermenting batch
+  tagged for tap 3 while something else pours there, both tease on tap 3.
+- **`upcoming:` on a batch with no `tap:N`.** The token takes no value - its
+  presence alone means "tease this beer". The teaser is *unbound*, and says
+  plainly on the card that no tap is assigned yet.
+
+`tap:N` wins on a batch carrying both, so a beer headed for a known tap is never
+demoted to an unassigned teaser. A completed batch that is not the one holding
+its tap is left out entirely: that is a beer which has been pulled, not one that
+is coming up. Two beers may be tagged for the same tap, and both tease.
+A beer tagged for a tap number higher than your tap count is treated as
+unassigned rather than pointing at a tap nobody can see; raising the tap count
+binds it again on the TV's next poll.
+
+The sync scope still applies. **Conditioning** and **Fermenting** batches reach
+the box only when **Include Conditioning batches** or **Include Fermenting
+batches** is on, so a beer in one of those stages cannot be teased until the
+matching setting is ticked. Turning previews on does not widen what is fetched
+and costs no extra Brewfather calls, and Planning and Brewing batches are never
+fetched at all. The Upcoming section of the admin says which scope setting is
+standing in the way when one is.
+
+### Where a teaser shows up
+
+Three surfaces, in the order the board prefers them:
+
+- **On its own tap, permanently.** A vacant tap with a beer bound to it
+  advertises that beer instead of showing a Vacant card, and stays on the board
+  even when "hide vacant taps" is on, because it has something to show. This
+  is the case the feature was built for.
+- **Cross-faded over the tap it will pour on.** When the bound tap is already
+  pouring something, the teaser fades in over that card, holds, and fades back
+  out again - the clearest thing the board can say, because the teaser
+  appears exactly where the beer will pour. Switching **Allow a pouring beer to
+  be cross-faded out** off means no pouring beer is ever covered, even briefly.
+- **The optional overflow surfaces.** An **on-deck page** (a full page in the
+  normal rotation, with its own dot) and a **half-board panel** (an interruption
+  sliding over the bottom half of the board) each carry the beers the first two
+  cannot reach: an unbound teaser has no card to fade over, and nothing bound to
+  a pouring tap is reachable when cross-fading is off. Both are off by default,
+  run independently of each other, and simply do not appear when there is nothing
+  to carry.
+
+**Surface carries** decides what those two list. *Overflow only*, the default,
+lists just the beers nothing else is showing. *All upcoming* lists every one,
+including a beer already sitting permanently on a vacant tap, so a surface that
+claims to list everything really does. Under *All upcoming* the same beer can
+appear in two places at different moments, which is expected rather than a fault.
+
+One setting, **Upcoming beers appear every**, drives the cadence for all of it
+(20 seconds by default, 5 to 300). How long a teaser holds on screen is worked
+out from that one number rather than being a second thing to tune. Each surface
+takes its turn on a multiple of the cadence - every third turn for the on-deck
+page and every second turn for the panel by default, adjustable from 1 to 6 -
+which is what stops a surface taking so many turns that a beer late in the list
+never gets one. **Max upcoming previews shown** caps how many upcoming beers are
+shown at all (3 by default, up to 20). The cap is applied when the board is
+drawn, so changing it reaches the TV on its next poll with no sync needed.
+
+### What a teaser says, and why its ABV carries a `~`
+
+Under the beer's name a status line answers the question a customer actually has,
+which is not "is something coming" but "how soon": it reads **Ready**,
+**Conditioning**, **Fermenting**, **Brewing** or **Planned**, in plain language
+rather than Brewfather's own status words. That line can be switched off. The
+ribbon's wording is the operator's choice - "Coming up", "Up next", "Coming
+soon", "Just around the bend", or anything typed in up to 32 characters.
+
+A beer still in the tank - fermenting, brewing or only planned - is described
+**from its recipe**: colour, IBU, OG, FG and ABV all come from the recipe
+together, never mixed with a half-finished measurement. A recipe ABV printed
+beside a gravity taken mid-fermentation would describe a beer that never existed.
+A beer that is actually pouring is untouched by this rule and still prefers its
+measured readings, and so does a conditioning beer, which exists physically at
+the reading it was measured at.
+
+That is also why an upcoming beer's ABV is **off by default**, and why it always
+carries a `~` when it is switched on: the number is a target rather than a
+promise. Teaser cards otherwise obey the same stat visibility settings as tap
+cards, so a board with OG and FG switched off does not sprout them on a teaser.
+
+### The cache, and what happens to it
+
+Upcoming beers are cached as plain files in `upcoming/` in the mapped data
+directory, keyed by Brewfather batch, and rebuilt from scratch on every sync.
+The directory is disposable by design:
+
+- **Deleting it by hand is safe.** The next sync rebuilds it.
+- **Turning previews off deletes it.** This is the only setting on the box that
+  deletes files, so the admin says so at the toggle. Turning previews back on
+  shows nothing until the next sync finishes, which is the same wait as any first
+  sync and is visible in the admin's sync status.
+- **Snapshots never carry it.** Restored onto a box that syncs, the upcoming
+  beers would be rewritten within minutes anyway; restored onto a box with no
+  Brewfather key, they would be a queue of teasers that can never update and
+  never resolve, advertising beers that may already have poured and gone.
+- **Nothing in it is ever archived** and the daily cleanup leaves it alone. When
+  a batch stops qualifying, the next sync simply does not write it and the
+  rebuild removes the stale file, so `old_beers/` stays a record of beers that
+  really poured.
+- **A failed sync changes nothing**, and with the internet down the last cached
+  teasers keep showing, exactly as the taps do.
+
+Editing a file in `upcoming/` by hand works until the next sync overwrites it.
+There is no manual source above this cache the way there is for a tap, because an
+upcoming beer is a projection of a Brewfather batch rather than a beer somebody
+entered.
 
 ---
 

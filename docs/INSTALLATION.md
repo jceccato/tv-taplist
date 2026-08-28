@@ -215,6 +215,12 @@ extra tokens:
 | `colour:#780606` | Force an exact swatch + glass colour. `color:` also works. |
 | `glass:willibecher` | Glass silhouette: `willibecher` (the default), `nonicpint`, `default` (the shaker pint - a historical key name), `schooner`, `tulip`, `teku`, `dimpledmug`. |
 | `saturation:60` | Mute the colour to 60 % (a percentage, or a `0`–`1` fraction). |
+| `upcoming:` | Tease this beer as coming up, with no tap assigned. Takes no value, and is ignored on a batch that already carries a `tap:N`. |
+
+The `upcoming:` token does something only while **Show upcoming beer previews**
+is on in the admin. A batch that is not Completed and carries a `tap:N` is teased
+on that tap without the token. See [Upcoming beers](FAQ.md#upcoming-beers) in the
+FAQ for how a teaser is chosen and where it shows up.
 
 **Tasting notes** go in the **Taste Notes** field on the batch's Completed tab
 (in the Taste section below the rating). That text syncs 1:1 to the card
@@ -256,6 +262,7 @@ taplist_data/
   status.json        # sync + update-check timestamps, written by the app
   placeholder.svg    # fallback image (replaceable)
   taps/              # current beers: custom_tap_N.md / bf_tap_N.md (+ images)
+  upcoming/          # cached upcoming-beer teasers, rebuilt by every sync
   old_beers/         # archived beers (markdown + image pairs)
 ```
 
@@ -263,8 +270,11 @@ Each tap is a small Markdown file with front-matter (name, ABV, IBU, colour, …
 and a body of tasting notes - open one in any text editor to see exactly what the
 board will show. `status.json` is written by the app rather than by you, and is
 safe to delete: every value in it is regenerated on the next sync and the next
-daily update check. Set `PUID`/`PGID` to the host user that should own these files so
-the non-root container can write them.
+daily update check. `upcoming/` is written by the app too, only while **Show
+upcoming beer previews** is on, and is equally safe to delete: the next sync
+rebuilds it from scratch. Turning that setting off deletes it for you, snapshots
+never carry it, and nothing in it is ever archived. Set `PUID`/`PGID` to the host
+user that should own these files so the non-root container can write them.
 
 To copy this whole directory off the box - before an upgrade, or to move to new
 hardware - use the **Snapshot** tab in `/admin`. It downloads a zip that mirrors
