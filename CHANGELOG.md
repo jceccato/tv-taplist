@@ -144,6 +144,14 @@ inset margin and a shadow - not as a permanent part of the layout, and it takes
 its turn every second beat by default (adjustable 1 to 6). Like the page, it
 simply does not appear when there is nothing to carry.
 
+**A conditioning beer on tap can say so.** A separate setting, off by default,
+adds a small status line to a pouring tap card whose batch is not finished -
+"Conditioning", or "Fermenting" when fermenting batches are included and one is
+pouring. This works on boards that never enable upcoming previews at all. A
+finished beer is never marked, because a beer that is pouring is self-evidently
+pouring, and a manually entered tap has no batch behind it so it is never marked
+either.
+
 **The admin now says what is actually resolved.** The Upcoming section of the
 settings shows live numbers from the board's own reckoning: how many upcoming
 beers exist, how many sit pinned on empty taps, how many the cross-fade reaches,
