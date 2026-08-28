@@ -252,8 +252,8 @@ def _write_bf_tap(img_client: httpx.Client, tap: int, batch: dict[str, Any], rev
     # that is actually on disk beside the file. batch_status mirrors the
     # revision record: a fact about this Batch at write time, not about the
     # beverage, so it rides beside `revision` rather than on the Beer itself
-    # (issue #35 - nothing renders it yet, but writing it now saves the ticket
-    # that does a second MAPPING_VERSION bump).
+    # (written by issue #35 one bump ahead; issue #45 renders it as the
+    # on-tap conditioning marker without a second MAPPING_VERSION rewrite).
     taps.write(tap, SYNC_SOURCE, beer, mapping.description(batch),
                revision=mapping.source_revision(batch, rev),
                batch_status=mapping.status_label(batch))

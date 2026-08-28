@@ -1207,12 +1207,15 @@
     // The on-deck page's own multiple (issue #41): updated on every poll,
     // independent of whether this poll triggers a full re-render, so a
     // changed multiple takes effect on its very next tick rather than
-    // waiting for some unrelated layout change to force a rebuild.
-    deckMultiple = Math.max(1, Math.min(6, Number(board.upcoming_deck_multiple) || 3));
+    // waiting for some unrelated layout change to force a rebuild. Not
+    // re-clamped here: the config store is the single enforcement point for
+    // the 1..6 bound, and the board only ever sends coerced values - a second
+    // clamp in this file would be a copy of that rule waiting to drift.
+    deckMultiple = Number(board.upcoming_deck_multiple) || 3;
     // The half-board panel's own multiple (issue #42): updated every poll for
     // the same reason deckMultiple is above - a changed value takes effect on
     // its very next tick rather than waiting for some unrelated full re-render.
-    panelMultiple = Math.max(1, Math.min(6, Number(board.upcoming_panel_multiple) || 2));
+    panelMultiple = Number(board.upcoming_panel_multiple) || 2;
 
     const taps = visibleTaps(board);
     const pages = chunk(taps.map((t) => t.tap), pageSize());

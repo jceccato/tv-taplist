@@ -126,9 +126,10 @@ class TapFile:
     `batch_status` mirrors that: the normalised Batch status
     (`mapping.status_label`) at the moment this Tap file was written, and
     `None` on a Manual Tap for the same reason a Manual Tap has no revision -
-    there is no Batch behind it to have a status. Nothing renders it yet
-    (issue #35); it is stamped now so the ticket that does render it costs no
-    second MAPPING_VERSION bump.
+    there is no Batch behind it to have a status. Stamped by issue #35 and
+    rendered since issue #45 as the on-tap conditioning marker
+    (board.resolve_status_marker) - written one bump ahead so that ticket
+    cost no second MAPPING_VERSION rewrite.
     """
 
     slot: int
