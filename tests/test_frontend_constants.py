@@ -193,6 +193,35 @@ def test_display_js_renders_teaser_words_from_resolved_answers_not_derived():
         )
 
 
+def test_display_js_never_reads_the_conditioning_status_setting():
+    """The on-tap marker is a resolved answer too (issue #45).
+
+    `show_conditioning_status` decides whether a pouring Conditioning beer is
+    marked, and board.py consumes it entirely into the Tap's own `status_label`.
+    The display must never see the Setting - reading it here would be the
+    Visibility chain reappearing in the one language this project cannot test.
+    """
+    assert "show_conditioning_status" not in _display_js()
+
+
+def test_display_js_renders_the_status_marker_on_a_tap_card_not_only_a_teaser():
+    """The `.status` line is shared, not teaser-only (issue #45).
+
+    #39 emitted the meta block that hosts `.status` only for a teaser card. A
+    Tap card carrying a marker needs the identical block, so the gate has to
+    read `status_label` rather than `teaser` alone - otherwise a conditioning
+    beer on tap resolves a label server-side that nothing ever draws.
+    """
+    js = _display_js()
+    gate = re.search(r"function hasMeta\((\w+)\)\s*\{([^}]*)\}", js)
+    assert gate, "display.js has no hasMeta() gate for the card meta block"
+    body = gate.group(2)
+    assert "status_label" in body, (
+        "hasMeta() does not consult status_label, so a Tap card's marker would "
+        "never be emitted")
+    assert re.search(r"hasMeta\(t\)", js), "hasMeta() is never applied to a card"
+
+
 def test_display_js_theme_vars_match_server_keys():
     # The THEME_VARS object in display.js must cover exactly the server THEME_KEYS,
     # or a themed board would leave some CSS variables unset (or set stray ones).

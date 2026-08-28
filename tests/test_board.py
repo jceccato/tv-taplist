@@ -1005,3 +1005,194 @@ def test_resolve_upcoming_summary_is_all_zero_with_nothing_cached():
     assert resolve_upcoming_summary() == {
         "total": 0, "pinned": 0, "cross_fade": 0, "overflow": 0,
     }
+
+
+# ---- The conditioning-on-tap status marker (issue #45) ---------------------
+#
+# The marker is resolved in `resolve_tap` from the winning Tap file's
+# `batch_status` (stamped by #35) and the `show_conditioning_status` Setting,
+# and travels as `status_label` - the same wire field, and the same customer
+# vocabulary, the teaser card already carries (#39). Two halves would otherwise
+# be easy to get wrong in a way nothing notices: a Completed beer must NEVER be
+# marked, and the Setting must never reach the display.
+
+from app.board import STATUS_DISPLAY_LABELS, resolve_status_marker
+
+
+def test_a_conditioning_tap_carries_the_marker_when_the_setting_is_on(write_tap):
+    config_store.update_config(num_taps=1, show_conditioning_status=True)
+    write_tap("brewfather", 1, name="Still Lagering", batch_status="conditioning")
+    assert resolve_tap(1)["status_label"] == "Conditioning"
+
+
+def test_a_conditioning_tap_carries_no_marker_when_the_setting_is_off(write_tap):
+    """The null-when-off half, pinned separately from the label above.
+
+    Without this, a resolution that ignored the Setting entirely and always
+    returned the word would still pass the test above.
+    """
+    config_store.update_config(num_taps=1, show_conditioning_status=False)
+    write_tap("brewfather", 1, name="Still Lagering", batch_status="conditioning")
+    assert resolve_tap(1)["status_label"] is None
+
+
+def test_a_fermenting_tap_that_occupies_its_slot_carries_the_marker(write_tap):
+    """Reachable only with include_fermenting on, but resolved the same way.
+
+    Occupancy is decided long before this point (sync writes the Tap file);
+    what is pinned here is that the marker does not quietly special-case
+    Conditioning and leave a pouring Fermenting beer unmarked.
+    """
+    config_store.update_config(num_taps=1, show_conditioning_status=True,
+                                include_fermenting=True)
+    write_tap("brewfather", 1, name="Still Bubbling", batch_status="fermenting")
+    assert resolve_tap(1)["status_label"] == "Fermenting"
+
+
+def test_a_completed_tap_never_carries_a_marker_with_the_setting_on_or_off(write_tap):
+    """The ticket's named assertion: "Ready" never renders on a Tap card.
+
+    A beer that is pouring is self-evidently pouring, so the on-tap vocabulary
+    is deliberately narrower than the teaser's - and the exclusion has to hold
+    with the Setting ON, which is the only state where anything could leak.
+    """
+    write_tap("brewfather", 1, name="Pouring Now", batch_status="completed")
+    config_store.update_config(num_taps=1, show_conditioning_status=True)
+    assert resolve_tap(1)["status_label"] is None
+    config_store.update_config(show_conditioning_status=False)
+    assert resolve_tap(1)["status_label"] is None
+    # The teaser vocabulary really does still spell Completed, so this is an
+    # exclusion made at the Tap resolution, not a missing dictionary entry.
+    assert STATUS_DISPLAY_LABELS["completed"] == "Ready"
+
+
+def test_a_manual_tap_never_carries_a_marker(write_tap):
+    """A Manual Tap has no Batch behind it, so there is no status to show."""
+    config_store.update_config(num_taps=1, show_conditioning_status=True)
+    write_tap("custom", 1, name="Guest Keg")
+    assert resolve_tap(1)["status_label"] is None
+
+
+def test_a_manual_override_hides_the_warm_brewfather_taps_status(write_tap):
+    """The marker follows the WINNING Tap, not whatever file is on disk.
+
+    Sync keeps a Brewfather Tap warm underneath a Manual override, so a Slot
+    can hold a conditioning Brewfather Tap and a Manual one at once. Resolving
+    the marker from anything other than the Tap the board is actually rendering
+    would print "Conditioning" over a Manual guest keg.
+    """
+    config_store.update_config(num_taps=1, show_conditioning_status=True)
+    write_tap("brewfather", 1, name="BF Conditioning", batch_status="conditioning")
+    write_tap("custom", 1, name="Guest Keg")
+    resolved = resolve_tap(1)
+    assert resolved["source"] == "custom"
+    assert resolved["status_label"] is None
+
+
+def test_a_hand_edited_batch_status_is_coerced_rather_than_rejected(write_tap):
+    """Case and stray whitespace resolve; an unrecognised word simply does not.
+
+    ADR-0005's disposition rule: a hand-edited Tap file has no one to report an
+    error to. A status this project has no customer word for gets no marker
+    rather than an exception, or a raw Brewfather word, on the TV.
+    """
+    config_store.update_config(num_taps=3, show_conditioning_status=True)
+    write_tap("brewfather", 1, name="Shouty", batch_status="  CONDITIONING  ")
+    write_tap("brewfather", 2, name="Nonsense", batch_status="banana")
+    write_tap("brewfather", 3, name="Blank", batch_status="")
+    assert resolve_tap(1)["status_label"] == "Conditioning"
+    assert resolve_tap(2)["status_label"] is None
+    assert resolve_tap(3)["status_label"] is None
+
+
+def test_brewing_and_planning_resolve_to_their_own_words(write_tap):
+    """Neither can occupy a Slot today, but a hand-edited file can spell one.
+
+    The honest reading of what the operator wrote is the word itself - no new
+    rule, and no crash. Completed stays the one hard exclusion.
+    """
+    config_store.update_config(num_taps=2, show_conditioning_status=True)
+    write_tap("brewfather", 1, name="Kettle", batch_status="brewing")
+    write_tap("brewfather", 2, name="Notion", batch_status="planning")
+    assert resolve_tap(1)["status_label"] == "Brewing"
+    assert resolve_tap(2)["status_label"] == "Planned"
+
+
+def test_the_on_tap_marker_reuses_the_teasers_customer_vocabulary(write_tap):
+    """One dictionary, not a second spelling (issue #45).
+
+    Fails if the on-tap marker grows its own wording: the two surfaces must
+    resolve the identical word for the identical Batch status.
+    """
+    config_store.update_config(num_taps=1, show_conditioning_status=True,
+                                show_upcoming_previews=True,
+                                max_upcoming_previews=20, show_upcoming_status=True)
+    write_tap("brewfather", 1, name="On Tap", batch_status="conditioning")
+    _upcoming("teaser-cond", slot=None, status="conditioning", revision=1)
+    b = build_board()
+    assert b["taps"][0]["status_label"] == STATUS_DISPLAY_LABELS["conditioning"]
+    assert b["upcoming"][0]["status_label"] == b["taps"][0]["status_label"]
+
+
+def test_the_on_tap_marker_is_independent_of_the_teasers_status_setting(write_tap):
+    """Two Settings, two blast radii (issue #45).
+
+    `show_upcoming_status` lives inside a feature that is off by default; this
+    one changes a board that is pouring right now. Neither may gate the other -
+    with upcoming previews off entirely, the on-tap marker still resolves.
+    """
+    config_store.update_config(num_taps=1, show_conditioning_status=True,
+                                show_upcoming_previews=False,
+                                show_upcoming_status=False)
+    write_tap("brewfather", 1, name="Still Lagering", batch_status="conditioning")
+    assert resolve_tap(1)["status_label"] == "Conditioning"
+
+
+def test_the_marker_setting_changes_nothing_else_on_a_tap_card(write_tap):
+    """With it off, a Tap card is what it has always been.
+
+    Compares the two boards field by field rather than eyeballing one key, so a
+    Setting that quietly moved some other answer as well would fail here.
+    """
+    write_tap("brewfather", 1, name="Still Lagering", abv=5.2, ibu=25, ebc=18,
+              batch_status="conditioning", body="Nearly there.")
+    config_store.update_config(num_taps=1, show_conditioning_status=False)
+    off = build_board()["taps"][0]
+    config_store.update_config(show_conditioning_status=True)
+    on = build_board()["taps"][0]
+    assert off["status_label"] is None
+    assert on["status_label"] == "Conditioning"
+    assert ({k: v for k, v in off.items() if k != "status_label"}
+            == {k: v for k, v in on.items() if k != "status_label"})
+
+
+def test_show_conditioning_status_never_reaches_the_board_payload(write_tap):
+    """Only the resolved answer travels; the Setting that produced it does not."""
+    config_store.update_config(num_taps=1, show_conditioning_status=True)
+    write_tap("brewfather", 1, name="Still Lagering", batch_status="conditioning")
+    b = build_board()
+    assert "show_conditioning_status" not in b
+    # Nor the raw Batch status the marker was resolved from.
+    assert "batch_status" not in b["taps"][0]
+
+
+def test_a_vacant_slot_carries_no_status_marker_key():
+    """A Vacant card has no Beer, so there is nothing to answer about.
+
+    The same reasoning that already leaves the six Visibility booleans off it:
+    sending null would be a claim about a card that is not drawn.
+    """
+    config_store.update_config(num_taps=1, show_conditioning_status=True)
+    assert "status_label" not in resolve_tap(1)
+
+
+def test_resolve_status_marker_is_the_one_place_the_rule_lives():
+    """The rule, exercised directly, so the whole table reads in one place."""
+    on = {"show_conditioning_status": True}
+    off = {"show_conditioning_status": False}
+    assert resolve_status_marker("conditioning", on) == "Conditioning"
+    assert resolve_status_marker("fermenting", on) == "Fermenting"
+    assert resolve_status_marker("completed", on) is None
+    assert resolve_status_marker(None, on) is None
+    assert resolve_status_marker("unknown", on) is None
+    assert resolve_status_marker("conditioning", off) is None

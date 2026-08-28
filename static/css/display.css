@@ -320,20 +320,26 @@ html, body {
    separate size or scale: this rule changes only the border. */
 .card.teaser {
   border: 2px dashed var(--accent);
-  /* One extra row for the subtitle/status block between the head and the
-     description - see display.js's filledInner, which only emits that block
-     for a teaser card. The foot keeps the flexible 1fr track so a longer
-     subtitle/status line never eats into the photo. */
+}
+
+/* One extra row for the subtitle/status block between the head and the
+   description. Carried by every teaser card, and by a Tap card the board
+   resolved a status marker for (issue #45) - display.js's `hasMeta` decides,
+   and emits the block only for a card wearing this class, so an unmarked Tap
+   keeps the plain 3-row grid above. The foot keeps the flexible 1fr track so a
+   longer subtitle/status line never eats into the photo. */
+.card.has-meta {
   grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
-/* Teaser-only words (issue #39): the ribbon, and the subtitle/status block
-   between the head and the description. All three are resolved answers off
-   the wire (the ribbon's text is `board.upcoming_label`; the subtitle and
-   status line are per-teaser) - this file only styles them; it never decides
-   whether or what they say (see display.js's filledInner/fillCard). */
+/* The card's own words (issue #39, #45): the teaser-only ribbon, and the
+   subtitle/status block between the head and the description. All are resolved
+   answers off the wire (the ribbon's text is `board.upcoming_label`; the
+   subtitle is per-teaser; the status line is per-teaser AND per-Tap) - this
+   file only styles them; it never decides whether or what they say (see
+   display.js's filledInner/fillCard). */
 .card .ribbon {
-  position: absolute;   /* out of grid flow - see .card.teaser's row count */
+  position: absolute;   /* out of grid flow - see .card.has-meta's row count */
   top: 0;
   left: 0;
   z-index: 3;
@@ -356,7 +362,7 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.card .teaser-meta {
+.card .card-meta {
   display: flex;
   flex-direction: column;
   gap: 0.2vmin;

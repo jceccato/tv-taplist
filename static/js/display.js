@@ -227,6 +227,16 @@
     });
   }
 
+  // Whether a card carries the meta block that hosts `.sub` and `.status`.
+  // A teaser always does (issue #39). An ordinary Tap card does whenever the
+  // board resolved a status marker for it (issue #45) - a pouring beer that is
+  // still conditioning - and never otherwise, so a Tap with no marker keeps its
+  // plain 3-row grid. `status_label` is the board's already-resolved answer;
+  // this file only asks whether there is one, never whether to show it.
+  function hasMeta(t) {
+    return !!(t.teaser || t.status_label);
+  }
+
   // The six resolved Visibility booleans are part of the signature, not just the
   // values: a global toggle no longer reaches this file at all, so a flip is only
   // observable as a change in the answers the board sends. `teaser` joins them
@@ -242,6 +252,9 @@
       // over a Vacant Slot without `vacant`/`teaser` themselves changing (the
       // structural-refill check in fillCard only catches THAT transition), so
       // these have to be part of the signature too or a swap would go unseen.
+      // `status_label` is not teaser-only any more (issue #45) - it is also a
+      // Tap card's own conditioning marker, which appears, changes or clears
+      // with nothing else about the Tap moving, so the diff path has to see it.
       t.teaser_label, t.status_label, t.subtitle, t.abv_estimated,
     ].join("|");
   }
@@ -410,11 +423,22 @@
     // change (a different pinned teaser replacing this one, or a real Tap
     // reclaiming the Slot the instant it stops being Vacant): either way the
     // border treatment and the inner markup both have to be redrawn.
+    //
+    // A Tap card gaining or losing its status marker (issue #45) is the same
+    // kind of change: the meta block that hosts `.status` is not merely hidden
+    // when there is no marker, it is not in the DOM at all, so the diff branch
+    // below would have nothing to write into. Once a card HAS the block, a
+    // marker changing word is handled in place.
     const wasVacant = prev ? prev.vacant : null;
     const wasTeaser = prev ? !!prev.teaser : false;
-    if (force || wasVacant !== t.vacant || wasTeaser !== !!t.teaser) {
+    const hadMeta = prev ? hasMeta(prev) : false;
+    if (force || wasVacant !== t.vacant || wasTeaser !== !!t.teaser
+        || hadMeta !== hasMeta(t)) {
       card.classList.toggle("vacant", !!t.vacant);
       card.classList.toggle("teaser", !!t.teaser);
+      // The extra grid row the meta block needs, on a teaser and on a marked
+      // Tap card alike - see display.css's .card.has-meta.
+      card.classList.toggle("has-meta", !t.vacant && hasMeta(t));
       card.innerHTML = t.vacant ? vacantInner(t) : filledInner(t);
       bindImage(card, t);
       measureMarquee(card.querySelector(".name"));
@@ -440,10 +464,14 @@
         setText(card, ".sub", t.subtitle || "");
         setHidden(card, ".sub", !t.subtitle);
       }
-      if (changed("status_label")) {
-        setText(card, ".status", t.status_label || "");
-        setHidden(card, ".status", !t.status_label);
-      }
+    }
+    // Deliberately OUTSIDE the teaser branch (issue #45): a Tap card carries a
+    // status marker too. Reachable only while the meta block already exists -
+    // gaining or losing it forced a structural refill above - so this only ever
+    // rewrites one marker word into another.
+    if (changed("status_label")) {
+      setText(card, ".status", t.status_label || "");
+      setHidden(card, ".status", !t.status_label);
     }
     if (changed("ibu") || changed("ibu_visible")) {
       setText(card, '[data-stat="ibu"] .v', fmtNum(t.ibu));
@@ -502,17 +530,23 @@
     const hAttr = (visible) => (visible ? "" : " hidden");
     const badge = s.show_source_badge
       ? `<span class="source-badge">${sourceLabel(t.source)}</span>` : "";
-    // The teaser-only markup (issue #39): the ribbon and the subtitle/status
-    // lines. Present in the DOM only for a teaser card - never rendered, not
-    // merely hidden, on an ordinary filled Tap card - so a Tap's grid keeps
-    // its plain 3-row layout (head/desc/foot) and only `.card.teaser` needs
-    // the extra row `display.css` gives the meta block. Once a card IS a
-    // teaser, `fillCard`'s diff path can still flip `.sub`/`.status`
+    // The ribbon stays teaser-only (issue #39). The meta block below it is
+    // shared: a teaser always has one, and an ordinary Tap card gets one when
+    // the board resolved a status marker for it (issue #45, `hasMeta`). It is
+    // not rendered at all otherwise - not merely hidden - so an unmarked Tap
+    // keeps its plain 3-row layout (head/desc/foot) and only a card with the
+    // block wears the extra row `display.css` gives `.card.has-meta`. Once a
+    // card HAS the block, `fillCard`'s diff path can flip `.sub`/`.status`
     // individually via `hidden` without a structural rebuild - see there.
+    //
+    // `.sub` is left in the markup unconditionally rather than gated on
+    // `t.teaser`: a Tap card has no subtitle, so it renders hidden and empty,
+    // and keeping one shape means the diff path writes into the same DOM on
+    // both kinds of card.
     const ribbon = t.teaser
       ? `<div class="ribbon">${esc((t.teaser_label || "Coming up").toUpperCase())}</div>` : "";
-    const meta = t.teaser
-      ? `<div class="teaser-meta">
+    const meta = hasMeta(t)
+      ? `<div class="card-meta">
           <p class="sub"${t.subtitle ? "" : " hidden"}>${esc(t.subtitle || "")}</p>
           <p class="status"${t.status_label ? "" : " hidden"}>${esc(t.status_label || "")}</p>
         </div>` : "";

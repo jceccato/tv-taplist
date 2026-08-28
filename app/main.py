@@ -638,6 +638,7 @@ class SettingsForm(BaseModel):
     hide_og_when_empty: bool = False
     hide_fg_when_empty: bool = False
     show_source_badge: bool = False
+    show_conditioning_status: bool = False
     theme: str = "default"
     glass_type: str = DEFAULT_GLASS
     tap_photo_preset: str = "default"

@@ -343,6 +343,12 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
               <input type="checkbox" name="show_source_badge" {{ 'checked' if cfg.show_source_badge else '' }}>
               Show the “Custom” / “BF” source badge on each card
             </label>
+
+            <label class="checkbox">
+              <input type="checkbox" name="show_conditioning_status" {{ 'checked' if cfg.show_conditioning_status else '' }}>
+              Mark a pouring beer that is still conditioning
+            </label>
+            <p class="hint">Adds a &ldquo;Conditioning&rdquo; line to a tap card whose Brewfather batch is not finished yet - and &ldquo;Fermenting&rdquo;, if you include fermenting batches and one is pouring. A finished beer is never marked: a beer that is pouring is self-evidently pouring. A manually entered tap has no batch behind it, so it is never marked either. Independent of the teaser card's status line, which is its own setting.</p>
           </fieldset>
 
           <fieldset>

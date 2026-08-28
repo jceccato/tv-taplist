@@ -1330,3 +1330,30 @@ def test_save_settings_persists_the_teaser_words():
     assert cfg["show_upcoming_status"] is True
     assert cfg["show_upcoming_subtitle"] is True
     assert cfg["show_upcoming_abv"] is True
+
+
+# ---- The conditioning-on-tap status marker (issue #45) ---------------------
+
+def test_admin_page_offers_the_conditioning_status_checkbox():
+    c = _login(TestClient(app))
+    html = c.get("/admin").text
+    assert 'name="show_conditioning_status"' in html
+
+
+def test_save_settings_persists_show_conditioning_status_in_both_directions():
+    """Both checkbox directions, on the Setting this ticket adds.
+
+    The generic pair above sweeps every boolean on `SettingsForm`, which now
+    includes this one; this names it so the reason it must round-trip - the
+    admin posts the literal strings "true"/"false", and `bool("false")` is True
+    in Python - is attached to the field an operator will actually toggle.
+    """
+    c = _login(TestClient(app))
+    base = {"num_taps": "1", "max_archive_age_days": "1", "max_archive_storage_mb": "1"}
+    r = c.post("/admin/settings", data={**base, "show_conditioning_status": "true"})
+    assert r.status_code == 200
+    assert config_store.load_config()["show_conditioning_status"] is True
+
+    r = c.post("/admin/settings", data={**base, "show_conditioning_status": "false"})
+    assert r.status_code == 200
+    assert config_store.load_config()["show_conditioning_status"] is False

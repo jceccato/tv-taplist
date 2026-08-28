@@ -116,6 +116,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "hide_og_when_empty": True,
     "hide_fg_when_empty": True,
     "show_source_badge": False,     # the "Custom"/"BF" badge on each card
+    # The conditioning-on-tap status marker (issue #45): mark a beer that is
+    # POURING but not finished - Conditioning, or Fermenting when the operator
+    # has widened the sync scope and it occupies a Slot. Deliberately its own
+    # Setting rather than part of show_upcoming_status, and deliberately OFF by
+    # default: that one renders inside a feature that is itself off, while this
+    # one changes a live board on a box that may never enable upcoming previews
+    # at all. A Completed beer is never marked whatever this says - the board
+    # resolves that, see board.resolve_status_marker.
+    "show_conditioning_status": False,
     # Theme (display colours).
     "theme": "default",             # preset key, or "custom"
     "theme_custom": dict(DEFAULT_THEME),  # per-colour overrides when theme == "custom"
@@ -369,7 +378,8 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     merged["color_unit"] = "srm" if str(merged["color_unit"]).lower() == "srm" else "ebc"
     for flag in ("show_abv", "show_ibu", "show_color", "show_og", "show_fg",
                  "hide_abv_when_empty", "hide_ibu_when_empty", "hide_color_when_empty",
-                 "hide_og_when_empty", "hide_fg_when_empty", "show_source_badge"):
+                 "hide_og_when_empty", "hide_fg_when_empty", "show_source_badge",
+                 "show_conditioning_status"):
         merged[flag] = bool(merged[flag])
 
     # Theme + glassware.

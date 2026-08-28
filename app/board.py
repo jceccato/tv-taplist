@@ -220,6 +220,62 @@ def resolve_beer_card(beer: Beer, cfg: dict[str, Any],
     }
 
 
+# Customer-facing spelling of each Batch status (issue #39). A Batch's own
+# status word ("completed") is written for Brewfather, not for someone at the
+# bar deciding whether to come back this week or next - "how soon" is the
+# question a customer actually has. This is the one dictionary: both the
+# teaser's status line (resolve_upcoming) and the on-tap marker
+# (resolve_status_marker, issue #45) read it, rather than either surface
+# inventing its own wording. Keys mirror mapping.STATUS_PRECEDENCE; "unknown"
+# is deliberately absent; see resolve_upcoming for what that means on the wire.
+STATUS_DISPLAY_LABELS: dict[str, str] = {
+    "completed": "Ready",
+    "conditioning": "Conditioning",
+    "fermenting": "Fermenting",
+    "brewing": "Brewing",
+    "planning": "Planned",
+}
+
+# The one Batch status that is never marked on a Tap card (issue #45). A beer
+# that is pouring is self-evidently pouring, so "Ready" on every card would be
+# noise rather than information - which is why the on-tap vocabulary is
+# narrower than the teaser's, where "Ready" genuinely tells a customer
+# something ("it is finished, it just is not on yet").
+_UNMARKED_ON_TAP = "completed"
+
+
+def resolve_status_marker(batch_status: Any, cfg: dict[str, Any]) -> str | None:
+    """The customer word marking a Tap that is pouring but not finished, or None.
+
+    The whole of the on-tap marker rule, in one place (issue #45), so the
+    display is handed an answer and never a Setting:
+
+    1. off unless the operator turned `show_conditioning_status` on;
+    2. **Completed is excluded outright** - see `_UNMARKED_ON_TAP`;
+    3. anything else Brewfather labels resolves through the SAME customer
+       vocabulary the teaser card uses, so there is only one spelling of
+       "Conditioning" in the project.
+
+    `batch_status` is whatever the winning Tap file carried. It is `None` on a
+    Manual Tap - there is no Batch behind one to have a status - which is what
+    makes "a Manual Tap never carries a marker" fall out of the types rather
+    than needing a Source check here. It is coerced rather than trusted because
+    a Tap file is hand-editable (ADR-0005): a mistyped or unknown status yields
+    no marker instead of raising or putting a raw Brewfather word on the TV.
+
+    Brewing and Planning cannot occupy a Slot today, so they are unreachable
+    through sync - but a hand-edited file can spell one, and rendering the word
+    the operator wrote is the honest reading. No new rule is invented for them.
+    """
+    if not bool(cfg.get("show_conditioning_status",
+                        DEFAULT_CONFIG["show_conditioning_status"])):
+        return None
+    status = str(batch_status or "").strip().lower()
+    if status == _UNMARKED_ON_TAP:
+        return None
+    return STATUS_DISPLAY_LABELS.get(status)
+
+
 def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS,
                 cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     """Resolve a single tap to a display dict.
@@ -280,28 +336,20 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS,
         # rather than a synthesised front-matter key.
         "description": (tap_file.body or "").strip(),
         "updated": tap_file.updated,
+        # The on-tap status marker (issue #45), already resolved: the customer
+        # word, or null for no marker. Null rather than an absent key so the
+        # display reads one shape on every filled card - the same treatment
+        # `color_hex` gets for an Unknown Colour. Resolved from the WINNING Tap
+        # file's own `batch_status`, so a Manual override's Slot never shows the
+        # status of the Brewfather Tap kept warm underneath it. The Setting that
+        # produced this answer stays off the wire entirely.
+        "status_label": resolve_status_marker(tap_file.batch_status, cfg),
         **card,
         # A Tap with no name falls back to its Slot number; that fallback is
         # specific to a Tap card (an Upcoming Beer has no Slot to fall back to)
         # so it is applied here rather than inside the shared resolution.
         "name": card["name"] or f"Tap {tap}",
     }
-
-
-# Customer-facing spelling of each Batch status (issue #39). A Batch's own
-# status word ("completed") is written for Brewfather, not for someone at the
-# bar deciding whether to come back this week or next - "how soon" is the
-# question a customer actually has. This is the one dictionary; #45's on-tap
-# conditioning marker reuses it rather than inventing its own wording a
-# second time. Keys mirror mapping.STATUS_PRECEDENCE; "unknown" is
-# deliberately absent; see resolve_upcoming for what that means on the wire.
-STATUS_DISPLAY_LABELS: dict[str, str] = {
-    "completed": "Ready",
-    "conditioning": "Conditioning",
-    "fermenting": "Fermenting",
-    "brewing": "Brewing",
-    "planning": "Planned",
-}
 
 
 def _order_upcoming(entries: list[UpcomingEntry], cap: int) -> list[UpcomingEntry]:
@@ -410,9 +458,12 @@ def resolve_upcoming(entry: UpcomingEntry, cfg: dict[str, Any],
         cfg.get("show_upcoming_abv", DEFAULT_CONFIG["show_upcoming_abv"]))
     card["abv_estimated"] = card["abv_visible"]
 
-    # The customer word for the Batch status, or null when the Setting is
-    # off - resolved here, once, so #45's on-tap conditioning marker can
-    # reuse STATUS_DISPLAY_LABELS without re-deriving this null-when-off rule.
+    # The customer word for the Batch status, or null when the Setting is off.
+    # The on-tap marker (issue #45) shares STATUS_DISPLAY_LABELS and this wire
+    # field name but not this line: a teaser answers to `show_upcoming_status`
+    # and legitimately says "Ready", while a Tap card answers to
+    # `show_conditioning_status` and never does. Two rules, one vocabulary -
+    # see resolve_status_marker.
     status_label = (
         STATUS_DISPLAY_LABELS.get(entry.status)
         if bool(cfg.get("show_upcoming_status", DEFAULT_CONFIG["show_upcoming_status"]))

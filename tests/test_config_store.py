@@ -512,3 +512,26 @@ def test_upcoming_panel_settings_absent_from_stored_config_read_the_default():
     merged = config_store._coerce({"num_taps": 4})
     assert merged["show_upcoming_panel"] is False
     assert merged["upcoming_panel_multiple"] == 2
+
+
+# ---- The conditioning-on-tap status marker (issue #45) ---------------------
+
+def test_show_conditioning_status_defaults_off_and_coerces_bool():
+    """Off by default: this one changes a board that is pouring right now.
+
+    Unlike `show_upcoming_status`, which only renders inside a feature that is
+    itself off by default, turning this on marks a live Tap card - so an
+    operator upgrading must opt in rather than find their board changed.
+    """
+    assert config_store.DEFAULT_CONFIG["show_conditioning_status"] is False
+    cfg = config_store.update_config(show_conditioning_status="yes")
+    assert cfg["show_conditioning_status"] is True
+    cfg = config_store.update_config(show_conditioning_status="")  # falsy -> False
+    assert cfg["show_conditioning_status"] is False
+
+
+def test_show_conditioning_status_absent_from_stored_config_reads_the_default():
+    # A config written before issue #45 has no such key; the merge over
+    # DEFAULT_CONFIG must fall back to the schema default rather than raising.
+    merged = config_store._coerce({"num_taps": 4})
+    assert merged["show_conditioning_status"] is False
