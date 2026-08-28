@@ -319,6 +319,11 @@ rather than Brewfather's own status words. That line can be switched off. The
 ribbon's wording is the operator's choice - "Coming up", "Up next", "Coming
 soon", "Just around the bend", or anything typed in up to 32 characters.
 
+The same status words are available on ordinary tap cards through a separate
+setting, off by default, which marks a beer that is pouring but is still
+conditioning. **Ready** never appears on a tap card: a beer that is pouring is
+self-evidently ready.
+
 A beer still in the tank - fermenting, brewing or only planned - is described
 **from its recipe**: colour, IBU, OG, FG and ABV all come from the recipe
 together, never mixed with a half-finished measurement. A recipe ABV printed
