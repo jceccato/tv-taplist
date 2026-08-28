@@ -39,18 +39,21 @@ stays open for more glass types).
 
 ### Coming up: teaser cards for beers that are not pouring yet ([#4](https://github.com/jceccato/tv-taplist/issues/4))
 
-Work in progress. This section grows as the feature lands.
+The board can now advertise what is coming as well as what is pouring. The whole
+feature sits behind one switch, **Show upcoming beer previews**, off by default -
+and off means the board behaves exactly as it did before this release.
+(Issues [#34](https://github.com/jceccato/tv-taplist/issues/34) through
+[#45](https://github.com/jceccato/tv-taplist/issues/45), the sub-issues of #4.)
 
-Brewfather sync now understands a valueless `upcoming:` note token, and each
-Brewfather tap file records its batch's status. Neither changes anything on the
-board yet - they are the groundwork the teaser cards are built on, and they are
-landing now so the whole feature costs one cache rewrite rather than several.
+Brewfather sync understands a valueless `upcoming:` note token, and each
+Brewfather tap file records its batch's status - the groundwork the teaser
+cards below are built on, landed together so the whole feature costs one cache
+rewrite rather than several.
 
 There is a new setting, **Show upcoming beer previews**, off by default. With it
 on, each sync works out which batches are coming up - bound to a tap by the
 usual `tap:X` note, or unassigned via the new `upcoming:` note - and caches them
-under `/data/upcoming/` in the mapped data directory. Nothing appears on the TV
-from this yet.
+under `/data/upcoming/` in the mapped data directory.
 
 Two things worth knowing about that cache. Turning the setting off **deletes**
 it, which is the only setting on the box that deletes files, so the admin says
@@ -112,7 +115,7 @@ flickers".
 
 Operators running a busy service can switch **Allow a pouring beer to be
 cross-faded out** off, and no pouring beer is ever covered, even briefly. Those
-beers then wait for one of the optional surfaces coming in the next entries.
+beers then wait for one of the optional surfaces described below.
 
 **Demo mode now shows the feature.** A fresh demo start turns previews on and
 seeds two upcoming beers - one on an empty tap, visible immediately with no
