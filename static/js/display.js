@@ -553,7 +553,7 @@
     return `
       ${ribbon}
       <div class="card-head">
-        <div class="tap-num">${t.tap}</div>
+        ${Number.isInteger(t.tap) ? `<div class="tap-num">${esc(t.tap)}</div>` : ""}
         <h2 class="name"><span class="scroller">${esc(t.name || "Tap " + t.tap)}</span></h2>
         <div class="swatch" style="background:${hex};color:${txt}"${hAttr(t.swatch_visible)}></div>
       </div>
@@ -575,7 +575,7 @@
   function vacantInner(t) {
     return `
       <div class="card-head">
-        <div class="tap-num">${t.tap}</div>
+        <div class="tap-num">${esc(t.tap)}</div>
         <h2 class="name"><span class="scroller">Vacant</span></h2>
       </div>
       <p class="desc"><span class="scroller">This tap is currently empty.</span></p>`;
@@ -627,7 +627,13 @@
   }
 
   function measureAllMarquees() {
-    state.cardEls.forEach((card) => {
+    // Every card on the stage, not just the Tap cards in state.cardEls: the
+    // deck page's and the panel's cards are deliberately kept out of that map
+    // (it is the cross-fade/diff lookup, keyed by real Slot numbers), but
+    // their long names and descriptions still need the marquee - they are the
+    // overflow surfaces, where clipping loses exactly the text the surface
+    // exists to show.
+    stage.querySelectorAll(".card").forEach((card) => {
       measureMarquee(card.querySelector(".name"));
       measureMarquee(card.querySelector(".desc"));
     });
@@ -703,8 +709,14 @@
       const label = board.upcoming_label || "Coming up";
       const page = document.createElement("div");
       page.className = "page";
-      page.dataset.count = String(deckList.length);
-      deckList.forEach((u, i) => {
+      // The per-count grid layouts are tuned up to MAX_CARDS_PER_PAGE, same
+      // as a Tap page; past it the CSS falls back to a single column and a
+      // card collapses to a sliver. max_upcoming_previews allows up to 20, so
+      // the surface takes the first cards of the already-ordered queue (most
+      // ready first) rather than rendering an unreadable wall.
+      const deckShown = deckList.slice(0, MAX_CARDS_PER_PAGE);
+      page.dataset.count = String(deckShown.length);
+      deckShown.forEach((u, i) => {
         // A synthetic, string `tap` id: deck cards are never looked up by tap
         // number (that map is `state.cardEls`, used only for cross-fade cell
         // lookups and the Tap diff path) and a string can never collide with
@@ -733,8 +745,12 @@
       const label = board.upcoming_label || "Coming up";
       const panel = document.createElement("div");
       panel.className = "upcoming-panel";
-      panel.style.setProperty("--panel-count", String(panelList.length));
-      panelList.forEach((u, i) => {
+      // Same ceiling as the deck page above: a bottom-half strip past eight
+      // cards is unreadable on a TV, so the panel carries the head of the
+      // ordered queue too.
+      const panelShown = panelList.slice(0, MAX_CARDS_PER_PAGE);
+      panel.style.setProperty("--panel-count", String(panelShown.length));
+      panelShown.forEach((u, i) => {
         // Same synthetic string `tap` id scheme as the deck page's cards:
         // never looked up by tap number, and a string can never collide with
         // a real integer tap number.
@@ -985,6 +1001,11 @@
     });
     overlay.appendChild(card);
     stage.appendChild(overlay);
+    // Measured here, not by measureAllMarquees: the overlay exists only
+    // between shows, so a long name or description on the teaser gets its
+    // marquee for exactly the hold it is on screen.
+    measureMarquee(card.querySelector(".name"));
+    measureMarquee(card.querySelector(".desc"));
     crossFadeOverlay = overlay;
     crossFadeOverlayTap = teaser.slot;
     upcomingBusy = true;
@@ -1080,9 +1101,16 @@
   // The one shared interval (issue #40/#41/#42): every surface's own turn is
   // driven off this same tick rather than a timer of its own.
   function upcomingTick() {
-    crossFadeTick();
+    // Surfaces dispatch BEFORE the cross-fade, deliberately. The busy window
+    // (holdMs + fade) is shorter than every legal interval, so upcomingBusy is
+    // always free at a tick boundary - whichever consumer runs first wins the
+    // tick. The cross-fade wants a turn every tick; a surface wants one only
+    // every Nth. Cross-fade-first therefore starves the surfaces on any board
+    // where it has a candidate, and the multiplier exists precisely to hand
+    // the surfaces those Nth ticks while the baseline keeps the rest.
     deckPageTick();
     panelTick();
+    crossFadeTick();
   }
 
   function setUpcomingInterval(seconds) {

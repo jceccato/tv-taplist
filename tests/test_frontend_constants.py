@@ -319,3 +319,33 @@ def test_admin_js_update_states_match_server():
               update_check.STATE_BEHIND, update_check.STATE_CURRENT}
     found = set(re.findall(r'UPDATE_STATE_\w+\s*=\s*"([a-z]+)"', js))
     assert found == server, (found, server)
+
+
+def test_display_js_escapes_the_tap_badge_interpolation():
+    """The tap-num badge is the one card field that once skipped esc() (#4 review).
+
+    Deck and panel cards carry a synthetic string tap id built from the raw
+    Batch id, and a hand-written batch_id in /data/upcoming/ is an editable
+    surface - an unescaped interpolation there executed markup on the display
+    page. The badge must go through esc() and render only for a real integer
+    Slot, so the synthetic ids never reach the DOM at all.
+    """
+    js = _display_js()
+    assert "${esc(t.tap)}" in js
+    assert "${t.tap}" not in js, "a raw t.tap interpolation reached innerHTML"
+
+
+def test_display_js_dispatches_the_surfaces_before_the_cross_fade():
+    """The surfaces' turns come before the cross-fade's in upcomingTick (#4 review).
+
+    The busy window is shorter than every legal interval, so the interlock is
+    always free at a tick boundary and the first consumer dispatched wins the
+    tick. The cross-fade wants every tick; a surface wants one in N. With the
+    cross-fade first, any board where it has a candidate starves the surfaces
+    forever - the panel never appears and the deck multiple is inert.
+    """
+    js = _display_js()
+    body = js.split("function upcomingTick()", 1)[1].split("}", 1)[0]
+    deck, panel, fade = (body.index("deckPageTick()"), body.index("panelTick()"),
+                         body.index("crossFadeTick()"))
+    assert deck < fade and panel < fade
