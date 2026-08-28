@@ -134,6 +134,21 @@ does. A beer may then appear in both places, which is expected: the differing
 timings mean it is never in two places on screen at the same moment. With nothing
 to carry, the page does not appear at all rather than showing up empty.
 
+**The half-board panel.** The second optional surface: instead of a whole page,
+a panel slides over the bottom half of the board, carrying the same overflow
+set. It reads as an interruption - lighter ground, a dashed border all round, an
+inset margin and a shadow - not as a permanent part of the layout, and it takes
+its turn every second beat by default (adjustable 1 to 6). Like the page, it
+simply does not appear when there is nothing to carry.
+
+**The admin now says what is actually resolved.** The Upcoming section of the
+settings shows live numbers from the board's own reckoning: how many upcoming
+beers exist, how many sit pinned on empty taps, how many the cross-fade reaches,
+and how many are overflow. An enabled surface with an empty overflow is correct
+behaviour that used to look like a broken toggle; the admin now explains it
+instead. It also points out when Include Conditioning or Include Fermenting must
+be switched on before a tagged batch can appear at all.
+
 **What upgrading costs the operator:** the mapping version moves from 6 to 7, so
 the first sync after upgrading rewrites every cached Brewfather tap file once
 and re-downloads their images once. That is a single slower sync cycle; after it
