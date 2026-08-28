@@ -411,7 +411,18 @@ def run_sync() -> dict[str, Any]:
                 # occupancy is read (never written) here, see the SYNC_SOURCE
                 # note: "a Manual Tap means the Slot is occupied" is part of
                 # the Occupancy rule that decides what counts as Upcoming.
+                #
+                # The gate is RE-READ inside the lock, deliberately (#4
+                # review): an admin Save that flips the feature off clears
+                # the store under this same JOB_LOCK
+                # (config_store.apply_settings), so a clear that landed
+                # between the pre-lock read at the top of this function and
+                # here must not be undone by writes based on the stale
+                # answer. The pre-lock value still decides the convergence
+                # clear above and nothing else.
                 teased = 0
+                show_upcoming = bool(
+                    load_config().get("show_upcoming_previews", False))
                 if show_upcoming:
                     manual_slots = taps.occupied_slots(taps.Source.MANUAL)
                     occupied = mapping.resolve_occupancy(batches, manual_slots=manual_slots)

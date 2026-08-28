@@ -726,6 +726,39 @@ def test_turning_the_feature_off_via_a_hand_edited_config_clears_the_directory(m
     assert upcoming_store.list_all() == []
 
 
+def test_a_settings_clear_racing_the_sync_is_not_undone(mock_network, monkeypatch):
+    """The upcoming gate is re-read inside JOB_LOCK (#4 review follow-up).
+
+    An admin Save that flips `show_upcoming_previews` off clears the store
+    under JOB_LOCK (`config_store.apply_settings`). A sync that read the
+    Setting before taking that same lock would then write the entries right
+    back, un-clearing `/data/upcoming/` for a whole cycle. The monkeypatched
+    `load_config` simulates the interleaving: the pre-lock read sees the
+    feature on, every later read sees the Save's off - so a sync acting on
+    the stale answer is exactly what would fail this test.
+    """
+    _set_creds()
+    config_store.update_config(show_upcoming_previews=True)
+    mock_network["batches"] = [_batch("b1", None, "Someday IPA",
+                                      status="Completed", batchNotes="upcoming:")]
+
+    real_load = brewfather.load_config
+    reads = {"n": 0}
+
+    def racing_load():
+        reads["n"] += 1
+        cfg = real_load()
+        if reads["n"] > 1:
+            cfg["show_upcoming_previews"] = False
+        return cfg
+
+    monkeypatch.setattr(brewfather, "load_config", racing_load)
+    result = brewfather.run_sync()
+    assert result["ok"] is True
+    assert reads["n"] > 1, "run_sync never re-read the Setting - the race is open"
+    assert upcoming_store.list_all() == []
+
+
 def test_show_upcoming_previews_does_not_widen_the_fetch(mock_network):
     _set_creds()
     config_store.update_config(include_conditioning=True, include_fermenting=True)
