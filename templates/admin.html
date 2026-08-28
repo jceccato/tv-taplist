@@ -142,7 +142,7 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
               <input type="checkbox" name="show_upcoming_previews" {{ 'checked' if cfg.show_upcoming_previews else '' }}>
               Show upcoming beer previews
             </label>
-            <p class="hint"><strong>Turning this off deletes the cached upcoming beers in <code>/data/upcoming/</code></strong> - it is the only setting that deletes files. Nothing renders on the board from this yet; it only builds the cache sync fills.</p>
+            <p class="hint"><strong>Turning this off deletes the cached upcoming beers in <code>/data/upcoming/</code></strong> - it is the only setting that deletes files.</p>
 
             <label for="max_upcoming_previews">Max upcoming previews shown</label>
             <input id="max_upcoming_previews" name="max_upcoming_previews" type="number" {{ bounds_for('max_upcoming_previews') }} step="1" value="{{ cfg.max_upcoming_previews }}">
