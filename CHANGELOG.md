@@ -70,7 +70,11 @@ card is: the same stat visibility settings, the same colour rules. They are
 ordered most-ready first, then newest first, and a new **Max upcoming previews
 shown** setting caps how many appear (3 by default, up to 20). That cap is
 applied when the board is drawn rather than when it syncs, so changing it takes
-effect on the next refresh of the TV without waiting for a sync.
+effect on the next refresh of the TV without waiting for a sync. A beer pinned
+to a vacant tap is exempt from the cap: it fills a card that would otherwise
+just say "Vacant", so it adds nothing for the cap to trim - without the
+exemption, a nearly-ready beer waiting on its empty tap could be pushed off the
+board by finished beers that have no tap at all.
 
 An empty tap with a beer assigned to it is the case the feature was built for,
 and it is settled here: that tap advertises the beer permanently, and it stays

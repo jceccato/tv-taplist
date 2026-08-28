@@ -352,8 +352,26 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS,
     }
 
 
-def _order_upcoming(entries: list[UpcomingEntry], cap: int) -> list[UpcomingEntry]:
-    """Order Upcoming Beers for display, and truncate to the cap (issue #37).
+def _slot_and_pinned(entry: UpcomingEntry, num_taps: int,
+                     taps: list[dict[str, Any]]) -> tuple[int | None, bool]:
+    """Resolve an entry's bound Slot and whether it is pinned - the ONE place.
+
+    The Slot resolves to None - the teaser becoming unbound - when it names a
+    Slot beyond the *configured* tap count (see resolve_upcoming's docstring
+    for why that is display-time). Pinned means bound AND that Slot is Vacant.
+    Both the cap exemption in `_order_upcoming` and the wire answer in
+    `resolve_upcoming` read this one function, so they cannot disagree about
+    which teasers are pinned - the exemption exempting an entry the wire then
+    says is NOT pinned would be worse than either bug alone.
+    """
+    slot = entry.slot if entry.slot is not None and 1 <= entry.slot <= num_taps else None
+    pinned = slot is not None and bool(taps[slot - 1]["vacant"])
+    return slot, pinned
+
+
+def _order_upcoming(entries: list[UpcomingEntry], cap: int, num_taps: int,
+                    taps: list[dict[str, Any]]) -> list[UpcomingEntry]:
+    """Order Upcoming Beers for display, and cap the unpinned queue (issue #37).
 
     Both steps are display-time, not sync-time (ADR-0006), so changing
     `max_upcoming_previews` takes effect on the very next poll without a
@@ -368,12 +386,29 @@ def _order_upcoming(entries: list[UpcomingEntry], cap: int) -> list[UpcomingEntr
     directory glob happens to return them, which is not guaranteed stable
     across polls and would make the board's order flicker for no reason a
     customer could see.
+
+    A PINNED teaser is exempt from the cap (decided at the issue #4
+    close-out, recorded as a comment on #4 - a deliberate deviation from the
+    spec's plain order-then-truncate). It fills a Slot that would otherwise
+    render an empty Vacant card, so it adds no clutter for the cap to
+    control - and under plain truncation a pinned Fermenting teaser lost its
+    Slot to Completed unbound ones, reverting the spec's own headline case
+    to a bare "Vacant". The exemption changes only WHICH entries survive:
+    the ordering above still decides where every survivor sits.
     """
     ordered = sorted(
         entries,
         key=lambda e: (status_rank_for_label(e.status), -e.revision, str(e.batch_id)),
     )
-    return ordered[:max(cap, 0)]
+    kept: list[UpcomingEntry] = []
+    unpinned_kept = 0
+    for entry in ordered:
+        if _slot_and_pinned(entry, num_taps, taps)[1]:
+            kept.append(entry)
+        elif unpinned_kept < max(cap, 0):
+            kept.append(entry)
+            unpinned_kept += 1
+    return kept
 
 
 def resolve_upcoming(entry: UpcomingEntry, cfg: dict[str, Any],
@@ -431,8 +466,7 @@ def resolve_upcoming(entry: UpcomingEntry, cfg: dict[str, Any],
     (CLAUDE.md), which is what makes "all upcoming" actually mean all rather
     than silently omitting a beer already sitting in a Vacant Slot.
     """
-    slot = entry.slot if entry.slot is not None and 1 <= entry.slot <= num_taps else None
-    pinned = slot is not None and bool(taps[slot - 1]["vacant"])
+    slot, pinned = _slot_and_pinned(entry, num_taps, taps)
     rotate_occupied = bool(cfg.get("upcoming_rotate_occupied",
                                    DEFAULT_CONFIG["upcoming_rotate_occupied"]))
     # Occupied means bound and NOT pinned: pinned already covers the
@@ -530,7 +564,7 @@ def build_board() -> dict[str, Any]:
         cap = int(cfg.get("max_upcoming_previews",
                           DEFAULT_CONFIG["max_upcoming_previews"]) or 0)
         upcoming = []
-        for entry in _order_upcoming(list_upcoming(), cap):
+        for entry in _order_upcoming(list_upcoming(), cap, num_taps, taps):
             teaser = resolve_upcoming(entry, cfg, default_glass, num_taps, taps)
             if teaser["pinned"]:
                 # A Vacant Slot carrying a pinned teaser has something to

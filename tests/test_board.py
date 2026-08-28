@@ -490,6 +490,66 @@ def test_cap_truncates_the_queue_with_no_sync():
     assert [t["batch_id"] for t in raised["upcoming"]] == ["zzz-newest", "mmm-middle"]
 
 
+def test_a_pinned_teaser_is_exempt_from_the_cap():
+    """A teaser pinned to a Vacant Slot always shows, whatever the cap says.
+
+    Decided at the issue #4 close-out (recorded as a comment on #4), a
+    deliberate deviation from the spec's plain order-then-truncate: the
+    pinned card fills a Slot that would otherwise render an empty Vacant
+    card, so it adds no clutter for the cap to control - and evicting it
+    reverts the spec's own headline case. The pinned teaser here carries the
+    WORST status rank (fermenting against two completed), so a plain
+    truncate at cap=1 is exactly what would evict it.
+    """
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=1)
+    _upcoming("pinned-fermenting", slot=1, status="fermenting", revision=1)
+    _upcoming("unbound-completed", status="completed", revision=2)
+    _upcoming("unbound-runner-up", status="completed", revision=1)
+    b = build_board()
+    by_id = {t["batch_id"]: t for t in b["upcoming"]}
+    # The cap of 1 bound the unpinned queue (one of two survives)...
+    assert "unbound-completed" in by_id
+    assert "unbound-runner-up" not in by_id
+    # ...and the pinned teaser rode over it.
+    assert by_id["pinned-fermenting"]["pinned"] is True
+    # The exemption must not disturb the display order: status rank still
+    # sorts the fermenting teaser after the completed one.
+    assert [t["batch_id"] for t in b["upcoming"]] == [
+        "unbound-completed", "pinned-fermenting"]
+
+
+def test_a_pinned_teaser_survives_even_a_cap_of_zero():
+    """Cap 0 means no teaser queue at all - but a pinned Slot still shows.
+
+    The Slot's alternative is an empty Vacant card, so the exemption holds at
+    the boundary too rather than special-casing "the cap is off entirely".
+    """
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=0)
+    _upcoming("pinned-batch", slot=1, status="completed", revision=1)
+    _upcoming("unbound-batch", status="completed", revision=9)
+    b = build_board()
+    assert [t["batch_id"] for t in b["upcoming"]] == ["pinned-batch"]
+    assert b["upcoming"][0]["pinned"] is True
+
+
+def test_a_bound_but_occupied_teaser_gets_no_cap_exemption(write_tap):
+    """The exemption is for PINNED teasers only, not any bound teaser.
+
+    Bound-to-an-occupied-Slot means the beer shows via the cross-fade (or
+    the overflow), which is exactly the clutter the cap exists to control -
+    only the bound-and-Vacant case fills a hole instead of adding a card.
+    """
+    config_store.update_config(num_taps=1, show_upcoming_previews=True,
+                                max_upcoming_previews=1)
+    write_tap("custom", 1, name="Pouring Now")
+    _upcoming("bound-occupied", slot=1, status="fermenting", revision=1)
+    _upcoming("unbound-completed", status="completed", revision=1)
+    b = build_board()
+    assert [t["batch_id"] for t in b["upcoming"]] == ["unbound-completed"]
+
+
 def test_pinned_is_true_only_for_a_teaser_bound_to_a_vacant_slot():
     config_store.update_config(num_taps=2, show_upcoming_previews=True,
                                 max_upcoming_previews=20)
