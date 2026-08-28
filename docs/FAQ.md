@@ -287,12 +287,12 @@ Three surfaces, in the order the board prefers them:
   appears exactly where the beer will pour. Switching **Allow a pouring beer to
   be cross-faded out** off means no pouring beer is ever covered, even briefly.
 - **The optional overflow surfaces.** An **on-deck page** (a full page in the
-  normal rotation, with its own dot) and a **half-board panel** (an interruption
-  sliding over the bottom half of the board) each carry the beers the first two
-  cannot reach: an unbound teaser has no card to fade over, and nothing bound to
-  a pouring tap is reachable when cross-fading is off. Both are off by default,
-  run independently of each other, and simply do not appear when there is nothing
-  to carry.
+  normal rotation, with its own dot, shown like any other page) and a
+  **half-board panel** (an interruption sliding over the bottom half of the
+  board on its own beat) each carry the beers the first two cannot reach: an
+  unbound teaser has no card to fade over, and nothing bound to a pouring tap
+  is reachable when cross-fading is off. Both are off by default and simply do
+  not appear when there is nothing to carry.
 
 **Surface carries** decides what those two list. *Overflow only*, the default,
 lists just the beers nothing else is showing. *All upcoming* lists every one,
@@ -300,15 +300,23 @@ including a beer already sitting permanently on a vacant tap, so a surface that
 claims to list everything really does. Under *All upcoming* the same beer can
 appear in two places at different moments, which is expected rather than a fault.
 
-One setting, **Upcoming beers appear every**, drives the cadence for all of it
-(20 seconds by default, 5 to 300). How long a teaser holds on screen is worked
-out from that one number rather than being a second thing to tune. Each surface
-takes its turn on a multiple of the cadence - every third turn for the on-deck
-page and every second turn for the panel by default, adjustable from 1 to 6 -
-which is what stops a surface taking so many turns that a beer late in the list
-never gets one. **Max upcoming previews shown** caps how many upcoming beers are
-shown at all (3 by default, up to 20). The cap is applied when the board is
-drawn, so changing it reaches the TV on its next poll with no sync needed.
+One setting, **Upcoming beers appear every**, drives the cadence for the
+cross-fade and the panel (20 seconds by default, 5 to 300). How long a teaser
+holds on screen is worked out from that one number rather than being a second
+thing to tune. The on-deck page needs no cadence of its own: it is an ordinary
+carousel page and rotates on the same timer as every other page. The panel
+takes its turn on a multiple of the cadence - every second turn by default,
+adjustable from 1 to 6 - which is what stops it taking so many turns that a
+beer late in the list never gets one. With both surfaces on, the panel skips
+any turn that would land while the on-deck page is showing: the page already
+lists everything the panel would, so the two never stack.
+
+**Max upcoming previews shown** caps how many upcoming beers are shown at all
+(3 by default, up to 20). A beer pinned to a vacant tap is exempt from the cap:
+it fills a card that would otherwise just say "Vacant", so it adds nothing for
+the cap to trim. The cap orders the rest most-ready-first and is applied when
+the board is drawn, so changing it reaches the TV on its next poll with no
+sync needed.
 
 ### What a teaser says, and why its ABV carries a `~`
 

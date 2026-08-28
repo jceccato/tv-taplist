@@ -422,16 +422,18 @@ def test_show_upcoming_deck_page_defaults_false_and_coerces_bool():
     assert cfg["show_upcoming_deck_page"] is False
 
 
-def test_upcoming_deck_multiple_defaults_and_is_in_the_bounds_table():
-    assert config_store.DEFAULT_CONFIG["upcoming_deck_multiple"] == 3
-    assert config_store.SETTINGS_BOUNDS["upcoming_deck_multiple"] == (1, 6)
+def test_upcoming_deck_multiple_is_gone_and_a_stale_value_is_dropped():
+    """The on-deck page joins the normal carousel rotation (issue #4 close-out).
 
-
-def test_upcoming_deck_multiple_clamps_below_the_floor_and_above_the_ceiling():
-    below = config_store.update_config(upcoming_deck_multiple=0)
-    assert below["upcoming_deck_multiple"] == 1
-    above = config_store.update_config(upcoming_deck_multiple=99)
-    assert above["upcoming_deck_multiple"] == 6
+    Its scheduled turn (jump to the page, hold, jump back) is gone, so the
+    multiple that paced it is gone from the schema and the bounds table. A
+    config.json written by a pre-release build may still carry the key; it is
+    dropped on the next save like any other unknown key, never an error.
+    """
+    assert "upcoming_deck_multiple" not in config_store.DEFAULT_CONFIG
+    assert "upcoming_deck_multiple" not in config_store.SETTINGS_BOUNDS
+    cfg = config_store.update_config(upcoming_deck_multiple=5)
+    assert "upcoming_deck_multiple" not in cfg
 
 
 def test_upcoming_surface_scope_defaults_to_overflow():
@@ -465,7 +467,6 @@ def test_unrecognised_upcoming_surface_scope_coerces_to_overflow():
 def test_upcoming_deck_settings_absent_from_stored_config_read_the_default():
     merged = config_store._coerce({"num_taps": 4})
     assert merged["show_upcoming_deck_page"] is False
-    assert merged["upcoming_deck_multiple"] == 3
     assert merged["upcoming_surface_scope"] == "overflow"
 
 
@@ -480,9 +481,9 @@ def test_show_upcoming_panel_defaults_false_and_coerces_bool():
 
 
 def test_upcoming_panel_multiple_defaults_and_is_in_the_bounds_table():
-    # The default is 2, not the on-deck page's 3 (CLAUDE.md/#42): the panel
-    # is a cheaper interruption - the top half of the board stays readable
-    # underneath it - so it can afford to take its turn more often.
+    # 2x the shared cadence (CLAUDE.md/#42): the panel is a cheap
+    # interruption - the top half of the board stays readable underneath
+    # it - so it can afford to take its turn fairly often.
     assert config_store.DEFAULT_CONFIG["upcoming_panel_multiple"] == 2
     assert config_store.SETTINGS_BOUNDS["upcoming_panel_multiple"] == (1, 6)
 
@@ -492,20 +493,6 @@ def test_upcoming_panel_multiple_clamps_below_the_floor_and_above_the_ceiling():
     assert below["upcoming_panel_multiple"] == 1
     above = config_store.update_config(upcoming_panel_multiple=99)
     assert above["upcoming_panel_multiple"] == 6
-
-
-def test_upcoming_panel_multiple_is_independent_of_the_deck_multiple():
-    """Two surfaces, two independent knobs (issue #42's acceptance criteria).
-
-    Saving one must never move the other - the deck page and the panel are
-    not the same control wearing two names.
-    """
-    cfg = config_store.update_config(upcoming_deck_multiple=5, upcoming_panel_multiple=1)
-    assert cfg["upcoming_deck_multiple"] == 5
-    assert cfg["upcoming_panel_multiple"] == 1
-    cfg = config_store.update_config(upcoming_panel_multiple=6)
-    assert cfg["upcoming_deck_multiple"] == 5   # untouched by the panel's own save
-    assert cfg["upcoming_panel_multiple"] == 6
 
 
 def test_upcoming_panel_settings_absent_from_stored_config_read_the_default():

@@ -893,18 +893,19 @@ def test_upcoming_surface_scope_never_reaches_the_board_payload():
     assert "upcoming_surface_scope" not in b
 
 
-def test_upcoming_deck_scheduling_facts_travel_only_when_upcoming_is_on():
+def test_upcoming_deck_enabled_travels_only_when_upcoming_is_on():
     config_store.update_config(num_taps=1, show_upcoming_previews=True,
-                                show_upcoming_deck_page=True,
-                                upcoming_deck_multiple=4)
+                                show_upcoming_deck_page=True)
     on = build_board()
     assert on["upcoming_deck_enabled"] is True
-    assert on["upcoming_deck_multiple"] == 4
+    # The deck page joined the normal carousel rotation (issue #4 close-out):
+    # enabled-ness is its only remaining fact, so a multiple reappearing here
+    # means the scheduled-turn machinery grew back.
+    assert "upcoming_deck_multiple" not in on
 
     config_store.update_config(show_upcoming_previews=False)
     off = build_board()
     assert "upcoming_deck_enabled" not in off
-    assert "upcoming_deck_multiple" not in off
 
 
 def test_upcoming_deck_enabled_reflects_the_toggle_off_too():
@@ -935,20 +936,6 @@ def test_upcoming_panel_enabled_reflects_the_toggle_off_too():
                                 show_upcoming_panel=False)
     b = build_board()
     assert b["upcoming_panel_enabled"] is False
-
-
-def test_upcoming_panel_multiple_is_independent_of_the_deck_multiple_on_the_wire():
-    """The panel and the on-deck page carry separate multiples on the payload.
-
-    A regression here would be a stray copy/paste that piped one Setting's
-    value onto both wire fields.
-    """
-    config_store.update_config(num_taps=1, show_upcoming_previews=True,
-                                show_upcoming_deck_page=True, upcoming_deck_multiple=4,
-                                show_upcoming_panel=True, upcoming_panel_multiple=2)
-    b = build_board()
-    assert b["upcoming_deck_multiple"] == 4
-    assert b["upcoming_panel_multiple"] == 2
 
 
 # ---- The admin's resolved counts (issue #42) --------------------------------

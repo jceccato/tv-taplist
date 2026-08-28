@@ -74,20 +74,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # resolved `cross_fade` answer travels (CLAUDE.md, board.resolve_upcoming).
     "upcoming_rotate_occupied": True,
     # The overflow surfaces (issue #41/#42): homes for a teaser the baseline
-    # cross-fade cannot reach. Each carries its own on/off toggle and its own
-    # multiplier of upcoming_interval_seconds - the multiplier is not
-    # decoration, it is what stops a surface stealing so many ticks that a
-    # beer late in the cross-fade's list never gets a turn (CLAUDE.md).
+    # cross-fade cannot reach. The on-deck page is an ordinary carousel page
+    # shown by the normal rotation (issue #4 close-out: its old scheduled
+    # jump-and-return turn flicked instead of flowing, so the page needs no
+    # cadence of its own - only this on/off).
     "show_upcoming_deck_page": False,
-    "upcoming_deck_multiple": 3,
     # The half-board panel (issue #42): a second, independent overflow
-    # surface. Off by default, same as the on-deck page, and carries its own
-    # multiplier for the same starving-a-late-beer reason `upcoming_deck_multiple`
-    # does - the two surfaces are not tied together, so an operator can run
-    # either, both (at their own paces) or neither. 2x reads well as the
-    # default (the prototype's own default, see CLAUDE.md) - the panel
-    # interrupts more often than the on-deck page's 3x because it costs the
-    # customer less: the top half of the board stays readable underneath it.
+    # surface, off by default like the on-deck page. Unlike the page it
+    # overlays the board on a schedule, so it carries a multiplier of
+    # upcoming_interval_seconds - the multiplier is not decoration, it is
+    # what stops the panel stealing so many ticks that a beer late in the
+    # cross-fade's list never gets a turn (CLAUDE.md). 2x reads well as the
+    # default (the prototype's own default): the panel is a cheap
+    # interruption - the top half of the board stays readable underneath it -
+    # so it can afford to take its turn fairly often.
     "show_upcoming_panel": False,
     "upcoming_panel_multiple": 2,
     # What a surface carries. "overflow" (default) is only what the baseline
@@ -215,14 +215,10 @@ MAX_TAP_TEXT_SCALE = 2.0
 SETTINGS_BOUNDS: dict[str, tuple[float, float | None]] = {
     "num_taps": (0, MAX_NUM_TAPS),
     "max_upcoming_previews": (0, MAX_UPCOMING_PREVIEWS),
-    # 1x to 6x the shared cadence (issue #41). The floor of 1 keeps a surface
+    # 1x to 6x the shared cadence (issue #42). The floor of 1 keeps the panel
     # from being configured to steal every single tick, which the cross-fade's
     # one-teaser-per-tick cycling could starve outright; 6 is generous enough
     # that "practically never" is already reachable well before the ceiling.
-    "upcoming_deck_multiple": (1, 6),
-    # Same range and the same reasoning as upcoming_deck_multiple above, for
-    # the panel's own multiplier (issue #42) - a second, independent surface,
-    # not a second control on the same one.
     "upcoming_panel_multiple": (1, 6),
     # 300, not rotation_seconds' 600 (CLAUDE.md): five minutes is already the
     # point where a customer there for one drink may never see a teaser, and
@@ -340,7 +336,7 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     # so an operator is stopped while typing instead. See CONTEXT.md.
     for key in ("num_taps", "max_upcoming_previews", "upcoming_interval_seconds",
                 "max_archive_age_days", "max_archive_storage_mb", "page_size",
-                "rotation_seconds", "venue_logo_height_vh", "upcoming_deck_multiple",
+                "rotation_seconds", "venue_logo_height_vh",
                 "upcoming_panel_multiple"):
         lo, hi = SETTINGS_BOUNDS[key]
         merged[key] = _coerce_int(merged[key], lo, hi, DEFAULT_CONFIG[key])

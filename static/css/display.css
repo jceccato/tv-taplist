@@ -466,18 +466,21 @@ html, body {
    not something floating on top of it. Four things fix that together: a
    lighter ground than the board behind it (--bg-card-2, one step up from
    --bg - it visibly sits ON something), a dashed border all the way round
-   (not just one edge), a corner radius, and an inset margin (`--gap` on
-   every side, including the bottom) so the panel never touches the board's
-   own edges. The drop shadow reads as a floating object rather than a
-   region carved out of the layout. Appended directly to the stage (not a
-   `.page`) and toggled with the same opacity-fade `.show` class the
-   cross-fade overlay uses, so it can appear over whichever page is active
-   without joining the carousel itself. */
+   (not just one edge), a corner radius, and an inset margin (`--gap` at the
+   sides) so the panel never touches the board's own edges. The bottom inset
+   is deliberately smaller - a sixth of the gap, sitting the panel about 1%
+   of the screen lower - so its bottom edge lines up close to the bottom of
+   the Tap cards behind it (which run to the stage's very edge, `.page` being
+   `inset: 0`) instead of floating visibly above them. The drop shadow reads
+   as a floating object rather than a region carved out of the layout.
+   Appended directly to the stage (not a `.page`) and toggled with the same
+   opacity-fade `.show` class the cross-fade overlay uses, so it can appear
+   over whichever page is active without joining the carousel itself. */
 .upcoming-panel {
   position: absolute;
   left: var(--gap);
   right: var(--gap);
-  bottom: var(--gap);
+  bottom: calc(var(--gap) / 6);
   height: calc(50% - var(--gap) / 2);
   z-index: 5;
   display: grid;

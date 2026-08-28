@@ -617,7 +617,6 @@ class SettingsForm(BaseModel):
     upcoming_interval_seconds: int = 20
     upcoming_rotate_occupied: bool = False
     show_upcoming_deck_page: bool = False
-    upcoming_deck_multiple: int = 3
     show_upcoming_panel: bool = False
     upcoming_panel_multiple: int = 2
     upcoming_surface_scope: str = "overflow"

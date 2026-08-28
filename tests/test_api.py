@@ -178,37 +178,38 @@ def test_api_board_carries_on_surfaces_and_deck_facts_but_not_the_scope_input():
     config_store.update_config(num_taps=1, show_upcoming_previews=True,
                                 max_upcoming_previews=20,
                                 upcoming_surface_scope="all",
-                                show_upcoming_deck_page=True,
-                                upcoming_deck_multiple=5)
+                                show_upcoming_deck_page=True)
     upcoming_store.write("batch-deck", Beer(name="Deck Beer"), "soon",
                           slot=None, status="completed", revision=1)
     board = client.get("/api/board").json()
     teaser = board["upcoming"][0]
     assert teaser["on_surfaces"] is True
     assert board["upcoming_deck_enabled"] is True
-    assert board["upcoming_deck_multiple"] == 5
+    # The deck page joined the normal carousel rotation (issue #4 close-out):
+    # there is no per-surface cadence left for the wire to carry.
+    assert "upcoming_deck_multiple" not in board
     assert "upcoming_surface_scope" not in board
 
 
 def test_admin_page_offers_the_surface_controls():
     c = _login(TestClient(app))
     html = c.get("/admin").text
-    for needle in ('name="show_upcoming_deck_page"', 'name="upcoming_deck_multiple"',
-                   'name="upcoming_surface_scope"'):
+    for needle in ('name="show_upcoming_deck_page"', 'name="upcoming_surface_scope"'):
         assert needle in html, needle
+    # The deck page rotates with the carousel now; a leftover multiple input
+    # would post a Setting the schema no longer holds.
+    assert 'name="upcoming_deck_multiple"' not in html
 
 
 def test_save_settings_persists_the_surface_settings():
     c = _login(TestClient(app))
     r = c.post("/admin/settings", data={
         "num_taps": "1", "max_archive_age_days": "1", "max_archive_storage_mb": "1",
-        "show_upcoming_deck_page": "true", "upcoming_deck_multiple": "5",
-        "upcoming_surface_scope": "all",
+        "show_upcoming_deck_page": "true", "upcoming_surface_scope": "all",
     })
     assert r.status_code == 200 and r.json()["ok"] is True
     cfg = config_store.load_config()
     assert cfg["show_upcoming_deck_page"] is True
-    assert cfg["upcoming_deck_multiple"] == 5
     assert cfg["upcoming_surface_scope"] == "all"
 
 

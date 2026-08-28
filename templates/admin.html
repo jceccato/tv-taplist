@@ -202,11 +202,7 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
               <input type="checkbox" name="show_upcoming_deck_page" {{ 'checked' if cfg.show_upcoming_deck_page else '' }}>
               Add an on-deck carousel page
             </label>
-            <p class="hint">A dedicated page joining the carousel, carrying whatever this scope resolves to. Not shown at all when there is nothing to carry.</p>
-
-            <label for="upcoming_deck_multiple">On-deck page every (x the cadence above)</label>
-            <input id="upcoming_deck_multiple" name="upcoming_deck_multiple" type="number" {{ bounds_for('upcoming_deck_multiple') }} step="1" value="{{ cfg.upcoming_deck_multiple }}">
-            <p class="hint">The cross-fade shows one teaser per tick, so a surface taking over too often could starve a beer late in the list of its turn. Slower surfaces leave the baseline room to work through it.</p>
+            <p class="hint">A dedicated page joining the carousel, carrying whatever this scope resolves to. It rotates like any other page - same timing, its own dot - and is not shown at all when there is nothing to carry.</p>
 
             <label class="checkbox">
               <input type="checkbox" name="show_upcoming_panel" {{ 'checked' if cfg.show_upcoming_panel else '' }}>
@@ -216,7 +212,7 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
 
             <label for="upcoming_panel_multiple">Half-board panel every (x the cadence above)</label>
             <input id="upcoming_panel_multiple" name="upcoming_panel_multiple" type="number" {{ bounds_for('upcoming_panel_multiple') }} step="1" value="{{ cfg.upcoming_panel_multiple }}">
-            <p class="hint">Independent of the on-deck page's own multiple above - the two surfaces run at their own paces. Both enabled at once is a valid choice but is not designed around: the shared cadence's interlock stops them landing on top of each other, at the cost of each one getting fewer turns.</p>
+            <p class="hint">The cross-fade shows one teaser per tick, so a panel taking over too often could starve a beer late in the list of its turn. A slower panel leaves the baseline room to work through it. With the on-deck page also enabled, the panel skips any turn that would land on top of it - the page already shows everything the panel would.</p>
 
             <label for="upcoming_surface_scope">Surface carries</label>
             <select id="upcoming_surface_scope" name="upcoming_surface_scope">

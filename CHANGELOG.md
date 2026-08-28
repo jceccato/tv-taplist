@@ -125,10 +125,10 @@ without a Brewfather account.
 **The on-deck page.** The cross-fade cannot reach every beer: one with no tap
 assigned has no card to fade over, and if cross-fading is switched off then
 nothing bound to a pouring tap can be reached either. Those beers are the
-overflow, and an optional **on-deck page** now carries them - a full page in the
-normal rotation, with its own dot, reachable by hand like any other page. It
-appears every third turn by default, adjustable from 1 to 6, so it leaves the
-board showing actual taps most of the time.
+overflow, and an optional **on-deck page** now carries them - a full page in
+the normal rotation, with its own dot, reachable by hand and shown by the
+carousel exactly like every other page. There is nothing extra to tune: it
+simply takes its place in the rotation.
 
 A scope setting decides what it lists. **Overflow** (the default) shows only the
 beers nothing else is showing. **All** shows every upcoming beer, including ones
@@ -142,7 +142,9 @@ a panel slides over the bottom half of the board, carrying the same overflow
 set. It reads as an interruption - lighter ground, a dashed border all round, an
 inset margin and a shadow - not as a permanent part of the layout, and it takes
 its turn every second beat by default (adjustable 1 to 6). Like the page, it
-simply does not appear when there is nothing to carry.
+simply does not appear when there is nothing to carry. With both surfaces on,
+the panel skips any turn that would land while the on-deck page is showing:
+the page already lists everything the panel would, so the two never stack.
 
 **A conditioning beer on tap can say so.** A separate setting, off by default,
 adds a small status line to a pouring tap card whose batch is not finished -

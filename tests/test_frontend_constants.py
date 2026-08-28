@@ -151,25 +151,43 @@ def test_display_js_reads_on_surfaces_as_a_resolved_answer():
         "display.js does not read on_surfaces off a teaser entry")
 
 
-def test_display_js_deck_page_scheduling_runs_off_the_shared_interval():
-    """The on-deck page must not spin up a second timer (CLAUDE.md, issue #41).
+def test_display_js_panel_scheduling_runs_off_the_shared_interval():
+    """The half-board panel must not spin up a second timer (CLAUDE.md, #42).
 
-    `setUpcomingInterval` owns the ONE interval; a later surface joins it and
-    the shared `upcomingBusy` interlock rather than building a private
+    `setUpcomingInterval` owns the ONE interval; a surface joins it and the
+    shared `upcomingBusy` interlock rather than building a private
     `setInterval`. This greps for exactly one `setInterval` call feeding the
-    cross-fade/deck scheduling family, which is what would break if a second,
-    independent timer were introduced for the deck page's own cadence.
+    cross-fade/panel scheduling family, which is what would break if a
+    second, independent timer were introduced for the panel's own cadence.
     """
     js = _display_js()
     scheduling_intervals = re.findall(r"setInterval\(\s*(\w+)\s*,", js)
     # carouselTick's own setInterval is a separate, pre-existing timer
     # (the page-rotation clock); the upcoming family must contribute exactly
-    # one more, driving both the cross-fade and the deck page's own tick.
+    # one more, driving both the cross-fade and the panel's own tick.
     assert scheduling_intervals.count("upcomingTick") == 1, scheduling_intervals
     assert "crossFadeTick" not in scheduling_intervals, (
-        "the deck page must not have reverted to its own timer, and "
-        "crossFadeTick must be invoked through the shared upcomingTick "
-        "dispatcher rather than registered as its own setInterval callback")
+        "the panel must not have its own timer, and crossFadeTick must be "
+        "invoked through the shared upcomingTick dispatcher rather than "
+        "registered as its own setInterval callback")
+
+
+def test_display_js_deck_page_has_no_scheduler_of_its_own():
+    """The on-deck page rides the ordinary carousel rotation (#4 close-out).
+
+    Its scheduled turn (jump to the page, hold, jump back) flicked over
+    instead of flowing on a real display, so the whole hold-and-return
+    machinery was removed: no deck tick, no hold or return timer, no
+    per-page multiple read off the wire. `deckPageIndex` alone survives, so
+    the panel can refuse to stack on top of the page.
+    """
+    js = _display_js()
+    for name in ("deckPageTick", "deckHoldTimer", "deckReturnTimer",
+                 "deckReturnPage", "deckMultiple", "deckTickCounter",
+                 "upcoming_deck_multiple"):
+        assert name not in js, f"display.js still references {name}"
+    assert "deckPageIndex" in js, (
+        "deckPageIndex is gone - the panel's no-stack guard has nothing to read")
 
 
 def test_display_js_renders_teaser_words_from_resolved_answers_not_derived():
@@ -335,17 +353,33 @@ def test_display_js_escapes_the_tap_badge_interpolation():
     assert "${t.tap}" not in js, "a raw t.tap interpolation reached innerHTML"
 
 
-def test_display_js_dispatches_the_surfaces_before_the_cross_fade():
-    """The surfaces' turns come before the cross-fade's in upcomingTick (#4 review).
+def test_display_js_dispatches_the_panel_before_the_cross_fade():
+    """The panel's turn comes before the cross-fade's in upcomingTick (#4 review).
 
     The busy window is shorter than every legal interval, so the interlock is
     always free at a tick boundary and the first consumer dispatched wins the
-    tick. The cross-fade wants every tick; a surface wants one in N. With the
-    cross-fade first, any board where it has a candidate starves the surfaces
-    forever - the panel never appears and the deck multiple is inert.
+    tick. The cross-fade wants every tick; the panel wants one in N. With the
+    cross-fade first, any board where it has a candidate starves the panel
+    forever - it never appears and its multiple is inert.
     """
     js = _display_js()
     body = js.split("function upcomingTick()", 1)[1].split("}", 1)[0]
-    deck, panel, fade = (body.index("deckPageTick()"), body.index("panelTick()"),
-                         body.index("crossFadeTick()"))
-    assert deck < fade and panel < fade
+    assert body.index("panelTick()") < body.index("crossFadeTick()")
+
+
+def test_display_js_panel_never_stacks_on_the_deck_page():
+    """The panel and the deck page carry the same teasers (#4 close-out).
+
+    Two directions, two guards, and both must exist because navigation does
+    not go through the scheduler: panelTick() skips a turn that would START
+    over the deck page, and showPage() pulls an in-flight panel when the
+    carousel or a dot click LANDS on the deck page mid-hold. A grep-shaped
+    guard, like the rest of this file, because there is no JS test harness.
+    """
+    js = _display_js()
+    tick = js.split("function panelTick()", 1)[1].split("\n  }", 1)[0]
+    assert re.search(r"state\.currentPage === deckPageIndex.*return", tick), (
+        "panelTick() no longer skips its turn while the deck page is active")
+    show = js.split("function showPage(", 1)[1].split("\n  }", 1)[0]
+    assert re.search(r"deckPageIndex\b.*panelHide\(\)", show), (
+        "showPage() no longer pulls the panel when landing on the deck page")

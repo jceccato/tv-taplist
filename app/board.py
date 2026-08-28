@@ -602,28 +602,27 @@ def build_board() -> dict[str, Any]:
         # rotate, only how fast to run what it is already told to.
         board["upcoming_interval_seconds"] = int(cfg.get(
             "upcoming_interval_seconds", DEFAULT_CONFIG["upcoming_interval_seconds"]))
-        # The on-deck page's own scheduling facts (issue #41): whether it is
-        # enabled at all, and its multiple of the one interval - the same
-        # category as upcoming_interval_seconds, something the display must
-        # execute rather than decide. `upcoming_surface_scope` is deliberately
-        # NOT here: it is fully consumed into each teaser's `on_surfaces`
-        # answer above, and CLAUDE.md/CONTEXT.md require it stay off the wire.
-        # Whether the page actually has anything to draw is left to the
-        # display filtering `upcoming` by `on_surfaces` itself - with nothing
-        # to carry the page is not rendered at all (issue #41), which needs no
-        # extra flag here.
+        # The on-deck page's one remaining fact (issue #41, then the #4
+        # close-out): whether to build the page at all. It joined the normal
+        # carousel rotation, so it has no cadence of its own to carry - a
+        # multiple reappearing here means the scheduled-turn machinery grew
+        # back. `upcoming_surface_scope` is deliberately NOT here: it is
+        # fully consumed into each teaser's `on_surfaces` answer above, and
+        # CLAUDE.md/CONTEXT.md require it stay off the wire. Whether the page
+        # actually has anything to draw is left to the display filtering
+        # `upcoming` by `on_surfaces` itself - with nothing to carry the page
+        # is not rendered at all (issue #41), which needs no extra flag here.
         board["upcoming_deck_enabled"] = bool(cfg.get(
             "show_upcoming_deck_page", DEFAULT_CONFIG["show_upcoming_deck_page"]))
-        board["upcoming_deck_multiple"] = int(cfg.get(
-            "upcoming_deck_multiple", DEFAULT_CONFIG["upcoming_deck_multiple"]))
-        # The half-board panel's own scheduling facts (issue #42): the same
-        # category as the on-deck page's pair just above, and resolved the
-        # same way - `upcoming_surface_scope` still never reaches the wire,
-        # because both surfaces read the identical `on_surfaces` answer
-        # already carried on each teaser. With nothing to carry the display
-        # simply does not render the panel (issue #42's "not rendered at
-        # all"), which again needs no extra flag here - the same contract
-        # `upcoming_deck_enabled` already keeps for the on-deck page.
+        # The half-board panel's own scheduling facts (issue #42): whether it
+        # is enabled, and its multiple of the one interval - the same
+        # category as upcoming_interval_seconds, something the display must
+        # execute rather than decide. `upcoming_surface_scope` still never
+        # reaches the wire, because both surfaces read the identical
+        # `on_surfaces` answer already carried on each teaser. With nothing
+        # to carry the display simply does not render the panel (issue #42's
+        # "not rendered at all"), which again needs no extra flag here - the
+        # same contract `upcoming_deck_enabled` already keeps for the page.
         board["upcoming_panel_enabled"] = bool(cfg.get(
             "show_upcoming_panel", DEFAULT_CONFIG["show_upcoming_panel"]))
         board["upcoming_panel_multiple"] = int(cfg.get(

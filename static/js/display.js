@@ -80,21 +80,19 @@
     lastBoard: null,        // the most recent raw board, for the cross-fade scheduler (issue #40)
   };
 
-  // The on-deck page's own state (issue #41). Kept module-scoped rather than
-  // on `state` because it is entirely a scheduling/layout concern of this
-  // surface, mirroring how the cross-fade's own timers below live outside
-  // `state` too.
-  let deckPageIndex = -1;     // index into state.pages this layout, or -1 (absent/empty)
-  let deckMultiple = 3;       // the operator's multiple of the shared interval
-  let deckTickCounter = 0;    // counts shared-interval ticks; the deck's own cadence
-  let deckReturnPage = 0;     // the page to return to once the deck's turn ends
-  let deckHoldTimer = null;
-  let deckReturnTimer = null;
+  // Which carousel page is the on-deck page (issue #41), or -1 when it is
+  // absent (disabled, or nothing to carry). The deck page is an ordinary
+  // carousel page with no scheduling of its own - the rotation timer shows it
+  // like any other - so this index exists only so the half-board panel can
+  // refuse to stack on top of it (see panelTick/showPage). Module-scoped for
+  // the same reason the cross-fade's own timers below are: a layout concern,
+  // not board data.
+  let deckPageIndex = -1;
 
   // The half-board panel's own state (issue #42). An overlay element, not a
   // page - it floats over whichever page is active rather than joining
-  // state.pages - so it is kept module-scoped for the same reason the
-  // deck-page vars above are: purely a scheduling/layout concern of this
+  // state.pages - so it is kept module-scoped for the same reason
+  // `deckPageIndex` above is: purely a scheduling/layout concern of this
   // surface. `panelEl` is null whenever there is nothing to carry, which is
   // what makes "not rendered at all" (rather than rendered empty) automatic:
   // panelTick() below is a no-op against a null element.
@@ -665,7 +663,6 @@
     // for the rest of that teaser's hold. `crossFadeIndex` (the cycling
     // position) is untouched: a poll must never reset it, only the overlay.
     crossFadeForceEnd();
-    deckForceEnd();
     panelForceEnd();
     state.pages = chunk(taps.map((t) => t.tap), pageSize());
     state.layoutKey = layoutSignature(state.pages);
@@ -696,14 +693,15 @@
     }
 
     // The on-deck page (issue #41): one more page, joining the carousel like
-    // any other - the dots and manual navigation below key off
-    // `state.pages.length` alone and need no special case. Its own tap list
-    // is `[]` (it carries teasers, not Taps), which is what makes the
-    // cross-fade's existing page guard in showPage() already correct here
-    // with no change: an empty list can never contain a bound Slot number.
-    // With nothing to carry the page is simply not added at all (issue #41's
-    // "not rendered", not "rendered empty") - `deckPageIndex` stays -1 and
-    // deckPageTick() below is a no-op.
+    // any other - the rotation timer, the dots and manual navigation all key
+    // off `state.pages.length` alone and need no special case, and it takes
+    // its turns in the ordinary rotation rather than on a schedule of its
+    // own. Its own tap list is `[]` (it carries teasers, not Taps), which is
+    // what makes the cross-fade's existing page guard in showPage() already
+    // correct here with no change: an empty list can never contain a bound
+    // Slot number. With nothing to carry the page is simply not added at all
+    // (issue #41's "not rendered", not "rendered empty") - `deckPageIndex`
+    // stays -1 and the panel's no-stack guard below never fires.
     const deckList = deckTeasers(board);
     if (deckList.length) {
       const label = board.upcoming_label || "Coming up";
@@ -806,6 +804,14 @@
       const activePage = state.pages[idx] || [];
       if (!activePage.includes(crossFadeOverlayTap)) crossFadeForceEnd();
     }
+    // The panel's own page guard (issue #4 close-out): the panel and the
+    // on-deck page carry the same teaser set, so the two must never stack.
+    // panelTick() skips a turn that would START over the deck page; this
+    // covers the other direction - the carousel (or a dot click) LANDING on
+    // the deck page while the panel is up. Same reasoning as the cross-fade
+    // guard above: navigation does not go through the scheduler, so the
+    // guard has to live here.
+    if (deckPageIndex >= 0 && idx === deckPageIndex) panelHide();
     // Pages are stacked and laid out together (only opacity differs), so a flip
     // does not resize anything today. Re-measuring anyway is one rAF per 30s and
     // keeps the caps correct if that ever changes to a display-toggling page.
@@ -891,12 +897,13 @@
 
   /* ---- the in-place cross-fade baseline (issue #40) ----
 
-     One clock drives every upcoming animation, now (this cross-fade) and
-     later (the on-deck page / half-board panel surfaces in #41/#42), which is
-     why the interlock and the scheduling shape below are built as shared
-     infrastructure rather than something private to the cross-fade. This is
-     the ONE scheduler; a later surface joins `upcomingBusy` and the same
-     `crossFadeIntervalMs`/multiple pattern instead of building a second one.
+     One clock drives every scheduled upcoming animation - this cross-fade
+     and the half-board panel (#42) - which is why the interlock and the
+     scheduling shape below are built as shared infrastructure rather than
+     something private to the cross-fade. This is the ONE scheduler; a later
+     surface joins `upcomingBusy` and the same `crossFadeIntervalMs`/multiple
+     pattern instead of building a second one. (The on-deck page is not on
+     this clock at all: it rides the ordinary carousel rotation.)
 
      `pinned`, `cross_fade` and (later) `on_surfaces` are resolved answers off
      the wire (board.py) - this file never re-derives whether a teaser may be
@@ -975,8 +982,8 @@
     // whichever page is active right now (rather than a cached "is this the
     // tap page" flag) is what makes this correct for pagination too: a
     // multi-page tap carousel already splits taps across pages today, and it
-    // generalises to a future on-deck page for free, since such a page's tap
-    // list is empty and can never contain the bound slot.
+    // covers the on-deck page for free, since that page's tap list is empty
+    // and can never contain the bound slot.
     const activePage = state.pages[state.currentPage] || [];
     if (!activePage.includes(teaser.slot)) return;
     const cell = state.cardEls.get(teaser.slot);
@@ -1016,68 +1023,32 @@
     }, holdMs(state.settings.upcoming_interval_seconds));
   }
 
-  /* ---- the on-deck page's own turn (issue #41) ----
-
-     This is the first surface built on the shared scheduler #40 set up:
-     it runs off the SAME `crossFadeTimer` interval as the cross-fade (see
-     upcomingTick() below) rather than a timer of its own, ticking its own
-     counter and acting only every `deckMultiple` ticks - the multiplier
-     CLAUDE.md and the ticket call load-bearing, not decoration: the
-     cross-fade already shows one teaser per tick, so a surface stealing too
-     many ticks could starve a beer late in its list of ever getting a turn.
-
-     Unlike the cross-fade (an overlay that fades in over a Slot), the deck
-     page's "turn" is a page navigation: jump to it, hold, jump back. It
-     shares the one interlock (`upcomingBusy`) with the cross-fade - a turn
-     arriving while either is busy is skipped, not queued - and reuses
-     `holdMs()`, the same derived hold every upcoming animation uses. */
-
-  function deckPageTick() {
-    deckTickCounter++;
-    if (deckPageIndex < 0) return;                    // disabled, or nothing to carry
-    if (deckTickCounter % Math.max(1, deckMultiple) !== 0) return;
-    if (upcomingBusy) return;                          // interlock: skip this turn, not queue it
-    if (state.currentPage === deckPageIndex) return;   // already showing (e.g. manual nav)
-    deckReturnPage = state.currentPage;
-    upcomingBusy = true;
-    showPage(deckPageIndex);
-    deckHoldTimer = setTimeout(() => {
-      deckHoldTimer = null;
-      showPage(deckReturnPage);
-      // No fade transition to await here (a page swap, not an overlay), but
-      // release on the next tick of the event loop rather than synchronously
-      // inside the timeout, matching the shape of the cross-fade's own
-      // two-step release and leaving room for a future fade without another
-      // interlock-shaped change.
-      deckReturnTimer = setTimeout(() => { upcomingBusy = false; }, 0);
-    }, holdMs(state.settings.upcoming_interval_seconds));
-  }
-
-  // Ends an in-flight deck turn immediately: used exactly when
-  // crossFadeForceEnd() is - a structural re-render is about to replace every
-  // page element, so any pending "jump back" would target a page index that
-  // may no longer mean the same thing.
-  function deckForceEnd() {
-    if (deckHoldTimer) { clearTimeout(deckHoldTimer); deckHoldTimer = null; }
-    if (deckReturnTimer) { clearTimeout(deckReturnTimer); deckReturnTimer = null; }
-    upcomingBusy = false;
-  }
-
   /* ---- the half-board panel's own turn (issue #42) ----
 
-     Built on the same shared scheduler as the on-deck page above: its own
-     tick counter against its own multiple, the same `upcomingBusy` interlock
-     (a turn arriving while the cross-fade or the deck page is up is skipped,
-     not queued), and the same derived `holdMs()`. Unlike the deck page's
-     "turn" (a page navigation), the panel's turn is an overlay fade - closer
-     in shape to the cross-fade's own show/hide - because the panel floats
-     over the board rather than replacing what is on screen. */
+     Built on the shared scheduler #40 set up: its own tick counter against
+     its own multiple, the same `upcomingBusy` interlock (a turn arriving
+     while the cross-fade is up is skipped, not queued), and the same derived
+     `holdMs()`. The panel's turn is an overlay fade - the same shape as the
+     cross-fade's own show/hide - because the panel floats over the board
+     rather than replacing what is on screen.
+
+     The on-deck page used to take scheduled turns here too (jump to it,
+     hold, jump back); that flicked over instead of flowing, so it now rides
+     the ordinary carousel rotation and the panel is the only surface with a
+     cadence of its own (issue #4 close-out). What survives of the deck page
+     in this scheduler is the no-stack rule below: both carry the same teaser
+     set, so a panel turn that would land on top of the deck page is skipped,
+     not queued - the same shape as the interlock. */
 
   function panelTick() {
     panelTickCounter++;
     if (!panelEl) return;                              // disabled, or nothing to carry
     if (panelTickCounter % Math.max(1, panelMultiple) !== 0) return;
     if (upcomingBusy) return;                           // interlock: skip this turn, not queue it
+    // The no-stack rule: never open the panel over the on-deck page - the
+    // page already shows everything the panel would. showPage() covers the
+    // other direction (navigating onto the deck page mid-hold).
+    if (deckPageIndex >= 0 && state.currentPage === deckPageIndex) return;
     upcomingBusy = true;
     panelEl.classList.add("show");
     panelHoldTimer = setTimeout(() => {
@@ -1087,28 +1058,41 @@
     }, holdMs(state.settings.upcoming_interval_seconds));
   }
 
-  // Ends an in-flight panel turn immediately: used exactly when
-  // crossFadeForceEnd()/deckForceEnd() are - a structural re-render is about
-  // to replace (or remove) the panel element itself, so any pending
-  // hide/release would otherwise fire against a node no longer on screen.
-  function panelForceEnd() {
+  // Ends an in-flight panel turn immediately, keeping the element for its
+  // next turn: used by showPage()'s no-stack guard, where the panel node is
+  // still real - only the page underneath it changed. If the panel is not
+  // up, the timers are already null and `upcomingBusy` belongs to whoever
+  // holds it (possibly the cross-fade), so there is nothing to release: the
+  // interlock guarantees the panel and the cross-fade are never up at once,
+  // which is what makes resetting it safe when the timers say the panel WAS up.
+  function panelHide() {
+    const wasUp = panelHoldTimer !== null || panelFadeTimer !== null;
     if (panelHoldTimer) { clearTimeout(panelHoldTimer); panelHoldTimer = null; }
     if (panelFadeTimer) { clearTimeout(panelFadeTimer); panelFadeTimer = null; }
-    panelEl = null;
-    upcomingBusy = false;
+    if (panelEl) panelEl.classList.remove("show");
+    if (wasUp) upcomingBusy = false;
   }
 
-  // The one shared interval (issue #40/#41/#42): every surface's own turn is
-  // driven off this same tick rather than a timer of its own.
+  // Ends an in-flight panel turn AND forgets the element: used exactly when
+  // crossFadeForceEnd() is - a structural re-render is about to replace (or
+  // remove) the panel element itself, so any pending hide/release would
+  // otherwise fire against a node no longer on screen.
+  function panelForceEnd() {
+    panelHide();
+    panelEl = null;
+  }
+
+  // The one shared interval (issue #40/#42): the panel's turn is driven off
+  // this same tick rather than a timer of its own.
   function upcomingTick() {
-    // Surfaces dispatch BEFORE the cross-fade, deliberately. The busy window
-    // (holdMs + fade) is shorter than every legal interval, so upcomingBusy is
-    // always free at a tick boundary - whichever consumer runs first wins the
-    // tick. The cross-fade wants a turn every tick; a surface wants one only
-    // every Nth. Cross-fade-first therefore starves the surfaces on any board
-    // where it has a candidate, and the multiplier exists precisely to hand
-    // the surfaces those Nth ticks while the baseline keeps the rest.
-    deckPageTick();
+    // The panel dispatches BEFORE the cross-fade, deliberately. The busy
+    // window (holdMs + fade) is shorter than every legal interval, so
+    // upcomingBusy is always free at a tick boundary - whichever consumer
+    // runs first wins the tick. The cross-fade wants a turn every tick; the
+    // panel wants one only every Nth. Cross-fade-first therefore starves the
+    // panel on any board where it has a candidate, and the multiplier exists
+    // precisely to hand the panel those Nth ticks while the baseline keeps
+    // the rest.
     panelTick();
     crossFadeTick();
   }
@@ -1232,17 +1216,13 @@
     setUpcomingInterval(state.settings.upcoming_interval_seconds);
     updateVenueHeader(board);
 
-    // The on-deck page's own multiple (issue #41): updated on every poll,
-    // independent of whether this poll triggers a full re-render, so a
+    // The half-board panel's own multiple (issue #42): updated on every
+    // poll, independent of whether this poll triggers a full re-render, so a
     // changed multiple takes effect on its very next tick rather than
     // waiting for some unrelated layout change to force a rebuild. Not
     // re-clamped here: the config store is the single enforcement point for
     // the 1..6 bound, and the board only ever sends coerced values - a second
     // clamp in this file would be a copy of that rule waiting to drift.
-    deckMultiple = Number(board.upcoming_deck_multiple) || 3;
-    // The half-board panel's own multiple (issue #42): updated every poll for
-    // the same reason deckMultiple is above - a changed value takes effect on
-    // its very next tick rather than waiting for some unrelated full re-render.
     panelMultiple = Number(board.upcoming_panel_multiple) || 2;
 
     const taps = visibleTaps(board);
