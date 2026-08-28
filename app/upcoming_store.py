@@ -267,32 +267,36 @@ def save_image(batch_id: Any, data: bytes, ext: str) -> str:
     return dest.name
 
 
-def _remove(batch_id: Any) -> bool:
-    """Delete one entry's markdown and image, if present. Returns whether anything was removed."""
-    removed = safe_unlink(_md_path(batch_id))
-    stem = _stem(batch_id)
-    for ext in IMAGE_EXTS:
-        if safe_unlink(UPCOMING_DIR / f"{stem}{ext}"):
-            removed = True
-    return removed
-
-
 def rebuild(keep_ids: Iterable[Any]) -> int:
-    """Remove every cached entry whose Batch id is not in `keep_ids`.
+    """Remove every cached file whose Batch id is not in `keep_ids`.
 
     Sync calls this once per cycle, after writing the current qualifying set,
     so a Batch that stopped qualifying (its `tap:`/`upcoming:` token was
     removed, or it moved onto a Tap) leaves no file behind - "rebuilt, not
     merged" (ADR-0006). Nothing removed here is Archived and nothing counts
-    toward `old_beers/`. Returns the number of entries removed.
+    toward `old_beers/`. Returns the number of entries (distinct filename
+    stems) removed.
+
+    The sweep judges by FILENAME, not by reading each file: `_stem` is a
+    pure function of the Batch id, so the keep set maps to exactly the stems
+    this cycle's writes produced, and everything else with the store's
+    prefix goes. Reading first was the earlier shape, and it leaked: a file
+    `_load` cannot key (mangled front matter, no `batch_id`) could never be
+    named for removal and sat in /data/upcoming/ forever - invisible to the
+    board but visibly stale to an operator reading the directory by hand
+    (ADR-0001). An orphan image whose markdown half is gone falls out the
+    same way. The keep set still protects a transiently unreadable file for
+    a Batch the cycle wants: kept is kept, whatever its content reads as.
     """
-    keep = {str(bid) for bid in keep_ids}
-    removed = 0
-    for entry in list_all():
-        if str(entry.batch_id) not in keep:
-            if _remove(entry.batch_id):
-                removed += 1
-    return removed
+    if not UPCOMING_DIR.is_dir():
+        return 0
+    keep = {_stem(bid) for bid in keep_ids}
+    removed_stems: set[str] = set()
+    for path in UPCOMING_DIR.glob(f"{_PREFIX}*"):
+        stem = path.stem if path.suffix else path.name
+        if stem not in keep and safe_unlink(path):
+            removed_stems.add(stem)
+    return len(removed_stems)
 
 
 def clear() -> int:

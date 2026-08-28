@@ -151,6 +151,43 @@ def test_rebuild_with_an_empty_keep_set_clears_everything():
     assert store.list_all() == []
 
 
+def test_rebuild_sweeps_an_entry_the_reader_cannot_key():
+    """An unreadable or unkeyable file must not outlive the rebuild (ADR-0006).
+
+    `_load` returns None for a file with no `batch_id` (or unparseable front
+    matter), so a rebuild that walks readable entries can never name it for
+    removal - it would sit in /data/upcoming/ forever, invisible to the board
+    but visibly stale to an operator reading the directory by hand (ADR-0001
+    makes that a supported surface). The sweep judges by filename instead:
+    everything the store owns that the current cycle did not keep goes.
+    """
+    store.write("batch-keep", _beer("Keep"), "", slot=1, status="completed", revision=1)
+    # A hand-mangled entry: parseable path prefix, no batch_id to key it by.
+    (paths.UPCOMING_DIR / "upcoming_s_mangled.md").write_text(
+        "---\nname: Orphan\n---\nno batch_id here\n", encoding="utf-8")
+    # An orphan image whose markdown half is already gone.
+    (paths.UPCOMING_DIR / "upcoming_s_ghost.jpg").write_bytes(b"stale-photo")
+    assert store.rebuild(["batch-keep"]) == 2
+    remaining = sorted(p.name for p in paths.UPCOMING_DIR.iterdir())
+    assert remaining == ["upcoming_s_batch-keep.md"]
+
+
+def test_rebuild_never_removes_a_kept_batch_even_when_its_file_is_sick():
+    """The sweep must key on the KEEP set, not on readability.
+
+    A transiently unreadable file for a Batch the cycle still wants is
+    replaced by that same cycle's write, never swept as an orphan - sweeping
+    by "could I read it" instead of "was it kept" would turn a read hiccup
+    into a deleted entry.
+    """
+    store.write("batch-sick", _beer("Sick"), "", slot=1, status="completed", revision=1)
+    # Corrupt it so _load cannot key it; the id is still in the keep set.
+    md = paths.UPCOMING_DIR / "upcoming_s_batch-sick.md"
+    md.write_text("---\nname: no id any more\n---\n", encoding="utf-8")
+    assert store.rebuild(["batch-sick"]) == 0
+    assert md.exists()
+
+
 def test_rebuild_does_not_touch_old_beers():
     # "A Batch that stops qualifying leaves no file behind, and nothing
     # reaches old_beers/" - rebuild must never write there.
