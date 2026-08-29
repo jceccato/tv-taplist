@@ -22,9 +22,18 @@ Versions follow [Semver](https://semver.org/). Dates are the release date.
 
 ## Unreleased
 
-Merged to `main` and shipping in the next release.
+Merged to `main` and shipping in the next release. Nothing yet.
 
-Closed so far: [#6](https://github.com/jceccato/tv-taplist/issues/6),
+---
+
+## v1.4.0 - 2026-08-29
+
+The biggest release so far: the board can advertise what is coming as well as
+what is pouring, the glassware has been redrawn, your whole board can leave
+the box and come back, and nothing publishes without a green test suite.
+
+In this release: [#4](https://github.com/jceccato/tv-taplist/issues/4),
+[#6](https://github.com/jceccato/tv-taplist/issues/6),
 [#9](https://github.com/jceccato/tv-taplist/issues/9),
 [#10](https://github.com/jceccato/tv-taplist/issues/10),
 [#11](https://github.com/jceccato/tv-taplist/issues/11),
@@ -43,53 +52,27 @@ and off means the board behaves exactly as it did before this release.
 (Issues [#34](https://github.com/jceccato/tv-taplist/issues/34) through
 [#45](https://github.com/jceccato/tv-taplist/issues/45), the sub-issues of #4.)
 
-Brewfather sync understands a valueless `upcoming:` note token, and each
-Brewfather tap file records its batch's status - the groundwork the teaser
-cards below are built on, landed together so the whole feature costs one cache
-rewrite rather than several.
+Turn on **Show upcoming beer previews** and each sync works out which batches
+are coming up: bound to a tap by the usual `tap:X` note, or unassigned via the
+new valueless `upcoming:` note. Conditioning and fermenting beers still need
+the matching sync-scope setting before they can be teased. One caution worth
+knowing up front: turning the setting off **deletes** the cached previews -
+the only setting on the box that deletes files - so the admin says so at the
+toggle.
 
-There is a new setting, **Show upcoming beer previews**, off by default. With it
-on, each sync works out which batches are coming up - bound to a tap by the
-usual `tap:X` note, or unassigned via the new `upcoming:` note - and caches them
-under `/data/upcoming/` in the mapped data directory.
+The first thing a customer sees now works: **a vacant tap with a beer waiting
+on it shows that beer** instead of the plain "Vacant" card - permanently, and
+the tap stays on the board even when "hide vacant taps" is on, because it now
+has something to show. The teaser is drawn exactly like every other card on
+the board - same size, same stats, same colour swatch, same photo or tinted
+glass - and is marked out only by a dashed amber border, so it reads as "not
+pouring yet" without shouting. A vacant tap with nothing coming still shows
+the ordinary Vacant card.
 
-Two things worth knowing about that cache. Turning the setting off **deletes**
-it, which is the only setting on the box that deletes files, so the admin says
-so at the toggle. And it is disposable by design: deleting the directory by hand
-is safe, the next sync rebuilds it, snapshots never carry it, and nothing in it
-is ever archived to `old_beers/`.
-
-Conditioning and fermenting beers still need the matching sync-scope setting
-before they can be teased. Turning previews on does not widen what the box
-fetches from Brewfather, so it costs no extra API calls.
-
-The board API now serves those upcoming beers, worked out the same way a tap
-card is: the same stat visibility settings, the same colour rules. They are
-ordered most-ready first, then newest first, and a new **Max upcoming previews
-shown** setting caps how many appear (3 by default, up to 20). That cap is
-applied when the board is drawn rather than when it syncs, so changing it takes
-effect on the next refresh of the TV without waiting for a sync. A beer pinned
-to a vacant tap is exempt from the cap: it fills a card that would otherwise
-just say "Vacant", so it adds nothing for the cap to trim - without the
-exemption, a nearly-ready beer waiting on its empty tap could be pushed off the
-board by finished beers that have no tap at all.
-
-An empty tap with a beer assigned to it is the case the feature was built for,
-and it is settled here: that tap advertises the beer permanently, and it stays
-on the board even when "hide vacant taps" is on, because it now has something to
-show. A beer assigned to a tap number higher than the board actually has is
-treated as unassigned rather than pointing at a tap nobody can see; raising the
-tap count re-attaches it on the next refresh.
-
-The first thing a customer sees now works: **a vacant tap with a beer waiting on
-it shows that beer** instead of the plain "Vacant" card. The teaser is drawn
-exactly like every other card on the board - same size, same stats, same colour
-swatch, same photo or tinted glass - and is marked out only by a dashed amber
-border, so it reads as "not pouring yet" without shouting. A vacant tap with
-nothing coming still shows the ordinary Vacant card.
-
-Teaser cards obey the same stat visibility settings as tap cards, so a board with
-OG and FG switched off does not sprout them on a teaser.
+A new **Max upcoming previews shown** setting caps how many upcoming beers
+appear at once (3 by default, up to 20), ordered most-ready first. A beer
+pinned to a vacant tap is exempt from the cap: it fills a card that would
+otherwise just say "Vacant", so it adds nothing for the cap to trim.
 
 The card now says what it means. A ribbon carries wording the operator chooses -
 "Coming up", "Up next", "Coming soon", "Just around the bend", or anything typed
@@ -163,6 +146,45 @@ and how many are overflow. An enabled surface with an empty overflow is correct
 behaviour that used to look like a broken toggle; the admin now explains it
 instead. It also points out when Include Conditioning or Include Fermenting must
 be switched on before a tagged batch can appear at all.
+
+<details>
+<summary><b>Technical notes:</b> the cache, ordering, and the edge cases</summary>
+
+Brewfather sync understands the valueless `upcoming:` note token, and each
+Brewfather tap file now records its batch's status - groundwork landed
+together with the feature so the whole thing costs one cache rewrite rather
+than several.
+
+Upcoming beers are cached under `/data/upcoming/` in the mapped data
+directory, one markdown-plus-image pair per batch. The cache is disposable by
+design: deleting the directory by hand is safe, the next sync rebuilds it,
+snapshots never carry it, and nothing in it is ever archived to `old_beers/`.
+
+Turning previews on does not widen what the box fetches from Brewfather - the
+upcoming set is worked out from the batch list the sync already pulls - so it
+costs no extra API calls against the 500-per-hour key limit.
+
+Ordering is most-ready first (batch status), then newest first. The display
+cap is applied when the board is drawn rather than when it syncs, so changing
+it takes effect on the next refresh of the TV without waiting for a sync.
+Without the pinned exemption above, a nearly-ready beer waiting on its empty
+tap could be pushed off the board by finished beers that have no tap at all.
+
+A beer assigned to a tap number higher than the board actually has is treated
+as unassigned rather than pointing at a tap nobody can see; raising the tap
+count re-attaches it on the next refresh, again with no sync needed.
+
+Teaser cards obey the same stat visibility settings as tap cards, so a board
+with OG and FG switched off does not sprout them on a teaser. Colour, the
+swatch and the tinted placeholder glass all resolve through the same rules a
+pouring beer uses.
+
+The board API carries all of this as new, additive fields: an `upcoming` list
+(only present when the feature is on), per-teaser resolved answers, and the
+surface enable flags. With the feature off the payload is byte-identical to
+what this endpoint served before the feature existed.
+
+</details>
 
 **What upgrading costs the operator:** the mapping version moves from 6 to 7, so
 the first sync after upgrading rewrites every cached Brewfather tap file once
@@ -298,12 +320,18 @@ identifier and nothing else, and it is how the second check tells a container
 recreate apart from a wipe. Leave it alone - deleting it looks like a wipe and
 costs you one warning.
 
-**The image no longer declares `/data` as a Docker volume.** This is what makes
-the first check reliable: an unmapped data directory is now plainly unmapped
-rather than silently receiving a throwaway volume that accepts every write and
-survives nothing. An operator who mapped a host directory as documented does
-nothing. An operator who did not was already losing data on every container
-recreate; this does not make that worse, it makes it visible.
+<details>
+<summary><b>Technical note:</b> the image no longer declares <code>/data</code> as a Docker volume</summary>
+
+This is what makes the first check reliable: an unmapped data directory is now
+plainly unmapped rather than silently receiving a throwaway anonymous volume
+that accepts every write and survives nothing - the two are indistinguishable
+from inside the container, which is exactly why the old `VOLUME` directive
+disabled the warning. An operator who mapped a host directory as documented
+does nothing. An operator who did not was already losing data on every
+container recreate; this does not make that worse, it makes it visible.
+
+</details>
 
 ### A beer with no colour data no longer looks broken ([#11](https://github.com/jceccato/tv-taplist/issues/11))
 
@@ -335,10 +363,14 @@ what the form accepts is what the box stores.
 Editing `config.json` by hand still clamps rather than refusing to start, which
 is deliberate - a file has no one to report an error to.
 
-### Changed: the `/api/board` payload ([#11](https://github.com/jceccato/tv-taplist/issues/11), [#9](https://github.com/jceccato/tv-taplist/issues/9))
+### Changed: the `/api/board` payload ([#11](https://github.com/jceccato/tv-taplist/issues/11), [#9](https://github.com/jceccato/tv-taplist/issues/9), [#4](https://github.com/jceccato/tv-taplist/issues/4))
 
-Only the built-in display consumes this, but the endpoint is public, so if you
-read it directly:
+Only the built-in display consumes this, but the endpoint is public. If you
+read it directly, the field-by-field changes are under the fold; if you do
+not, there is nothing here for you.
+
+<details>
+<summary><b>Field-by-field payload changes</b></summary>
 
 - The five `show_*` and five `hide_*_when_empty` flags are gone from the top
   level, and each tap now carries `abv_visible`, `ibu_visible`, `ebc_visible`,
@@ -348,8 +380,18 @@ read it directly:
   they previously carried a grey, and are omitted on vacant taps.
 - The no-photo glass image is now `/img/beer-glass?hex=<rrggbb>`; the `ebc` and
   `sat` parameters on that route are gone.
+- With upcoming previews on, the payload additionally carries an `upcoming`
+  list (each entry a resolved teaser: identity, bound slot, `pinned`,
+  `cross_fade`, `on_surfaces`, the same stat visibility answers a tap gets,
+  plus `status_label`, `subtitle` and `abv_estimated`), the ribbon text, the
+  shared cadence, and the two surface enable flags. All additive: with the
+  feature off, none of these keys exist.
+- `status_label` also appears on a pouring tap card when the
+  conditioning-on-tap marker is enabled, `null` when there is nothing to say.
 
 `color_unit` and `show_source_badge` are unchanged.
+
+</details>
 
 ### Also
 
