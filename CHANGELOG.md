@@ -22,7 +22,14 @@ Versions follow [Semver](https://semver.org/). Dates are the release date.
 
 ## Unreleased
 
-Merged to `main` and shipping in the next release.
+Merged to `main` and shipping in the next release. Nothing yet.
+
+---
+
+## v1.4.1 - 2026-08-29
+
+A small follow-up to v1.4.0. **No migration, no settings change:** pull and
+restart.
 
 ### Upcoming beers on pouring taps now fade in together
 
