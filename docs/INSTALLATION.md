@@ -213,7 +213,7 @@ extra tokens:
 |-------|--------|
 | `tap:3` | Assign this batch to **tap 3** (required for it to appear). |
 | `colour:#780606` | Force an exact swatch + glass colour. `color:` also works. |
-| `glass:willibecher` | Glass silhouette: `willibecher` (the default), `nonicpint`, `default` (the shaker pint - a historical key name), `schooner`, `tulip`, `teku`, `dimpledmug`. |
+| `glass:willibecher` | Glass silhouette: `willibecher` (the default), `nonicpint`, `default` (the shaker pint - a historical key name), `schooner`, `pilsnerflute`, `weizen`, `tulip`, `teku`, `dimpledmug`. |
 | `saturation:60` | Mute the colour to 60 % (a percentage, or a `0`–`1` fraction). |
 | `upcoming:` | Tease this beer as coming up, with no tap assigned. Takes no value, and is ignored on a batch that already carries a `tap:N`. |
 
