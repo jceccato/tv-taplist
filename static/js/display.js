@@ -916,8 +916,10 @@
      - the PAGE guard (crossFadeOverlayTap vs. the active page's tap list):
        the interlock alone does not stop the overlay landing on the wrong
        page, because manual dot navigation changes the page without going
-       through this scheduler at all. See showPage() below and the display
-       prototype's README for the bug this was found and fixed against. */
+       through this scheduler at all. Found in the issue #4 display
+       prototype (since deleted, per the prototype convention): a timer
+       fired mid-navigation and drew its teaser over a page that did not
+       carry the bound tap. See showPage() below. */
 
   // How long a teaser stays up, derived from the cadence rather than a
   // separate Setting (CLAUDE.md): about 58% of the gap, floored at 1.5s so a
