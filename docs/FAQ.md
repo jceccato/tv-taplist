@@ -284,8 +284,12 @@ Three surfaces, in the order the board prefers them:
 - **Cross-faded over the tap it will pour on.** When the bound tap is already
   pouring something, the teaser fades in over that card, holds, and fades back
   out again - the clearest thing the board can say, because the teaser
-  appears exactly where the beer will pour. Switching **Allow a pouring beer to
-  be cross-faded out** off means no pouring beer is ever covered, even briefly.
+  appears exactly where the beer will pour. With several such beers on the
+  page, all of them fade in and out **together**, one synchronised moment of
+  "here is what is coming" rather than a teaser always coming or going
+  somewhere. Two beers tagged for the same tap take turns within that moment.
+  Switching **Allow a pouring beer to be cross-faded out** off means no
+  pouring beer is ever covered, even briefly.
 - **The optional overflow surfaces.** An **on-deck page** (a full page in the
   normal rotation, with its own dot, shown like any other page) and a
   **half-board panel** (an interruption sliding over the bottom half of the
@@ -306,8 +310,9 @@ holds on screen is worked out from that one number rather than being a second
 thing to tune. The on-deck page needs no cadence of its own: it is an ordinary
 carousel page and rotates on the same timer as every other page. The panel
 takes its turn on a multiple of the cadence - every second turn by default,
-adjustable from 1 to 6 - which is what stops it taking so many turns that a
-beer late in the list never gets one. With both surfaces on, the panel skips
+adjustable from 1 to 6 - and a panel turn takes a beat the cross-fade would
+otherwise use, so a low multiple means the pouring-tap teasers spend more of
+their turns waiting behind the panel. With both surfaces on, the panel skips
 any turn that would land while the on-deck page is showing: the page already
 lists everything the panel would, so the two never stack.
 

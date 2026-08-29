@@ -367,6 +367,37 @@ def test_display_js_dispatches_the_panel_before_the_cross_fade():
     assert body.index("panelTick()") < body.index("crossFadeTick()")
 
 
+def test_display_js_cross_fade_covers_every_bound_slot_in_one_turn():
+    """The cross-fade fades ALL bound Slots on the active page together.
+
+    The baseline shipped as one teaser per tick, cycling - which on a board
+    with several upcoming beers read as a teaser always coming or going
+    somewhere, one at a time. A turn now groups the candidates by Slot,
+    mounts one overlay per Slot on the active page, and fades the whole
+    group in and out on shared timers. Teasers SHARING a Slot still
+    alternate across turns (two Batches may claim one occupied Slot - the
+    FAQ's "both tease" contract - and they cannot stack on one cell), which
+    is the one place a turn counter survives. A grep-shaped guard, like the
+    rest of this file: it pins the group machinery present and the
+    single-teaser cycler absent.
+    """
+    js = _display_js()
+    assert "crossFadeIndex" not in js, (
+        "the one-teaser-per-tick cycler is back - a turn must cover every "
+        "bound Slot on the active page, not one candidate")
+    assert "crossFadeOverlays" in js, (
+        "the in-flight overlay is singular again - the group of per-Slot "
+        "overlays is gone")
+    tick = js.split("function crossFadeTick()", 1)[1].split("\n  }", 1)[0]
+    assert "bySlot.forEach" in tick, (
+        "crossFadeTick no longer fans out one overlay per grouped Slot")
+    assert re.search(r"bySlot\.(get|set|has)\(u\.slot\)", tick), (
+        "crossFadeTick no longer groups the candidates into bySlot - a "
+        "leftover fan-out over an empty map covers nothing")
+    assert re.search(r"%\s*slotTeasers\.length", tick), (
+        "teasers sharing a Slot no longer alternate across turns")
+
+
 def test_display_js_panel_never_stacks_on_the_deck_page():
     """The panel and the deck page carry the same teasers (#4 close-out).
 

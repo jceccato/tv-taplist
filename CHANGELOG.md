@@ -22,7 +22,20 @@ Versions follow [Semver](https://semver.org/). Dates are the release date.
 
 ## Unreleased
 
-Merged to `main` and shipping in the next release. Nothing yet.
+Merged to `main` and shipping in the next release.
+
+### Upcoming beers on pouring taps now fade in together
+
+The cross-fade used to show one upcoming beer per beat, working through them
+in turn - which on a board with several upcoming beers read as a teaser
+always coming or going somewhere. Now every pouring tap on the current page
+with a beer coming fades its teaser in at the same moment, they hold
+together, and they fade back together: one synchronised "here is what is
+coming", then the board again. Two beers tagged for the same tap still take
+turns, since only one can occupy that card at a time.
+
+Nothing to configure and no settings change: the same **Upcoming beers appear
+every** cadence drives it, and a beat's hold is unchanged.
 
 ---
 

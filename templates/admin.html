@@ -212,7 +212,7 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
 
             <label for="upcoming_panel_multiple">Half-board panel every (x the cadence above)</label>
             <input id="upcoming_panel_multiple" name="upcoming_panel_multiple" type="number" {{ bounds_for('upcoming_panel_multiple') }} step="1" value="{{ cfg.upcoming_panel_multiple }}">
-            <p class="hint">The cross-fade shows one teaser per tick, so a panel taking over too often could starve a beer late in the list of its turn. A slower panel leaves the baseline room to work through it. With the on-deck page also enabled, the panel skips any turn that would land on top of it - the page already shows everything the panel would.</p>
+            <p class="hint">A panel turn takes a tick the cross-fade would otherwise use, so a low multiple means the pouring-tap teasers spend more of their turns waiting behind the panel. With the on-deck page also enabled, the panel skips any turn that would land on top of it - the page already shows everything the panel would.</p>
 
             <label for="upcoming_surface_scope">Surface carries</label>
             <select id="upcoming_surface_scope" name="upcoming_surface_scope">

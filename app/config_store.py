@@ -83,9 +83,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # surface, off by default like the on-deck page. Unlike the page it
     # overlays the board on a schedule, so it carries a multiplier of
     # upcoming_interval_seconds - the multiplier is not decoration, it is
-    # what stops the panel stealing so many ticks that a beer late in the
-    # cross-fade's list never gets a turn (CLAUDE.md). 2x reads well as the
-    # default (the prototype's own default): the panel is a cheap
+    # what stops the panel taking so many ticks that the cross-fade (whose
+    # turn shows every bound teaser on the page at once) rarely gets one.
+    # 2x reads well as the default (the prototype's own default): the panel
+    # is a cheap
     # interruption - the top half of the board stays readable underneath it -
     # so it can afford to take its turn fairly often.
     "show_upcoming_panel": False,
@@ -215,10 +216,11 @@ MAX_TAP_TEXT_SCALE = 2.0
 SETTINGS_BOUNDS: dict[str, tuple[float, float | None]] = {
     "num_taps": (0, MAX_NUM_TAPS),
     "max_upcoming_previews": (0, MAX_UPCOMING_PREVIEWS),
-    # 1x to 6x the shared cadence (issue #42). The floor of 1 keeps the panel
-    # from being configured to steal every single tick, which the cross-fade's
-    # one-teaser-per-tick cycling could starve outright; 6 is generous enough
-    # that "practically never" is already reachable well before the ceiling.
+    # 1x to 6x the shared cadence (issue #42). The panel dispatches ahead of
+    # the cross-fade on its claimed ticks, so the floor of 1 is the operator
+    # choosing "the panel every tick" with eyes open - the ceiling of 6 is
+    # generous enough that "practically never" is already reachable well
+    # before it.
     "upcoming_panel_multiple": (1, 6),
     # 300, not rotation_seconds' 600 (CLAUDE.md): five minutes is already the
     # point where a customer there for one drink may never see a teaser, and

@@ -660,8 +660,8 @@
     // cross-fade in progress can no longer be trusted to be positioned over
     // anything real. Ending it here - rather than waiting for its own hold
     // timer - is what keeps a poll from leaving the interlock stuck "busy"
-    // for the rest of that teaser's hold. `crossFadeIndex` (the cycling
-    // position) is untouched: a poll must never reset it, only the overlay.
+    // for the rest of that teaser's hold. `crossFadeTurn` (the shared-Slot
+    // alternation) is untouched: a poll must never reset it, only the overlays.
     crossFadeForceEnd();
     panelForceEnd();
     state.pages = chunk(taps.map((t) => t.tap), pageSize());
@@ -796,13 +796,15 @@
     state.currentPage = idx;
     renderDots();
     // The cross-fade's page guard (issue #40): leaving the page that carries
-    // the in-flight overlay's tap pulls it immediately, with no fade-out -
+    // the in-flight overlays' taps pulls them immediately, with no fade-out -
     // this is reached by manual dot navigation (goToPage) exactly as it is by
     // the carousel timer, which is the whole reason the guard lives here
-    // rather than in the scheduler that started the overlay.
-    if (crossFadeOverlayTap != null) {
+    // rather than in the scheduler that started the overlays. The group was
+    // built against ONE page's cells, so any overlay off the new page means
+    // the whole group goes - it lives and dies together.
+    if (crossFadeOverlays.length) {
       const activePage = state.pages[idx] || [];
-      if (!activePage.includes(crossFadeOverlayTap)) crossFadeForceEnd();
+      if (crossFadeOverlays.some((o) => !activePage.includes(o.tap))) crossFadeForceEnd();
     }
     // The panel's own page guard (issue #4 close-out): the panel and the
     // on-deck page carry the same teaser set, so the two must never stack.
@@ -913,8 +915,8 @@
      - `upcomingBusy` (the interlock): nothing starts while something else is
        up. A turn arriving while busy is skipped, not queued - see
        crossFadeTick().
-     - the PAGE guard (crossFadeOverlayTap vs. the active page's tap list):
-       the interlock alone does not stop the overlay landing on the wrong
+     - the PAGE guard (crossFadeOverlays vs. the active page's tap list):
+       the interlock alone does not stop an overlay landing on the wrong
        page, because manual dot navigation changes the page without going
        through this scheduler at all. Found in the issue #4 display
        prototype (since deleted, per the prototype convention): a timer
@@ -935,9 +937,8 @@
 
   let crossFadeTimer = null;
   let crossFadeIntervalMs = DEFAULT_SETTINGS.upcoming_interval_seconds * 1000;
-  let crossFadeIndex = 0;          // works through bound teasers one per tick
-  let crossFadeOverlay = null;     // the in-flight overlay element, or null
-  let crossFadeOverlayTap = null;  // which tap number it is covering
+  let crossFadeTurn = 0;           // advances per shown turn; alternates teasers sharing a Slot
+  let crossFadeOverlays = [];      // in-flight overlays, one per covered Slot: {el, tap}
   let crossFadeHoldTimer = null;
   let crossFadeFadeTimer = null;
 
@@ -947,18 +948,19 @@
   }
 
   // Ends an in-flight cross-fade immediately, with no fade-out: used when the
-  // overlay can no longer be trusted to be in the right place (a structural
-  // re-render replaced the card elements, or the tap page it covers is no
-  // longer showing) rather than when its own hold naturally expires.
+  // overlays can no longer be trusted to be in the right place (a structural
+  // re-render replaced the card elements, or the tap page they cover is no
+  // longer showing) rather than when their own hold naturally expires. The
+  // whole group lives and dies together - there is never a turn with some
+  // Slots covered and others already released.
   function crossFadeForceEnd() {
     crossFadePendingTimersClear();
-    if (crossFadeOverlay) crossFadeOverlay.remove();
-    crossFadeOverlay = null;
-    crossFadeOverlayTap = null;
+    crossFadeOverlays.forEach((o) => o.el.remove());
+    crossFadeOverlays = [];
     upcomingBusy = false;
   }
 
-  // Bound teasers the baseline may cycle - `cross_fade` is already the
+  // Bound teasers the baseline may show - `cross_fade` is already the
   // resolved answer (board.py's resolve_upcoming); this file never re-derives
   // "occupied" or whether rotation is allowed from the Setting that decides
   // it - it never even sees that Setting (CLAUDE.md).
@@ -971,29 +973,55 @@
     if (upcomingBusy) return;              // interlock: skip this turn, not queue it
     const candidates = crossFadeCandidates();
     if (!candidates.length) return;
-    // One per tick, cycling through the list rather than repeating one -
-    // advanced whether or not this particular attempt ends up showing
-    // anything, so a run of misses (the page guard below) does not stall the
-    // rotation on the same candidate forever.
-    const teaser = candidates[crossFadeIndex % candidates.length];
-    crossFadeIndex++;
-    // The page guard. An inactive carousel page is still laid out (only
-    // faded to opacity 0), so without this the overlay would land in the
-    // right PLACE over the wrong PAGE - a teaser bound to tap 2 sliding
-    // across a page that has no tap 2 on it. Checking against the tap list of
-    // whichever page is active right now (rather than a cached "is this the
-    // tap page" flag) is what makes this correct for pagination too: a
-    // multi-page tap carousel already splits taps across pages today, and it
-    // covers the on-deck page for free, since that page's tap list is empty
-    // and can never contain the bound slot.
+    // Every bound Slot on the ACTIVE page gets its overlay in the same turn,
+    // fading in together and out together. The baseline shipped as one
+    // teaser per tick, cycling, and on a board with several upcoming beers
+    // that read as a teaser always coming or going somewhere - restless
+    // rather than informative. One synchronised group reads as a single
+    // event: "here is what is coming", then the board again.
+    //
+    // The page guard is folded into the grouping. An inactive carousel page
+    // is still laid out (only faded to opacity 0), so without it an overlay
+    // would land in the right PLACE over the wrong PAGE. Checking the active
+    // page's own tap list keeps this correct for pagination, and covers the
+    // on-deck page for free - its tap list is empty, so nothing can group
+    // onto it. A Slot on another page simply waits for the carousel to
+    // bring its page around, exactly as before.
     const activePage = state.pages[state.currentPage] || [];
-    if (!activePage.includes(teaser.slot)) return;
-    const cell = state.cardEls.get(teaser.slot);
-    if (!cell) return;
-    crossFadeShow(cell, teaser);
+    const bySlot = new Map();
+    candidates.forEach((u) => {
+      if (!activePage.includes(u.slot)) return;
+      if (!bySlot.has(u.slot)) bySlot.set(u.slot, []);
+      bySlot.get(u.slot).push(u);
+    });
+    if (!bySlot.size) return;
+    // Two Batches may claim one occupied Slot ("both tease" - the FAQ's
+    // contract), and they cannot stack on one cell, so teasers sharing a
+    // Slot alternate across turns. That per-Slot pick is all that survives
+    // of the old cycling; a Slot with one teaser shows it every turn.
+    const turn = crossFadeTurn++;
+    const shown = [];
+    bySlot.forEach((slotTeasers, slot) => {
+      const cell = state.cardEls.get(slot);
+      if (!cell) return;
+      const teaser = slotTeasers[turn % slotTeasers.length];
+      shown.push({ el: crossFadeBuildOverlay(cell, teaser), tap: slot });
+    });
+    if (!shown.length) return;
+    crossFadeOverlays = shown;
+    upcomingBusy = true;
+    // One rAF for the whole group, so every Slot's fade starts on the same
+    // frame; the shared hold and fade timers below end them together too.
+    requestAnimationFrame(() => shown.forEach((o) => { o.el.style.opacity = "1"; }));
+    crossFadeHoldTimer = setTimeout(() => {
+      shown.forEach((o) => { o.el.style.opacity = "0"; });
+      crossFadeFadeTimer = setTimeout(crossFadeForceEnd, 500);
+    }, holdMs(state.settings.upcoming_interval_seconds));
   }
 
-  function crossFadeShow(cell, teaser) {
+  // Builds and mounts one Slot's overlay, hidden: the caller fades the whole
+  // group in with a single rAF and owns the shared hold/fade timers.
+  function crossFadeBuildOverlay(cell, teaser) {
     const stageRect = stage.getBoundingClientRect();
     const rect = cell.getBoundingClientRect();
     const label = (state.lastBoard && state.lastBoard.upcoming_label) || "Coming up";
@@ -1015,14 +1043,7 @@
     // marquee for exactly the hold it is on screen.
     measureMarquee(card.querySelector(".name"));
     measureMarquee(card.querySelector(".desc"));
-    crossFadeOverlay = overlay;
-    crossFadeOverlayTap = teaser.slot;
-    upcomingBusy = true;
-    requestAnimationFrame(() => { overlay.style.opacity = "1"; });
-    crossFadeHoldTimer = setTimeout(() => {
-      overlay.style.opacity = "0";
-      crossFadeFadeTimer = setTimeout(crossFadeForceEnd, 500);
-    }, holdMs(state.settings.upcoming_interval_seconds));
+    return overlay;
   }
 
   /* ---- the half-board panel's own turn (issue #42) ----
