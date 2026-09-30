@@ -10,7 +10,7 @@ change by accident.
 
 Nothing here knows about HTTP. A submitted value that cannot be used raises
 `OverrideRejected`, and the route decides that means 422; the Settings side has
-no equivalent because Settings clamp rather than reject (see CONTEXT.md).
+no equivalent because Settings clamp rather than reject (see GLOSSARY.md).
 """
 from __future__ import annotations
 

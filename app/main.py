@@ -435,7 +435,7 @@ async def admin_page(request: Request):
             "upcoming_summary": resolve_upcoming_summary(),
             # Which Brewfather fetch-scope toggles are off, named for the
             # admin's hint (issue #42): show_upcoming_previews deliberately
-            # does not widen the fetch (CLAUDE.md/CONTEXT.md), so a Batch
+            # does not widen the fetch (CLAUDE.md/GLOSSARY.md), so a Batch
             # tagged `upcoming:`/`tap:` while still Fermenting stays invisible
             # until include_fermenting is also on, and likewise for
             # Conditioning. Read directly off cfg - this is a plain Settings
@@ -681,7 +681,7 @@ async def save_settings(
     watch the field snap to the bound on reload with no explanation. Clamping in
     `config_store` is now the single enforcement point and the form's inputs
     carry the same bounds, so the browser stops the value being typed. Do not
-    restore the checks; see CONTEXT.md's Known hazards for why rejection here
+    restore the checks; see GLOSSARY.md's Known hazards for why rejection here
     would gain nothing the clamp does not already guarantee.
     """
     # The custom palette arrives as theme_<key> fields, which are not Settings

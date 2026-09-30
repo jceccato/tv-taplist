@@ -1,6 +1,6 @@
 """Mapping: turn a Brewfather **Batch** into the fields of a **Beer**.
 
-This module is named for the glossary term (see CONTEXT.md, *Mapping*). The
+This module is named for the glossary term (see GLOSSARY.md, *Mapping*). The
 short name is for readability, not a claim of generality: everything here maps
 Brewfather's Batch entity specifically - its field names, its note tokens, its
 lifecycle statuses. A second Source would bring its own mapping, not reuse this
@@ -654,7 +654,7 @@ def resolve_occupancy(batches: list[dict[str, Any]],
 
 def upcoming_beers(batches: list[dict[str, Any]],
                     occupied: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
-    """The Upcoming Beer set for one sync cycle - see CONTEXT.md, Upcoming Beer.
+    """The Upcoming Beer set for one sync cycle - see GLOSSARY.md, Upcoming Beer.
 
     Unordered on purpose: ordering and the display cap (`max_upcoming_previews`)
     are display-time per ADR-0006, not sync-time, so they are #37's job and do

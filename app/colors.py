@@ -70,7 +70,7 @@ def display_color_to_ebc(value: float | int | None, unit: str) -> float | int | 
     """Convert a Colour typed in the operator's display unit into stored EBC.
 
     EBC is the only stored form of a Beer's Colour; SRM is a display unit that
-    exists at the Admin form and nowhere else (see CONTEXT.md's Colour entry).
+    exists at the Admin form and nowhere else (see GLOSSARY.md's Colour entry).
     This function is where that sentence is enforced, so the override save and
     the Admin's live preview cannot drift into converting differently - they
     call this, rather than each repeating the multiply.

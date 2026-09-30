@@ -10,7 +10,7 @@ Attribute per Tap plus one for the colour swatch, the same way Occupancy already
 sends a resolved `hidden` rather than the vacancy and the hide-vacant setting
 that produced it. The display renders what it is told. The alternative - shipping
 the ten raw toggles and re-running the chain in JavaScript - put the only
-implementation of a documented precedence rule (CONTEXT.md, Visibility) in the
+implementation of a documented precedence rule (GLOSSARY.md, Visibility) in the
 one language this project has no test harness for.
 
 Two consequences of resolving through the store are worth spelling out, because
@@ -108,7 +108,7 @@ def resolve_visibility(value: Any, global_show: Any, hide_when_empty: Any,
                        per_tap: Any = None) -> bool:
     """Answer whether one Attribute renders on one Tap.
 
-    The single expression of Visibility (CONTEXT.md), in its fixed order:
+    The single expression of Visibility (GLOSSARY.md), in its fixed order:
 
     1. a **per-Tap override** wins outright - True or False is a deliberate
        instruction for this Slot; None or "" means "inherit";
@@ -125,7 +125,7 @@ def resolve_visibility(value: Any, global_show: Any, hide_when_empty: Any,
     swatch asks whether Colour is known (an EBC *or* an override), the EBC
     Attribute asks whether EBC is present, and passing a different value is the
     whole of that difference. One operator toggle, two answers - see ADR-0004 and
-    CONTEXT.md's note that the swatch is Presentation of Colour, not an Attribute.
+    GLOSSARY.md's note that the swatch is Presentation of Colour, not an Attribute.
 
     Inputs are coerced defensively because the toggles arrive from Settings and
     the override from front matter, either of which a human may have hand-edited.
@@ -505,7 +505,7 @@ def resolve_upcoming(entry: UpcomingEntry, cfg: dict[str, Any],
     )
 
     # The subtitle text is the resolved answer, never the Setting that
-    # produced it (CLAUDE.md, CONTEXT.md): boundness decides half the
+    # produced it (CLAUDE.md, GLOSSARY.md): boundness decides half the
     # question, so sending the toggle alone would leave the display re-running
     # that half itself. An unbound teaser (slot is None, including a teaser
     # bound past num_taps - CLAUDE.md's "treated as unbound") has no tap
@@ -642,7 +642,7 @@ def build_board() -> dict[str, Any]:
         # multiple reappearing here means the scheduled-turn machinery grew
         # back. `upcoming_surface_scope` is deliberately NOT here: it is
         # fully consumed into each teaser's `on_surfaces` answer above, and
-        # CLAUDE.md/CONTEXT.md require it stay off the wire. Whether the page
+        # CLAUDE.md/GLOSSARY.md require it stay off the wire. Whether the page
         # actually has anything to draw is left to the display filtering
         # `upcoming` by `on_surfaces` itself - with nothing to carry the page
         # is not rendered at all (issue #41), which needs no extra flag here.

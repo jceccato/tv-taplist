@@ -6,7 +6,7 @@ Filenames are private to this module, which is the whole point: the naming
 convention used to be a shared secret rebuilt by hand in six other modules, and
 Source precedence emerged from a couple of `if` branches rather than existing
 anywhere. See docs/adr/0001-file-storage-as-source-seam.md, which forecast this
-shape, and CONTEXT.md for the vocabulary (Slot, Tap, Source, Vacant).
+shape, and GLOSSARY.md for the vocabulary (Slot, Tap, Source, Vacant).
 
 On-disk layout (unchanged, and a user-facing contract - operators read and edit
 these files by hand):

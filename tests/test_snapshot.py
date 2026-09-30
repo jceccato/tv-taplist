@@ -578,7 +578,7 @@ def test_a_keyless_snapshot_still_restores_its_user_id(no_credential_env):
 
 def test_out_of_range_settings_are_clamped_and_saved_not_rejected(no_credential_env):
     # A Snapshot's config.json is a hand-edited config file as far as the store
-    # is concerned, and those clamp rather than raise (CONTEXT.md). A Snapshot
+    # is concerned, and those clamp rather than raise (GLOSSARY.md). A Snapshot
     # from a box with a wider limit must not stop this one importing.
     payload = _build_snapshot({
         **config_store.DEFAULT_CONFIG,

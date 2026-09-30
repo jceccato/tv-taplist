@@ -1,6 +1,6 @@
 """status.json load/save - machine-written runtime Status, kept apart from Settings.
 
-**Status** (see `CONTEXT.md`) is everything the scheduled jobs write about
+**Status** (see `GLOSSARY.md`) is everything the scheduled jobs write about
 themselves: when the last sync ran, whether it failed, and what the daily update
 check found. **Settings** is what the operator deliberately configures, and it
 lives in `config.json` next to the Brewfather API key.

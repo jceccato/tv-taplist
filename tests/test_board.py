@@ -176,7 +176,7 @@ def test_swatch_and_ebc_ask_different_emptiness_questions(write_tap):
     The swatch asks whether *Colour* is known (an EBC or a Colour override); the
     EBC Attribute asks whether *EBC* is present. A Beer with only an override is
     the case that separates them, and it is why `hide_color_when_empty` cannot be
-    applied once and reused. See ADR-0004 and CONTEXT.md (Attribute).
+    applied once and reused. See ADR-0004 and GLOSSARY.md (Attribute).
     """
     write_tap("custom", 1, name="Override only", color_override="#445566")  # no ebc
     write_tap("custom", 2, name="Ebc only", ebc=12)
@@ -232,7 +232,7 @@ def test_board_payload_carries_no_visibility_inputs(write_tap):
         assert "show_fg" not in tap
 
 
-# ---- Visibility, resolved (CONTEXT.md's three-step chain) ----------------
+# ---- Visibility, resolved (GLOSSARY.md's three-step chain) ----------------
 
 def test_visibility_global_toggle_applies_without_an_override():
     # Step 2: with no per-Tap override the global toggle decides.

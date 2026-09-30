@@ -39,7 +39,7 @@ A bad **value** must land in neither bucket. `abv: banana` coerces to `None` and
 the Tap resolves normally, under its own Source. The Beer keeps its name, its
 description, its photo and every other field it got right.
 
-The precedent is already written down. CONTEXT.md's _Known hazards_ records that
+The precedent is already written down. GLOSSARY.md's _Known hazards_ records that
 Settings bounds clamp rather than reject, because a hand-edited `config.json`
 has no one to report an error to and must never stop the box booting. ADR-0001
 makes Tap files hand-editable on exactly those terms. The argument applies here

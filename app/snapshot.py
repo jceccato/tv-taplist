@@ -50,7 +50,7 @@ Two smaller rules that are easy to get backwards:
 * **Imported Settings are clamped, never rejected.** A Snapshot's `config.json`
   is, from the store's point of view, a hand-edited config file, so it goes
   through `config_store.update_config` like any other Settings write and an
-  out-of-range value is clamped and saved. See CONTEXT.md, "Settings bounds are
+  out-of-range value is clamped and saved. See GLOSSARY.md, "Settings bounds are
   enforced by clamping".
 """
 from __future__ import annotations

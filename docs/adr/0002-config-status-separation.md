@@ -2,7 +2,7 @@
 
 Status: accepted
 
-**Settings** and **Status** (`CONTEXT.md`) shared `config.json`. Settings is the
+**Settings** and **Status** (`GLOSSARY.md`) shared `config.json`. Settings is the
 operator's deliberate configuration, including the Brewfather API key, and is
 irreplaceable. Status is six machine-written fields - three sync timestamps and
 what the daily update check found - that the scheduled jobs rewrite on every
@@ -13,7 +13,7 @@ Status now lives in `/data/status.json`, owned by `app/status_store.py`.
 
 This does not supersede ADR-0001 and does not weaken it. `status.json` is one
 more plain file in the mapped data directory, readable and editable by hand like
-everything else there; the storage decision is unchanged. `CONTEXT.md` recorded
+everything else there; the storage decision is unchanged. `GLOSSARY.md` recorded
 the shared file under "Known hazards" and said the split was agreed but not yet
 implemented. This is that implementation, and the hazard entry goes with it.
 

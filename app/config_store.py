@@ -56,7 +56,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # The teaser card's words (issue #39). All four are resolved at board time
     # (app/board.py) into wire answers - status_label, subtitle, abv_estimated
     # and the ribbon's own text - never forwarded as raw toggles; see
-    # CLAUDE.md's "resolved answers, not inputs" and CONTEXT.md's Visibility.
+    # CLAUDE.md's "resolved answers, not inputs" and GLOSSARY.md's Visibility.
     "upcoming_label": "Coming up",       # ribbon text; capped, see MAX_UPCOMING_LABEL_LEN
     "show_upcoming_status": True,        # "Ready" / "Conditioning" / ... under the head
     "show_upcoming_subtitle": False,     # "<label> on tap N" under a BOUND teaser's head;
@@ -212,7 +212,7 @@ MAX_TAP_TEXT_SCALE = 2.0
 # save. Nothing else in the app may restate a bound: a route checking one of
 # these itself is how the two layers came to disagree about the tap count - the
 # route rejected a negative, the store clamped it, and the ceiling was enforced
-# in only one of the two. See CONTEXT.md, Known hazards.
+# in only one of the two. See GLOSSARY.md, Known hazards.
 SETTINGS_BOUNDS: dict[str, tuple[float, float | None]] = {
     "num_taps": (0, MAX_NUM_TAPS),
     "max_upcoming_previews": (0, MAX_UPCOMING_PREVIEWS),
@@ -335,7 +335,7 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     # config.json (ADR-0001 makes it editable) has nobody to report an error to
     # and must never stop the box booting, so clamping is the only safe
     # disposition. The Admin form carries the same numbers as input attributes
-    # so an operator is stopped while typing instead. See CONTEXT.md.
+    # so an operator is stopped while typing instead. See GLOSSARY.md.
     for key in ("num_taps", "max_upcoming_previews", "upcoming_interval_seconds",
                 "max_archive_age_days", "max_archive_storage_mb", "page_size",
                 "rotation_seconds", "venue_logo_height_vh",
@@ -593,7 +593,7 @@ def apply_settings(**fields: Any) -> dict[str, Any]:
     writes atomically.
 
     Deliberately validates nothing itself. An out-of-range value is clamped; the
-    Admin form's inputs are what stop an operator entering one. See CONTEXT.md.
+    Admin form's inputs are what stop an operator entering one. See GLOSSARY.md.
 
     One exception to "validates nothing": `show_upcoming_previews` going from
     on to off clears `/data/upcoming/` immediately, right here at the write

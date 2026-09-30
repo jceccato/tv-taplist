@@ -20,7 +20,7 @@
      delivered per tap as six booleans - abv_visible, ibu_visible, ebc_visible,
      og_visible, fg_visible, swatch_visible. This file renders what it is told
      and must NOT re-derive them: the per-Tap override, the global toggle and
-     Empty suppression are one documented chain (CONTEXT.md, Visibility) and it
+     Empty suppression are one documented chain (GLOSSARY.md, Visibility) and it
      lives in exactly one place. The raw toggles are no longer on the wire. */
 
 (() => {
@@ -167,7 +167,7 @@
   // "does this Slot show a teaser permanently" - board.py decides that from the
   // Slot's own vacancy, so this file only reads the answer and never asks
   // whether a Slot is Vacant itself. When two Upcoming Beers are pinned to the
-  // same Slot (CONTEXT.md: "there is no dedup"), `board.upcoming` is already in
+  // same Slot (GLOSSARY.md: "there is no dedup"), `board.upcoming` is already in
   // display order, so the first one wins the Slot's one card - a display
   // bookkeeping choice, not a re-run of any domain rule.
   function pinnedTeasersBySlot(board) {
@@ -189,7 +189,7 @@
       name: u.name, abv: u.abv, ibu: u.ibu, ebc: u.ebc, og: u.og, fg: u.fg,
       color_hex: u.color_hex, text_color: u.text_color,
       description: u.description, image_url: u.image_url,
-      // An Upcoming Beer has no Source (CONTEXT.md: it is a projection of a
+      // An Upcoming Beer has no Source (GLOSSARY.md: it is a projection of a
       // Batch, not a Tap) - null renders no badge label, same as today's
       // Vacant card.
       source: null,

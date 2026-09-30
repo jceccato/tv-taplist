@@ -1,6 +1,6 @@
 """The Upcoming store: /data/upcoming/, one markdown-plus-image pair per Batch.
 
-An **Upcoming Beer** (CONTEXT.md) is a Beer destined for a Tap but not on one -
+An **Upcoming Beer** (GLOSSARY.md) is a Beer destined for a Tap but not on one -
 a teaser, never a Tap. It is derived entirely from a Brewfather Batch on every
 sync; no operator ever authors one. See
 docs/adr/0006-the-upcoming-store-is-disposable-and-separate.md, which is the
@@ -22,7 +22,7 @@ the Status side:
   permanent gap with no operator-visible way out.
 
 A reader who "unifies" the three stores' read policies for consistency breaks
-one of them - see CONTEXT.md, Known hazards, and ADR-0002.
+one of them - see GLOSSARY.md, Known hazards, and ADR-0002.
 
 **Filenames are private to this module**, exactly as ADR-0003 requires of the
 Tap file store (`app/tap_store.py`): nothing outside `app/upcoming_store.py`
@@ -111,7 +111,7 @@ def _image_for_stem(stem: str) -> Path | None:
 
 @dataclass(frozen=True)
 class UpcomingEntry:
-    """One Upcoming Beer as the store holds it - see CONTEXT.md, Upcoming Beer.
+    """One Upcoming Beer as the store holds it - see GLOSSARY.md, Upcoming Beer.
 
     `slot` is the bound Slot, or None for an unbound entry (an `upcoming:`
     token with no `tap:X`). `status` is the normalised Batch status

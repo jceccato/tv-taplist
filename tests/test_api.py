@@ -528,7 +528,7 @@ def test_save_settings_clamps_out_of_range_values_instead_of_rejecting():
     to refuse a negative tap count with a 422 while the store clamped the same
     value, and the ceiling was enforced in the store alone, so 5000 taps saved
     "successfully" and then snapped to the bound with no explanation. There is
-    one enforcement point now. See CONTEXT.md's Known hazards.
+    one enforcement point now. See GLOSSARY.md's Known hazards.
     """
     c = _login(TestClient(app))
     r = c.post("/admin/settings", data={

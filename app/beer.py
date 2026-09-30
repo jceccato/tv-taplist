@@ -1,7 +1,7 @@
 """**Beer** - the beverage itself, as a type, plus the two small records that
 travel beside it across the Tap file store seam.
 
-CONTEXT.md has called Beer a first-class term since the glossary was written
+GLOSSARY.md has called Beer a first-class term since the glossary was written
 ("the beverage itself: name, ABV, IBU, colour, description, image, independent
 of where it is served"). In code it was a `dict[str, Any]` built independently
 by three writers - Brewfather Mapping, the Admin's Manual override, and the demo

@@ -2,7 +2,7 @@
 
 Status: accepted
 
-Issue #4 adds the **Upcoming Beer** (`CONTEXT.md`): a Beer destined for a Tap but
+Issue #4 adds the **Upcoming Beer** (`GLOSSARY.md`): a Beer destined for a Tap but
 not on one, rendered as a teaser card and never as a Tap card. Its Slot is
 optional. It is derived entirely from Brewfather Batches on every sync, and no
 operator ever authors one.

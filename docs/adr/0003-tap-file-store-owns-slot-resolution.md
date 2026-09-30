@@ -135,7 +135,7 @@ and one file write per cycle for Beers nobody is currently looking at; the
 Brewfather batch-list fetch is unchanged, so the 500-calls-per-hour rate limit is
 unaffected and the cost is bandwidth and disk. Shadowing is therefore a normal,
 documented on-disk state rather than an anomaly, and it is written up in
-`CONTEXT.md` and the FAQ so an operator does not tidy the "extra" file away and
+`GLOSSARY.md` and the FAQ so an operator does not tidy the "extra" file away and
 lose the instant switch-back.
 
 **The tap count no longer touches stored data.** Lowering it hides Slots and

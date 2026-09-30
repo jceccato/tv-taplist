@@ -256,7 +256,7 @@ def test_every_numeric_bound_clamps_rather_than_raising():
     than refusing because config.json is hand-editable (ADR-0001) and a file has
     nobody to report an error to - a raise here would stop the box booting over
     a typo. The Admin form carries the same numbers as input attributes so an
-    operator is stopped while typing instead. See CONTEXT.md, Known hazards.
+    operator is stopped while typing instead. See GLOSSARY.md, Known hazards.
     """
     for field, (lo, hi) in config_store.SETTINGS_BOUNDS.items():
         below = config_store.update_config(**{field: lo - 1000})
