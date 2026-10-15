@@ -10,6 +10,8 @@ supports is a human drawing a shape and an agent folding it into production**,
 and that loop is hard to reconstruct from the path data alone. If another glass
 is ever wanted, this is the difference between an afternoon and a week.
 
+Hand updates made using https://yqnn.github.io/svg-path-editor/
+
 ---
 
 ## Read this before you trust any of it
