@@ -1,7 +1,15 @@
 # Contributing to TV Tap List
 
-Thanks for your interest in contributing. This guide will help you set up the
-dev environment, run the tests, and submit changes.
+Thanks for your interest in contributing. This guide covers the mechanics:
+setting up a dev environment, running the tests, and submitting changes.
+
+For everything deeper - the architecture, the module map, the conventions and
+the non-obvious traps - read [CLAUDE.md](CLAUDE.md). It is the shared guide
+for contributors and coding agents alike, and it explains the *why* behind
+decisions this file only gestures at. [GLOSSARY.md](GLOSSARY.md) defines the
+project's ubiquitous language (Slot, Beer, Tap, Source, Colour, Visibility);
+use those words in issues, tests, and comments. Design decisions live in
+[docs/adr/](docs/adr/) as append-only records.
 
 ## Code of Conduct
 
@@ -75,24 +83,28 @@ to copy them into the image.
 
 ```bash
 # Run all tests (from repo root)
-python -m pytest -q
+python -m pytest
 
 # Run a single test file
-python -m pytest tests/test_colors.py -q
+python -m pytest tests/test_colors.py
 
 # Run a specific test
-python -m pytest tests/test_colors.py::test_ebc_to_hex -q
+python -m pytest tests/test_colors.py::test_ebc_to_hex
 ```
 
-The suite has **127 tests** across 10 files covering colours, beer-glass rendering,
-themes, storage, config coercion, board resolution, Brewfather sync (conflicts,
-override precedence, token parsing, OG/FG, archive, Conditioning-status selection,
-image-client credential isolation), cleanup, the HTTP/admin surface (preview-color,
-passwordless demo admin, `/img` SVG-CSP, upload caps, validate-before-write, board
-sync-status omission), and a server to client constant-drift guard.
+> **Do not add `-q`.** `pytest.ini` already sets `-ra -q` in `addopts`, so a
+> second `-q` becomes `-qq` and suppresses the `N passed` summary line
+> entirely - which reads as a silent run rather than a quiet one. If the
+> warnings plugin is burying the summary, use `python -m pytest -p no:warnings`.
+
+The suite is large (hundreds of tests mirroring `app/` module by module) and
+runs in seconds. What each file covers, and which tests deliberately pin
+behaviour against "improvements", is described in CLAUDE.md's Testing section.
 
 Tests use `conftest.py` fixtures that point `DATA_DIR` at a temporary directory
-per test, so they never touch real data.
+per test, so they never touch real data. CI runs the suite on Python 3.12 (the
+version the image ships) on every pull request, and nothing publishes without
+a green run.
 
 ### Docker container test
 
@@ -119,64 +131,45 @@ surrounding code:
 - **Comments explain *why*, not *what*.** The codebase is heavily commented with
   rationale and gotchas. Keep that up.
 - **Defensive type coercion** at system boundaries. Internal functions may
-  assume valid input; validate at the edges.
+  assume valid input; validate at the edges. (Coerce, never reject - see
+  CLAUDE.md's disposition rule for why.)
 - **Docstrings** explain the purpose and behaviour of modules and functions.
 - **Prefer functions over classes** unless state plus multiple related methods
   truly belong together.
-- **Names** are descriptive. No single-letter variables except in tight loops.
+- **Names** are descriptive, drawn from GLOSSARY.md where a term exists. No
+  single-letter variables except in tight loops.
 - **Frontend:** vanilla HTML/CSS/JS. No frameworks, no build steps, no CDN
   imports. The offline-first guarantee depends on this.
+- **Prose style** (docs, comments, commit messages): no em dashes or arrows -
+  use a spaced hyphen `-` as a separator and `->` for arrows. User docs are
+  present tense ("this is how it works"), never "this changed / is now better".
 
 There is no formal linter configured yet. A PR that adds `ruff` or similar
 configuration is welcome.
 
----
+### Where things live
 
-## Directory map
-
-| Directory | Purpose |
-|-----------|---------|
-| `app/` | FastAPI application -- routes, sync logic, colour model, storage, auth |
-| `static/` | CSS, JS, and placeholder SVG -- baked into the Docker image |
-| `templates/` | Jinja2 templates (display, admin, login) |
-| `tests/` | pytest suite (mirrors `app/` structure) + `conftest.py` fixtures |
-| `scripts/` | `setup.sh` (guided installer), `docker_test.sh` |
-| `docs/` | User-facing documentation (INSTALLATION, FAQ, UNRAID, PUBLISHING) |
-
-Inside `app/`, each module has a clear responsibility:
-
-| Module | Responsibility |
-|--------|---------------|
-| `main.py` | Routes: display, admin, API, image serving, auth |
-| `config_store.py` | `config.json` load/save/coerce; `DEFAULT_CONFIG` is the schema |
-| `status_store.py` | `status.json` - disposable runtime Status, kept out of Settings |
-| `board.py` | Builds the `/api/board` payload (tap resolution + display opts) |
-| `brewfather.py` | Brewfather API fetch + sync job (no pure mapping logic) |
-| `mapping.py` | Batch to Beer: field extraction, note tokens, Slot conflicts |
-| `colors.py` | EBC to hex colour model, hex/saturation parsing, text contrast |
-| `beer_glass.py` | Tinted beer-glass SVG placeholders |
-| `theme.py` | Colour theme presets + resolution to CSS variables |
-| `tap_store.py` | Tap files addressed by Slot and Source; Source precedence |
-| `archive.py` | Move retired beers to `old_beers/` |
-| `cleanup.py` | Daily age/size archive pruning |
-| `demo.py` | `DEMO_MODE` seeding |
-| `atomic.py` | Atomic file writes, job lock, safe unlink |
-| `auth.py` | Signed-cookie admin sessions + login rate limiting |
-| `paths.py` | `DATA_DIR`-derived paths; directory creation |
-| `timezone.py` | Timezone-aware `iso_now()` |
+The repo layout and per-module responsibilities are documented once, in
+CLAUDE.md's "Repo layout" section, rather than duplicated here. The short
+version: `app/` holds the FastAPI app and all logic, `static/` and
+`templates/` the no-build frontend, `tests/` the pytest suite, `scripts/` the
+installer and container test, and `docs/` the user-facing guides.
 
 ---
 
 ## Pull request process
 
 1. **Fork the repo** and create a feature branch from `main`.
-2. **Make your changes.** Keep commits focused -- one logical change per commit.
+2. **Make your changes.** Keep commits focused - one logical change per commit.
 3. **Add or update tests** for any new functionality or bugfix.
-4. **Run the full test suite:** `python -m pytest -q`. All tests must pass.
+4. **Run the full test suite:** `python -m pytest`. All tests must pass.
 5. **Run the Docker container test** if your changes touch the Dockerfile,
    entrypoint, or app startup: `bash scripts/docker_test.sh`.
-6. **Open a PR against `main`.** Fill in the PR template.
-7. **Reference related issues** in the PR description.
+6. **Update `CHANGELOG.md`** if the change is operator-visible: add it under
+   the `## Unreleased` heading, written for the operator running the box (what
+   they gain, what upgrading costs them), as part of the same PR.
+7. **Open a PR against `main`.** Fill in the PR template.
+8. **Reference related issues** in the PR description.
 
 ### Commit messages
 
@@ -196,16 +189,21 @@ Inside `app/`, each module has a clear responsibility:
 
 ## Project conventions
 
-- **Git stays local.** No pushes to public remotes unless explicitly setting up
-  publishing (see `docs/PUBLISHING.md`).
-- **Docs are present tense** ("this is how it works"), never "this changed / is
-  now better."
+These are the ones contributors trip over; CLAUDE.md carries the full set with
+rationale.
+
+- **Merging to `main` publishes.** A push to `main` builds and pushes the
+  `:main` container image; only a `v*` tag moves `:latest` and cuts a GitHub
+  Release. Maintainers merge - do not merge to `main` without explicit
+  confirmation from a maintainer.
 - **The data directory is a mapped host directory**, never a Docker named volume
-  (in docs and examples).
-- **`MAPPING_VERSION`** in `mapping.py` must be bumped whenever extraction
-  logic changes, forcing a one-time rewrite of cached tap files.
-- **Larger work happens on a feature branch.** Do not merge to `main` without
-  explicit confirmation from a maintainer.
+  (in docs and examples - and the image deliberately declares no `VOLUME`).
+- **`MAPPING_VERSION`** in `mapping.py` must be bumped whenever *extraction*
+  logic changes (not when batch *selection* changes), forcing a one-time
+  rewrite of cached tap files.
+- **If a change contradicts an ADR**, say so explicitly and supersede the ADR
+  with a new one; never silently override it.
+- **Larger work happens on a feature branch.**
 
 ---
 
