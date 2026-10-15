@@ -50,6 +50,5 @@ taplist_data*/
 # ── Local dev tooling ─────────────────────────────────────────────────────
 # Preview launcher with machine-specific paths; not shared.
 .claude/
-CLAUDE.md
 # Prototype pages are build output - every one is a single command away.
 prototype/*/*.html
