@@ -13,6 +13,21 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v` - `gh` does this automatically when run inside a clone.
 
+## When `gh` says it is not logged in
+
+Don't run `gh auth login`, and don't ask the maintainer for a token. On an agent box, git already authenticates to GitHub through a credential helper. The token it uses has Issues read and write on this repository. Hand that token to `gh` for one command, without printing it:
+
+```bash
+GH_TOKEN="$(printf 'protocol=https\nhost=github.com\n\n' | git credential fill | sed -n 's/^password=//p')" \
+  gh issue view 46 --repo jceccato/tv-taplist
+```
+
+- **`git credential fill`** asks git's own helper, so the line works on any box where `git push` to GitHub works.
+- **`gh auth login`** would keep a second copy of the token, which revoking or rotating the original would miss.
+- **The token's value** never goes in a command's arguments, a log, a commit or an issue.
+
+If `git push` itself fails to authenticate, the box has no GitHub credential. Say so, and work from local drafts until the maintainer sets one up.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_
