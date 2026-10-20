@@ -43,3 +43,26 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me` - the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+
+## A finished effort takes no new work
+
+An effort is **finished** when its spec and every one of its tickets are in a
+closed state. Check the spec's state before you add anything to an effort: a
+ticket, a Comment, a finding, or a task you were given that looks related.
+
+- **Related work starts its own effort.** A task that touches what a finished
+  effort built is new work, even on the same host, script or service. Give it
+  its own spec, and name the finished effort in it as background ("follows on
+  from `<slug>`"). The finished effort stays as it closed.
+- **Only the maintainer reopens a finished effort**, and only when its spec's
+  own problem turns out not to be solved: a user story found unmet, a
+  delivered thing found broken, a closed state that was never true. An agent
+  that finds one says what it found and asks.
+- **A reopening is recorded in the spec** as a dated **Reopened** entry: what
+  was found, what the `resolution:` said, and the new tickets that carry the
+  remainder. The spec goes back to an open state.
+- **A closed spec with a ticket still open is not a reopening.** The record
+  contradicts itself: correct whichever state is wrong.
+
+An agent that attaches its task to a finished effort decides alone what that
+effort still owes, and the effort ends up open for work its spec never named.
