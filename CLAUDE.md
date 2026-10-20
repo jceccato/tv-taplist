@@ -736,6 +736,11 @@ bare filenames (all guides share the folder).
 
 GitHub Issues on `jceccato/tv-taplist`. See `docs/agents/issue-tracker.md`.
 
+**A finished effort takes no new work.** Before adding anything to an effort
+(a ticket, a Comment, a task that looks related), check its spec's state:
+related work starts its own effort, and only the maintainer reopens one. See
+"A finished effort takes no new work" in `docs/agents/issue-tracker.md`.
+
 ### Triage labels
 
 Default five-role vocabulary (`needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`). See `docs/agents/triage-labels.md`.
