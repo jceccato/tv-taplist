@@ -531,6 +531,17 @@ def save_image(slot: int, source: Source, data: bytes, ext: str) -> str:
     return dest.name
 
 
+def delete_image(slot: int, source: Source) -> None:
+    """Remove the image paired with this Slot/Source Tap file, if there is one.
+
+    For a Tap whose Beer has no photo of its own: the Slot then shows the
+    placeholder instead of whatever photo an earlier Tap left behind.
+    """
+    stem = _stem(slot, source)
+    for ext in IMAGE_EXTS:
+        safe_unlink(TAPS_DIR / f"{stem}{ext}")
+
+
 # ---- for archiving only ---------------------------------------------------
 #
 # The two functions below hand out paths and a destination name, which is

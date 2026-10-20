@@ -222,21 +222,24 @@ def _store_image(img_client: httpx.Client, tap: int, batch: dict[str, Any]) -> s
 
     The fetch-and-store half of writing a Tap, kept apart from deciding WHAT to
     write (that is `mapping.beer`, which needs no client). A failed
-    download is not an erasure: the previously cached image is kept, and only a
-    Slot that never had one ends up with None (the placeholder).
+    download is not an erasure: the image already cached for this same Batch is
+    kept. But a Slot outlives its Batches (issue #46), so a cached photo is
+    removed - and the placeholder shown - when this Batch offers no photo, or
+    when the photo on disk was cached for a different Batch (or for no Tap we
+    can read). One Batch's photo never appears on another Batch's Tap.
     """
     url = mapping.image_url(batch)
-    image_name: str | None = None
     if url:
         downloaded = _download_image(img_client, url)
         if downloaded is not None:
             data, ext = downloaded
-            image_name = taps.save_image(tap, SYNC_SOURCE, data, ext)
-    if image_name is None:
-        # Keep any previously cached image; otherwise leave null (placeholder).
-        existing = taps.image_for(tap, SYNC_SOURCE)
-        image_name = existing.name if existing else None
-    return image_name
+            return taps.save_image(tap, SYNC_SOURCE, data, ext)
+        cached = taps.read(tap, SYNC_SOURCE)
+        if mapping.is_same_batch(cached.revision if cached else None, batch):
+            existing = taps.image_for(tap, SYNC_SOURCE)
+            return existing.name if existing else None
+    taps.delete_image(tap, SYNC_SOURCE)
+    return None
 
 
 def _write_bf_tap(img_client: httpx.Client, tap: int, batch: dict[str, Any], rev: int) -> None:
@@ -308,13 +311,18 @@ def _is_unchanged(tap: int, batch: dict[str, Any], rev: int) -> bool:
     MAPPING_VERSION, and whether the Batch offers a photo at all; the store says
     whether it actually holds one. Neither half needs to know the other's
     business.
+
+    The photo half is an equality, both ways: a Tap that holds a photo its
+    Batch does not offer is stale too, and rewriting it removes the photo. That
+    is what clears a Slot already showing an earlier Batch's photo (issue #46)
+    without a MAPPING_VERSION bump.
     """
     cached = taps.read(tap, SYNC_SOURCE)
     if cached is None:
         return False
     if not mapping.is_current(cached.revision, batch, rev):
         return False
-    return (not mapping.wants_image(batch)) or (cached.image is not None)
+    return mapping.wants_image(batch) == (cached.image is not None)
 
 
 def run_sync() -> dict[str, Any]:

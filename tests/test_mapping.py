@@ -333,6 +333,15 @@ def test_is_current_compares_batch_revision_and_mapping_version():
     assert mapping.is_current(cached, {"_id": "b2", "_timestamp_ms": 500}, 500) is False
 
 
+def test_is_same_batch_ignores_revision_but_not_batch():
+    # Issue #46: whether a cached photo is this Batch's own. Any revision of the
+    # same Batch counts; another Batch, or no record at all, does not.
+    cached = SourceRevision(batch_id="42", source_rev=500, map_rev=1)
+    assert mapping.is_same_batch(cached, {"_id": 42, "_timestamp_ms": 900}) is True
+    assert mapping.is_same_batch(cached, {"_id": "43"}) is False
+    assert mapping.is_same_batch(None, {"_id": "42"}) is False
+
+
 def test_is_current_is_false_for_a_tap_with_no_revision_record():
     # What a Manual Tap looks like: no record at all. It is not a cache of
     # anything, so it can never be current with a Batch.

@@ -22,7 +22,16 @@ Versions follow [Semver](https://semver.org/). Dates are the release date.
 
 ## Unreleased
 
-Merged to `main` and shipping in the next release. Nothing yet.
+Merged to `main` and shipping in the next release.
+
+### Fixed
+
+- **A new beer on a tap no longer shows the previous beer's photo** (#46). When
+  a tap moved to a different Brewfather Batch that had no photo (or whose photo
+  failed to download), the board kept the old Batch's photo beside the new
+  beer's name. The tap now shows the placeholder glass, and a box already
+  showing a wrong photo clears it on the next sync. A failed download still
+  keeps the photo the *same* Batch already had.
 
 ---
 

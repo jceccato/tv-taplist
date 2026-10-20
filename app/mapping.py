@@ -553,6 +553,18 @@ def source_revision(batch: dict[str, Any], rev: int) -> SourceRevision:
     )
 
 
+def is_same_batch(cached: SourceRevision | None, batch: dict[str, Any]) -> bool:
+    """True if a cached Tap was written for this very Batch, at any revision.
+
+    Narrower than `is_current`, and asked for a different reason: whether the
+    photo cached for a Slot is this Batch's own (issue #46). A Slot outlives the
+    Batches that pass through it, so a photo kept "because the download failed"
+    is only safe to keep when it came from the same Batch. `None` (no record, or
+    a Tap that would not read) is never the same Batch.
+    """
+    return cached is not None and str(cached.batch_id) == str(batch_id(batch))
+
+
 def is_current(cached: SourceRevision | None, batch: dict[str, Any], rev: int) -> bool:
     """True if a cached Tap already reflects this Batch at this revision.
 

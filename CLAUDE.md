@@ -68,7 +68,7 @@ app/                FastAPI app + all logic
   timezone.py       TZ-aware iso_now()
 static/             css/display.css, css/admin.css, js/display.js, js/admin.js, placeholder.svg
 templates/          display.html, admin.html (tabbed), login.html
-tests/              pytest suite (646 tests, 19 files) + conftest.py fixtures
+tests/              pytest suite (651 tests, 19 files) + conftest.py fixtures
 Dockerfile · entrypoint.sh · docker-compose.yml · scripts/docker_test.sh
 scripts/setup.sh (guided installer / .env wizard)
 README.md           root landing page (embeds docs/venue_logo.png + docs/screenshot.png)
@@ -204,6 +204,14 @@ Fermenting Batches.
   re-download. **Bump `MAPPING_VERSION`** (currently **6**) whenever extraction
   logic changes - it forces a one-time rewrite of every cached tap to pick up new
   fields, then settles back to skipping.
+- **A Slot's cached photo belongs to one Batch** (issue #46). A failed download
+  keeps the photo only when the cached Tap's revision record names the *same*
+  Batch (`mapping.is_same_batch`); a Batch with no photo, or a photo cached for
+  a different Batch, is removed (`tap_store.delete_image`) so the Placeholder
+  shows. `_is_unchanged` compares "wants a photo" with "holds a photo" both
+  ways, so a Tap holding a photo its Batch does not offer is rewritten. Do not
+  "simplify" the fallback back to "keep whatever image the Slot has": the Slot
+  outlives its Batches, and that hands one beer's photo to the next.
 - **Assignment:** a `tap:X` token in the batch notes routes a beer to slot X.
   Accepted range is 1..`MAX_NUM_TAPS` - a *system* bound. **The configured tap
   count never touches sync**: lowering it hides slots and discards nothing.
@@ -539,7 +547,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 646 tests, 19 files: colours (incl. the single Colour resolution point -
+- 651 tests, 19 files: colours (incl. the single Colour resolution point -
   swatch-vs-Placeholder agreement, preview-vs-board equivalence, Unknown
   fallbacks, `display_color_to_ebc`), beer-glass, themes, storage, the Tap file
   store (precedence walk, unreadable-file handling, the four on-disk filenames),

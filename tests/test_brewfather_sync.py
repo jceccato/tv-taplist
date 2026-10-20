@@ -6,7 +6,7 @@ directly, with no client and no fake, in test_mapping.py.
 import httpx
 import pytest
 
-from app import brewfather, config_store, mapping, paths, status_store, tap_store as taps
+from app import board, brewfather, config_store, mapping, paths, status_store, tap_store as taps
 from app import upcoming_store
 from app.beer import BEER_KEYS
 
@@ -520,13 +520,49 @@ def test_env_credentials_take_precedence(monkeypatch):
 
 
 def test_sync_keeps_cached_image_when_download_fails(mock_network):
+    # The same Batch, edited in Brewfather so its Tap is rewritten, and this
+    # time the photo download fails: the photo already cached for it stays.
     _set_creds()
-    (paths.TAPS_DIR / "bf_tap_3.webp").write_bytes(b"old-good-image")
+    mock_network["downloads"] = {"http://x/y.webp": (b"old-good-image", ".webp")}
     mock_network["batches"] = [_batch("b3", 3, "Tap Three", recipe={"img_url": "http://x/y.webp", "ibu": 20})]
-    mock_network["downloads"] = {}  # download returns None
     brewfather.run_sync()
+    mock_network["downloads"] = {}  # download returns None
+    mock_network["batches"] = [_batch("b3", 3, "Tap Three", _timestamp_ms=2000,
+                                      recipe={"img_url": "http://x/y.webp", "ibu": 20})]
+    assert brewfather.run_sync()["written"] == 1
     assert taps.image_for(3, taps.Source.BREWFATHER).name == "bf_tap_3.webp"
     assert (paths.TAPS_DIR / "bf_tap_3.webp").read_bytes() == b"old-good-image"
+
+
+@pytest.mark.parametrize("new_recipe", [
+    {"ibu": 20},                                # Batch B has no photo at all
+    {"img_url": "http://x/b.jpg", "ibu": 20},   # Batch B's photo fails to download
+], ids=["no-photo", "download-fails"])
+def test_sync_drops_previous_batchs_image_when_slot_changes_batch(mock_network, new_recipe):
+    # Issue #46: Batch A (with a photo) leaves Slot 3 and Batch B takes it. B's
+    # Tap must show the Placeholder, never A's photo - and nothing of A's may be
+    # left on disk for the Slot, or a later rewrite could pick it back up.
+    _set_creds()
+    mock_network["downloads"] = {"http://x/a.webp": (b"batch-a-photo", ".webp")}
+    mock_network["batches"] = [_batch("a", 3, "Hazy IPA", recipe={"img_url": "http://x/a.webp", "ibu": 40})]
+    brewfather.run_sync()
+    assert taps.image_for(3, taps.Source.BREWFATHER) is not None
+
+    mock_network["downloads"] = {}
+    mock_network["batches"] = [_batch("b", 3, "Festbier", recipe=new_recipe)]
+    brewfather.run_sync()
+
+    card = board.resolve_tap(3)
+    assert card["name"] == "Festbier"
+    assert card["image_url"].startswith("/img/beer-glass")   # the Placeholder
+    assert taps.image_for(3, taps.Source.BREWFATHER) is None
+    assert sorted(p.name for p in paths.TAPS_DIR.glob("bf_tap_3.*")) == ["bf_tap_3.md"]
+
+    # A second sync still has no photo. A Batch with no photo settles (no
+    # rewrite); one whose download failed is rewritten to retry the download.
+    written = brewfather.run_sync()["written"]
+    assert written == (1 if "img_url" in new_recipe else 0)
+    assert board.resolve_tap(3)["image_url"].startswith("/img/beer-glass")
 
 
 def test_sync_saves_downloaded_image_through_the_store(mock_network):
@@ -541,6 +577,32 @@ def test_sync_saves_downloaded_image_through_the_store(mock_network):
     brewfather.run_sync()
     assert (paths.TAPS_DIR / "bf_tap_4.webp").read_bytes() == b"img-bytes"
     assert taps.image_for(4, taps.Source.BREWFATHER).name == "bf_tap_4.webp"
+
+
+def test_sync_clears_a_stale_photo_already_on_disk(mock_network, write_tap):
+    # A box upgraded from a release with issue #46 already holds Batch B's Tap
+    # with Batch A's photo beside it, and the revision record says B is current.
+    # The next sync must clear the photo without waiting for B to change.
+    _set_creds()
+    write_tap("bf", 3, image_ext=".webp", name="Festbier", batch_id="b",
+              source_rev=1000, map_rev=mapping.MAPPING_VERSION)
+    mock_network["batches"] = [_batch("b", 3, "Festbier")]
+    assert brewfather.run_sync()["written"] == 1
+    assert taps.image_for(3, taps.Source.BREWFATHER) is None
+    assert board.resolve_tap(3)["image_url"].startswith("/img/beer-glass")
+    assert brewfather.run_sync()["written"] == 0
+
+
+def test_sync_removes_the_photo_a_batch_no_longer_offers(mock_network):
+    # The same Batch with its photo removed in Brewfather: no photo is offered,
+    # so none is kept, whichever Batch the cached one belonged to.
+    _set_creds()
+    mock_network["downloads"] = {"http://x/y.webp": (b"img", ".webp")}
+    mock_network["batches"] = [_batch("b3", 3, "Tap Three", recipe={"img_url": "http://x/y.webp"})]
+    brewfather.run_sync()
+    mock_network["batches"] = [_batch("b3", 3, "Tap Three", _timestamp_ms=2000, recipe={"ibu": 20})]
+    brewfather.run_sync()
+    assert taps.image_for(3, taps.Source.BREWFATHER) is None
 
 
 def test_sync_archives_bf_tap_above_the_tap_count(mock_network, write_tap):
