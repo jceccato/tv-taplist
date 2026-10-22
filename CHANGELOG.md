@@ -24,6 +24,12 @@ Versions follow [Semver](https://semver.org/). Dates are the release date.
 
 Merged to `main` and shipping in the next release.
 
+---
+
+## v1.4.2 - 2026-10-22
+
+Two photo fixes. **No migration, no settings change:** pull and restart.
+
 ### Fixed
 
 - **A new beer on a tap no longer shows the previous beer's photo** (#46). When
@@ -32,6 +38,14 @@ Merged to `main` and shipping in the next release.
   beer's name. The tap now shows the placeholder glass, and a box already
   showing a wrong photo clears it on the next sync. A failed download still
   keeps the photo the *same* Batch already had.
+- **A tap's new photo now reaches a TV that is already showing the board.**
+  When Brewfather gave a tap's Batch a new photo, the sync stored it and the
+  new description appeared, but the TV kept showing the old photo until the
+  page was hard-reloaded. Photo links now change whenever the photo itself
+  changes, so an open board picks up the new one on its next refresh. The
+  same applies to upcoming beers' photos and the Admin preview. Re-saving an
+  identical photo leaves the link alone, so TVs do not reload pictures for
+  nothing.
 
 ---
 
