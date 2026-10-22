@@ -47,7 +47,7 @@ from . import admin_ops, auth, snapshot, tap_store as taps
 from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
 from .beer import Beer, TapPresentation
 from .beer_glass import DEFAULT_GLASS, GLASS_TYPES, beer_glass_svg
-from .board import build_board, resolve_upcoming_summary
+from .board import build_board, photo_url, resolve_upcoming_summary
 from .brewfather import run_sync
 from .colors import (
     UNKNOWN_SWATCH_HEX,
@@ -557,7 +557,7 @@ def _build_admin_tap_rows(cfg: dict) -> list[dict]:
             # the front-matter `source:` key is written for a human reading the
             # file and is never read back as truth.
             "source": str(tap_file.source) if tap_file is not None else None,
-            "image_url": f"/img/{img.name}" if img else None,
+            "image_url": photo_url(img) if img else None,
             # The shadow hint: which Brewfather Beer is waiting under this
             # override. Both Sources holding a file for one Slot is the normal
             # case now (the Brewfather Tap is kept warm underneath), so the row
@@ -834,7 +834,7 @@ async def save_override(
     # cannot report an image the file does not actually have beside it.
     stored_image = taps.image_for(tap, taps.Source.MANUAL)
     return {"ok": True, "override": True,
-            "image_url": f"/img/{stored_image.name}" if stored_image else None}
+            "image_url": photo_url(stored_image) if stored_image else None}
 
 
 # ---- admin: manual sync trigger ------------------------------------------

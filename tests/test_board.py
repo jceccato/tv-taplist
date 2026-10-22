@@ -57,7 +57,30 @@ def test_photo_comes_only_from_the_winning_source(write_tap):
     assert resolve_tap(1)["image_url"] == _glass_url(ebc_to_hex(20))
     # The Brewfather photo is still what a Slot with no Manual Tap shows.
     write_tap("brewfather", 2, name="BF Beer", ebc=20, image_ext=".jpg")
-    assert resolve_tap(2)["image_url"] == "/img/bf_tap_2.jpg"
+    assert resolve_tap(2)["image_url"].startswith("/img/bf_tap_2.jpg?v=")
+
+
+def test_a_new_photo_for_the_same_slot_changes_the_image_url(write_tap):
+    # Every photo for a Slot is stored under the one filename, so the URL has
+    # to carry a version: an open board only resets <img>.src when image_url
+    # changes, and the browser already holds the old bytes for that path.
+    tap_store.save_image(3, "brewfather", b"old-photo", ".png")
+    write_tap("brewfather", 3, name="Haze Craze")
+    before = resolve_tap(3)["image_url"]
+    tap_store.save_image(3, "brewfather", b"new-photo", ".png")
+    after = resolve_tap(3)["image_url"]
+    assert before.startswith("/img/bf_tap_3.png?v=")
+    assert after.startswith("/img/bf_tap_3.png?v=")
+    assert after != before
+
+
+def test_rewriting_the_same_photo_keeps_the_image_url(write_tap):
+    # A sync that rewrites identical bytes must not make every TV refetch.
+    tap_store.save_image(3, "brewfather", b"same-photo", ".png")
+    write_tap("brewfather", 3, name="Haze Craze")
+    before = resolve_tap(3)["image_url"]
+    tap_store.save_image(3, "brewfather", b"same-photo", ".png")
+    assert resolve_tap(3)["image_url"] == before
 
 
 def test_unreadable_manual_tap_does_not_promote_brewfather(write_tap, monkeypatch):
@@ -742,7 +765,35 @@ def test_teaser_image_url_uses_the_upcoming_image_route_not_the_tap_route():
     b = build_board()
     teaser = b["upcoming"][0]
     assert teaser["image_url"].startswith("/img/upcoming/")
-    assert teaser["image_url"].endswith(".jpg")
+    assert ".jpg?v=" in teaser["image_url"]
+
+
+def _teaser_image_url() -> str:
+    config_store.update_config(num_taps=0, show_upcoming_previews=True,
+                                max_upcoming_previews=20)
+    return build_board()["upcoming"][0]["image_url"]
+
+
+def test_a_new_upcoming_photo_changes_the_teaser_image_url():
+    upcoming_store.write(
+        "batch-photo", Beer(name="Photo Beer"), "", slot=None,
+        status="completed", revision=1, image_bytes=b"old-photo", image_ext=".jpg",
+    )
+    before = _teaser_image_url()
+    upcoming_store.save_image("batch-photo", b"new-photo", ".jpg")
+    after = _teaser_image_url()
+    assert after.startswith("/img/upcoming/") and "?v=" in after
+    assert after != before
+
+
+def test_rewriting_the_same_upcoming_photo_keeps_the_teaser_image_url():
+    upcoming_store.write(
+        "batch-photo", Beer(name="Photo Beer"), "", slot=None,
+        status="completed", revision=1, image_bytes=b"same-photo", image_ext=".jpg",
+    )
+    before = _teaser_image_url()
+    upcoming_store.save_image("batch-photo", b"same-photo", ".jpg")
+    assert _teaser_image_url() == before
 
 
 def test_teaser_with_no_photo_falls_back_to_the_tinted_glass_placeholder():

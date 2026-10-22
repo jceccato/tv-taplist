@@ -30,6 +30,8 @@ vacant/hidden flags. Reads tolerate files disappearing mid-cycle.
 """
 from __future__ import annotations
 
+import hashlib
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +44,34 @@ from .paths import venue_logo_path
 from .tap_store import resolve as resolve_tap_file
 from .theme import resolve_theme
 from .upcoming_store import UpcomingEntry, list_all as list_upcoming
+
+
+@lru_cache(maxsize=256)
+def _content_version(path: Path, ino: int, mtime_ns: int, size: int) -> str:
+    """A short hash of a photo's bytes, cached per (path, inode, mtime, size).
+
+    The stat fields are only the cache key; the inode is in it because the
+    stores write through a temp file and `os.replace`, so a new photo always
+    lands on a new inode even when mtime is too coarse to tell two writes
+    apart. The cache spares a board poll from every TV re-reading every
+    photo; the version itself is the bytes, so a sync that rewrites an
+    identical photo keeps the same URL and the board does not churn.
+    """
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+
+
+def photo_url(image: Path, img_prefix: str = "/img") -> str:
+    """The URL of a stored photo: `<prefix>/<filename>?v=<content hash>`.
+
+    The one place a photo URL is built, so Admin's preview and the TV agree.
+    The version is left off only if the file vanished mid-request.
+    """
+    try:
+        st = image.stat()
+        version = "?v=" + _content_version(image, st.st_ino, st.st_mtime_ns, st.st_size)
+    except OSError:
+        version = ""
+    return f"{img_prefix}/{image.name}{version}"
 
 
 def _image_url_for(image: Path | None, color: ResolvedColor | None = None,
@@ -60,6 +90,11 @@ def _image_url_for(image: Path | None, color: ResolvedColor | None = None,
     two directories can hold files with colliding names, so pointing a teaser
     at the wrong route would risk serving - or 404ing on - the wrong photo.
 
+    A photo's URL ends in `?v=<content hash>`. Every photo for a Slot is stored
+    under one filename, and the display only resets an `<img>` when `image_url`
+    changes, so without the version an open board kept a Batch's old photo
+    until a hard reload. The /img routes ignore the query string.
+
     With no photo: a beer glass tinted to the beer's Colour. The URL carries the
     **resolved** colour rather than the EBC and saturation that produced it, so
     the renderer tints what it is told instead of running the precedence chain a
@@ -68,7 +103,7 @@ def _image_url_for(image: Path | None, color: ResolvedColor | None = None,
     else - no template references it - so its shape is free to change.
     """
     if image is not None:
-        return f"{img_prefix}/{image.name}"
+        return photo_url(image, img_prefix)
     params: list[str] = []
     if color is not None:
         params.append("hex=" + color.color_hex.lstrip("#"))
