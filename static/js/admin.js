@@ -1220,7 +1220,7 @@
         const item = { file, album: albumSel.value };
         addRow(item);
         if (!isPhotoName(file.name)) {
-          setRow(item, "failed", "Not a photo format this can read (JPEG, PNG, WebP, GIF, TIFF, BMP, AVIF, HEIC or camera RAW).", false);
+          setRow(item, "failed", "Not a photo format this can read (" + fileInput.dataset.formatNames + ").", false);
         } else if (file.size > PHOTO_MAX_BYTES) {
           setRow(item, "failed", "Over the 250 MB limit for one photo.", false);
         } else {

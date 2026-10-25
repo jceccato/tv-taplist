@@ -31,14 +31,11 @@ ENV TVTAPLIST_VERSION=$VERSION
 #   libheif1 -> HEIC photos. Debian packages each codec as its own plugin:
 #            libheif1 depends on the libde265 decoder (plus the AV1 decoders) and
 #            only RECOMMENDS the x265 encoder, so --no-install-recommends keeps
-#            x265 out. The check below fails the build if it ever slips in.
+#            x265 out. The check after the Python installs fails the build if it
+#            ever slips in.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends tzdata gosu curl libheif1 \
- && rm -rf /var/lib/apt/lists/* \
- && if dpkg-query -W -f '${Package}\n' | grep -i x265 \
-       || find / -xdev -iname '*x265*' -print 2>/dev/null | grep . ; then \
-      echo "x265 found in the image; HEIC must be decoder-only (ADR-0009)" >&2; exit 1; \
-    fi
+ && rm -rf /var/lib/apt/lists/*
 
 # Non-root app user. uid/gid are adjustable at runtime via PUID/PGID so a
 # host-mounted volume stays writable (see entrypoint.sh).
@@ -51,10 +48,17 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY --from=heif-build /wheels /tmp/wheels
+# Every package is in by now, so this checks the finished image (ADR-0009): HEIC
+# decodes through libde265, and no x265 package or file exists anywhere, whether
+# from apt or bundled in a Python wheel.
 RUN pip install --no-cache-dir --no-deps /tmp/wheels/*.whl \
  && rm -rf /tmp/wheels \
- && python -c "import pillow_heif as h; i = h.libheif_info(); \
-assert 'libde265' in i['decoders'], i; assert 'x265' not in i['encoders'], i"
+ && python -c "import pillow_heif; info = pillow_heif.libheif_info(); \
+assert 'libde265' in info['decoders'], info; assert 'x265' not in info['encoders'], info" \
+ && if dpkg-query -W -f '${Package}\n' | grep -i x265 \
+       || find / -xdev -iname '*x265*' -print 2>/dev/null | grep . ; then \
+      echo "x265 found in the image; HEIC must be decoder-only (ADR-0009)" >&2; exit 1; \
+    fi
 
 # Application code and bundled (committed) assets - no Node/Tailwind/PostCSS.
 COPY app ./app

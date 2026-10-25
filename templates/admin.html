@@ -810,7 +810,7 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
         <div id="photos-drop" class="photos-drop" tabindex="0">
           <p>Drag photos here, or</p>
           <label class="btn primary photos-add" for="photos-file">Add photos</label>
-          <input type="file" id="photos-file" accept="image/*,{{ photo_extensions|join(',') }}" data-extensions="{{ photo_extensions|join(' ') }}" multiple hidden>
+          <input type="file" id="photos-file" accept="image/*,{{ photo_extensions|join(',') }}" data-extensions="{{ photo_extensions|join(' ') }}" data-format-names="{{ photo_format_names }}" multiple hidden>
         </div>
         <ul id="photos-uploads" class="photos-uploads" aria-live="polite"></ul>
         <p id="photos-progress" class="hint" role="status"></p>

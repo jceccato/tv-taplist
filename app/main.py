@@ -620,6 +620,7 @@ async def admin_page(request: Request, profile: str | None = None):
             # What the Photos tab's file picker offers and the page checks before
             # sending: the library's own list, so the two cannot drift apart.
             "photo_extensions": photo_library.PHOTO_EXTENSIONS,
+            "photo_format_names": photo_library.PHOTO_FORMAT_NAMES,
             "album_missing": [n for n in cfg.get("album_selection", [])
                               if n not in album_names],
             "venue_logo_url": "/img/venue-logo" if venue_logo_path() else None,

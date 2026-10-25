@@ -810,12 +810,16 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 960 tests, 30 files (the fifteen page tests skip without a browser):
+- 996 tests, 30 files (the sixteen page tests skip without a browser, and the HEIC
+  tests without pillow-heif):
   **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
   the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a
   Display P3 profile - upright, sRGB, 4K fit up and down, WebP q99, no metadata in
   the copy or the thumbnail - plus stale copies, failures, the cache being deleted,
-  and the guard that nothing else builds a photo path), **compatibility mode** (`test_photo_compat.py`: JPEG and 1080p
+  and the guard that nothing else builds a photo path; every other format: GIF first
+  frame, TIFF with orientation, BMP, AVIF, the HEIC fixture, generated DNGs through
+  both RAW paths, corrupt and oversized RAWs, the low-resolution mark, and the guard
+  that pillow-heif never comes from a wheel), **compatibility mode** (`test_photo_compat.py`: JPEG and 1080p
   copies - format, dimensions, no metadata - rebuilt in the background with the old copy served, and removal during and
   after a format change), **organising photos** (`test_photo_removed.py`: album create/rename/delete, profile
   ticks following a rename, move, remove, restore, delete forever, the nightly purge,

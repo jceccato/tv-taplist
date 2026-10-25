@@ -631,7 +631,7 @@ def test_a_camera_raw_with_no_big_preview_is_developed_at_half_size():
     assert photo.taken == "2023-01-02T03:04:05"
     assert _is_green(copy.convert("RGB").getpixel((720, 1080)))
     out = lib._render(paths.PHOTOS_DIR / "Camera" / "DSC_0001.dng", lib.pipeline())
-    assert out.source == "raw develop"
+    assert out.source == lib.SOURCE_RAW_DEVELOP
 
 
 def test_a_camera_raw_uses_its_embedded_preview_when_it_is_big_enough():
@@ -649,7 +649,7 @@ def test_a_camera_raw_uses_its_embedded_preview_when_it_is_big_enough():
     rgb = copy.convert("RGB")
     assert _is_red(rgb.getpixel((720, 100))) and _is_blue(rgb.getpixel((720, 2060)))
     assert photo.taken == "2024-05-06T07:08:09"
-    assert lib._render(paths.PHOTOS_DIR / "IMG_0002.dng", lib.pipeline()).source == "raw preview"
+    assert lib._render(paths.PHOTOS_DIR / "IMG_0002.dng", lib.pipeline()).source == lib.SOURCE_RAW_PREVIEW
 
 
 def test_an_embedded_preview_with_its_own_orientation_is_turned_by_that_alone():

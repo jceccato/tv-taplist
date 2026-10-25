@@ -90,6 +90,9 @@ RAW_PREVIEW_MIN_LONG_SIDE = 2000
 # A photo whose long side is under this is marked "low resolution, will look
 # soft" on the Photos tab. It is still shown.
 LOW_RES_LONG_SIDE = 1000
+# How the formats above are named to the operator (the upload refusal, and the
+# Photos tab's own check before sending, which the Admin renders from this).
+PHOTO_FORMAT_NAMES = "JPEG, PNG, WebP, GIF, TIFF, BMP, AVIF, HEIC or camera RAW"
 
 UNSORTED = "Unsorted"
 
@@ -542,6 +545,20 @@ def _flatten(im: Image.Image) -> Image.Image:
     return flat
 
 
+class Decoded(NamedTuple):
+    """An original decoded to an upright sRGB image, before it is fitted and encoded."""
+    image: Image.Image
+    taken: str | None        # ISO date taken, when the metadata had one
+    long_side: int           # the original's long side in pixels
+    source: str              # SOURCE_IMAGE, SOURCE_RAW_PREVIEW or SOURCE_RAW_DEVELOP
+
+
+# What a Display copy was decoded from (the benchmark reports it).
+SOURCE_IMAGE = "image"
+SOURCE_RAW_PREVIEW = "raw preview"
+SOURCE_RAW_DEVELOP = "raw develop"
+
+
 class Rendered(NamedTuple):
     """One original made into a Display copy and its thumbnail."""
     display: bytes
@@ -550,7 +567,7 @@ class Rendered(NamedTuple):
     height: int
     taken: str | None        # ISO date taken, when the metadata had one
     long_side: int           # the original's long side in pixels (for the low-resolution note)
-    source: str              # what was decoded: "image", "raw preview" or "raw develop"
+    source: str              # what was decoded (Decoded.source)
 
 
 # LibRaw's `flip` as the EXIF orientation that means the same turn.
@@ -563,9 +580,8 @@ _ORIENTATION_TRANSPOSE = {
 }
 
 
-def _decode_opened(im: Image.Image, pipe: Pipeline,
-                   fallback_orientation: int = 1) -> tuple[Image.Image, str | None, int]:
-    """An opened Pillow image as (upright sRGB image, date taken, original long side).
+def _decode_opened(im: Image.Image, pipe: Pipeline, fallback_orientation: int = 1) -> Decoded:
+    """An opened Pillow image as an upright sRGB image (source: SOURCE_IMAGE).
 
     `fallback_orientation` turns an image whose own EXIF says nothing (a RAW's
     embedded preview often carries none; the RAW records the turn instead).
@@ -575,24 +591,25 @@ def _decode_opened(im: Image.Image, pipe: Pipeline,
     orientation = own if own in _ORIENTATION_TRANSPOSE else fallback_orientation
     icc = im.info.get("icc_profile")
     w, h = im.size
-    if orientation in (5, 6, 7, 8):
+    turned = orientation in (5, 6, 7, 8)       # a quarter turn swaps width and height
+    if turned:
         w, h = h, w
     if im.format == "JPEG":
         # Decode large JPEGs at reduced scale: draft() only ever picks a
         # size at least as big as asked for, so quality is unaffected.
         fw, fh = _fit(w, h, pipe.box)
         if fw < w:
-            im.draft("RGB", (fh, fw) if orientation in (5, 6, 7, 8) else (fw, fh))
+            im.draft("RGB", (fh, fw) if turned else (fw, fh))
     im.load()
     if own in _ORIENTATION_TRANSPOSE:
         im = ImageOps.exif_transpose(im)
     elif orientation in _ORIENTATION_TRANSPOSE:
         im = im.transpose(_ORIENTATION_TRANSPOSE[orientation])
-    return _to_srgb(im, icc), taken, max(w, h)
+    return Decoded(_to_srgb(im, icc), taken, max(w, h), SOURCE_IMAGE)
 
 
-def _decode_raw(path: Path, pipe: Pipeline) -> tuple[Image.Image, str | None, int, str]:
-    """A camera RAW as (upright sRGB image, date taken, original long side, source).
+def _decode_raw(path: Path, pipe: Pipeline) -> Decoded:
+    """A camera RAW as an upright sRGB image; its long side is the camera's full size.
 
     The embedded JPEG preview is used when it is big enough (the camera's own
     rendering, and quick); otherwise LibRaw develops the RAW at half size.
@@ -618,15 +635,15 @@ def _decode_raw(path: Path, pipe: Pipeline) -> tuple[Image.Image, str | None, in
                             and max(preview.size) >= RAW_PREVIEW_MIN_LONG_SIDE:
                         # The preview's EXIF is LibRaw's own copy of the RAW's, so the
                         # date comes from the RAW either way.
-                        im, _, _ = _decode_opened(preview, pipe, fallback_orientation=flip)
-                        return im, taken, long_side, "raw preview"
+                        image = _decode_opened(preview, pipe, fallback_orientation=flip).image
+                        return Decoded(image, taken, long_side, SOURCE_RAW_PREVIEW)
             # use_camera_wb: the white balance the photographer saw. postprocess()
             # turns the image upright itself and outputs 8-bit sRGB.
             rgb = raw.postprocess(half_size=True, use_camera_wb=True, output_bps=8)
     except rawpy.LibRawError as exc:
         raise UnreadablePhoto(
             f"cannot be read as a camera RAW ({type(exc).__name__}: {str(exc)[:_ERROR_TEXT_LEN]})") from exc
-    return Image.fromarray(rgb, "RGB"), taken, long_side, "raw develop"
+    return Decoded(Image.fromarray(rgb, "RGB"), taken, long_side, SOURCE_RAW_DEVELOP)
 
 
 def _raw_taken(raw: Any) -> str | None:
@@ -640,8 +657,8 @@ def _raw_taken(raw: Any) -> str | None:
     return None
 
 
-def _decode(path: Path, pipe: Pipeline) -> tuple[Image.Image, str | None, int, str]:
-    """Any original as (upright sRGB image, date taken, original long side, source)."""
+def _decode(path: Path, pipe: Pipeline) -> Decoded:
+    """Any original as an upright sRGB image, with its date taken and long side."""
     if path.suffix.lower() in RAW_EXTENSIONS:
         return _decode_raw(path, pipe)
     if path.suffix.lower() in HEIC_EXTENSIONS and pillow_heif is None:
@@ -649,8 +666,7 @@ def _decode(path: Path, pipe: Pipeline) -> tuple[Image.Image, str | None, int, s
     with Image.open(path) as im:
         if im.format not in _ACCEPTED_FORMATS:
             raise UnreadablePhoto(f"unsupported format {im.format or 'unknown'}")
-        decoded, taken, long_side = _decode_opened(im, pipe)
-    return decoded, taken, long_side, "image"
+        return _decode_opened(im, pipe)
 
 
 def _render(path: Path, pipe: Pipeline) -> Rendered:
@@ -662,7 +678,7 @@ def _render(path: Path, pipe: Pipeline) -> Rendered:
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
-            im, taken, long_side, source = _decode(path, pipe)
+            decoded = _decode(path, pipe)
     except UnreadablePhoto:
         raise
     except (OSError, ValueError, SyntaxError, RuntimeError, Image.DecompressionBombError,
@@ -670,6 +686,7 @@ def _render(path: Path, pipe: Pipeline) -> Rendered:
         # RuntimeError: libheif's own errors, as pillow-heif raises them.
         raise UnreadablePhoto(f"cannot be read as an image ({str(exc)[:_ERROR_TEXT_LEN]})") from exc
 
+    im = decoded.image
     width, height = im.size
     target = _fit(width, height, pipe.box)
     if target != (width, height):
@@ -686,8 +703,8 @@ def _render(path: Path, pipe: Pipeline) -> Rendered:
     thumb.info = {}
     tbuf = io.BytesIO()
     thumb.save(tbuf, "WEBP", quality=THUMB_QUALITY, method=4)
-    return Rendered(buf.getvalue(), tbuf.getvalue(), target[0], target[1], taken,
-                    long_side, source)
+    return Rendered(buf.getvalue(), tbuf.getvalue(), target[0], target[1], decoded.taken,
+                    decoded.long_side, decoded.source)
 
 
 def _copy_id(content_hash: str, key: str) -> str:
@@ -1045,8 +1062,7 @@ class Upload:
         stem, ext = _clean_name(filename)
         if ext not in PHOTO_EXTENSIONS:
             raise UploadRejected(
-                f"“{stem}{ext}” is not a photo format this can read "
-                f"(JPEG, PNG, WebP, GIF, TIFF, BMP, AVIF, HEIC or camera RAW).")
+                f"“{stem}{ext}” is not a photo format this can read ({PHOTO_FORMAT_NAMES}).")
         if self.size == 0:
             raise UploadRejected("The file is empty.")
         folder = _album_dir(album)

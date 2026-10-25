@@ -46,12 +46,9 @@ source .venv/bin/activate  # Linux/macOS
 pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-HEIC photos need `pillow-heif` built from source against a decoder-only libheif
-(ADR-0009), which the Docker image does for you. Without it the app runs and the
-suite passes, with the HEIC tests skipped and HEIC photos reported as unreadable.
-Never `pip install pillow-heif` from a wheel: the wheels bundle x265 (GPLv2-only).
-On Debian trixie or newer, `apt install pkgconf libheif-dev` and then
-`pip install --no-binary pillow-heif -r requirements-heif.txt` builds it.
+HEIC photos need `pillow-heif` built from source, never from a wheel (ADR-0009).
+Without it everything else works and the HEIC tests skip; see
+[docs/BUILDING.md](docs/BUILDING.md#local-development-without-docker) to build it.
 
 ### Running locally (no Docker)
 

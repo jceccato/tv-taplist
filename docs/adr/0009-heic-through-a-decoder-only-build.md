@@ -10,6 +10,9 @@ libde265 decoder plugin and no x265 plugin, at the cost of a slower Docker build
 and a little Dockerfile upkeep.
 
 Do not "simplify" this by adding `pillow-heif` from PyPI: that reintroduces
-the licence conflict this decision exists to avoid. Camera RAW is a different
+the licence conflict this decision exists to avoid. (What is forbidden is the
+binary wheel. The image compiles pillow-heif's BSD-licensed source package
+against Debian's libheif, `--no-binary pillow-heif` in a build stage, and its
+build fails if any x265 package or file ends up in the image.) Camera RAW is a different
 case: `rawpy` (MIT, LibRaw) is used, and the camera's embedded JPEG preview
 is preferred over a full RAW decode for speed on a Raspberry Pi.
