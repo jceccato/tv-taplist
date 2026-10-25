@@ -21,7 +21,11 @@
      og_visible, fg_visible, swatch_visible. This file renders what it is told
      and must NOT re-derive them: the per-Tap override, the global toggle and
      Empty suppression are one documented chain (GLOSSARY.md, Visibility) and it
-     lives in exactly one place. The raw toggles are no longer on the wire. */
+     lives in exactly one place. The raw toggles are no longer on the wire.
+   - The photo album (ADR-0008) works the same way: the server decides whether
+     this screen shows photos at all and sends a ready-made `album` block (the
+     visit plan and the ready photos' Display copy URLs). This file only runs
+     the Album visits it is told about; it never sees an original. */
 
 (() => {
   "use strict";
@@ -47,6 +51,7 @@
   const bootError = document.getElementById("boot-error");
   const venueHeader = document.getElementById("venue-header");
   const venueLogo = document.getElementById("venue-logo");
+  const albumEl = document.getElementById("album");
 
   // The screen's Display profile is chosen by `?display=<name>` in its start URL
   // and applied by the server (ADR-0007). All this page does is forward the
@@ -841,6 +846,7 @@
   }
 
   function nextPage() {
+    if (album.visiting) { advancePhoto(); return; }   // Enter, Space and a swipe all move on
     if (state.pages.length <= 1) return;
     goToPage((state.currentPage + 1) % state.pages.length);
   }
@@ -850,7 +856,7 @@
   // started. Adding the page count before the modulo keeps the index positive
   // when stepping back off page 0, which JS's % would otherwise return as -1.
   function prevPage() {
-    if (state.pages.length <= 1) return;
+    if (album.visiting || state.pages.length <= 1) return;
     goToPage((state.currentPage - 1 + state.pages.length) % state.pages.length);
   }
 
@@ -892,6 +898,13 @@
   let carouselTimer = null;
   let carouselMs = DEFAULT_ROTATION_MS;
   function carouselTick() {
+    if (album.visiting) return;             // the photos own the screen
+    // A tap-page turn is one tick of this timer, so a single-page board still
+    // counts (otherwise it would never reach a visit). After N turns the next
+    // tick starts an Album visit instead of turning the page.
+    const plan = albumPlan();
+    if (plan && plan.every_turns > 0 && album.turnsShown >= plan.every_turns && startVisit()) return;
+    album.turnsShown++;
     if (state.pages.length <= 1) return;
     showPage((state.currentPage + 1) % state.pages.length);
   }
@@ -1117,6 +1130,9 @@
   // The one shared interval (issue #40/#42): the panel's turn is driven off
   // this same tick rather than a timer of its own.
   function upcomingTick() {
+    // Nothing overlays a photo: both upcoming surfaces pause for the whole
+    // Album visit and simply carry on at their next tick afterwards.
+    if (album.visiting) return;
     // The panel dispatches BEFORE the cross-fade, deliberately. The busy
     // window (holdMs + fade) is shorter than every legal interval, so
     // upcomingBusy is always free at a tick boundary - whichever consumer
@@ -1135,6 +1151,226 @@
     crossFadeIntervalMs = ms;
     if (crossFadeTimer) clearInterval(crossFadeTimer);
     crossFadeTimer = setInterval(upcomingTick, crossFadeIntervalMs);
+  }
+
+  /* ---- Album visits (photo album, ADR-0008) ----
+
+     The server sends `board.album` only for a profile with the album on:
+     the visit plan (every_turns, photos_per_visit, seconds_per_photo,
+     fade_seconds, keep_ticker, order) and the ready photos in order. After
+     every_turns tap-page turns the carousel hands over to a visit that shows
+     photos_per_visit photos full screen, letterboxed and cross-faded, then
+     returns to the taps. every_turns 0 means photos only: one endless visit.
+
+     State that must survive between visits lives in `album` and in memory
+     only: where the screen is in the shuffled pass, or in the ordered list. A
+     reload starts a fresh pass, by design. */
+  const album = {
+    cfg: null,             // the latest board.album, or null when this screen has none
+    photos: [],            // its ready photos, in the server's order
+    visiting: false,
+    plan: null,            // the plan frozen at the start of a visit (changes apply next visit)
+    turnsShown: 1,         // tap pages shown since the last visit, the one on screen included
+    shownInVisit: 0,
+    seq: 0,                // invalidates a pending image load or timer when the visit moves on
+    timer: null,
+    layer: 0,              // which of the two <img> layers is up
+    queue: [],             // Shuffle: ids not yet shown in this pass
+    passShown: new Set(),  // Shuffle: ids already shown in this pass
+    orderKey: null,        // the order the place below belongs to
+    lastId: null,          // the photo shown last
+    pos: 0,                // ordered lists: the next index when lastId has gone
+    pendingBoard: null,    // the newest board that arrived mid-visit, applied when the taps return
+    hideTimer: null,
+    failures: 0,           // photos that would not load in a row
+  };
+
+  function shuffled(ids) {
+    const a = ids.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  // The plan, only while there is something to show: no ready photos means the
+  // screen is simply a tap board.
+  function albumPlan() {
+    return album.cfg && album.photos.length ? album.cfg : null;
+  }
+
+  // Take in the album block of a poll. Pure bookkeeping: it never draws, except
+  // that a visit whose photos have all gone ends.
+  function albumUpdate(blockFromBoard) {
+    const cfg = blockFromBoard && typeof blockFromBoard === "object" ? blockFromBoard : null;
+    album.cfg = cfg;
+    album.photos = cfg && Array.isArray(cfg.photos) ? cfg.photos : [];
+    const key = cfg ? String(cfg.order) : null;
+    if (key !== album.orderKey) {          // another order: the old place means nothing
+      album.orderKey = key;
+      album.queue = []; album.passShown = new Set(); album.lastId = null; album.pos = 0;
+    }
+    if (cfg && cfg.order === "shuffle") {
+      const ids = new Set(album.photos.map((p) => p.id));
+      album.queue = album.queue.filter((id) => ids.has(id));
+      album.passShown.forEach((id) => { if (!ids.has(id)) album.passShown.delete(id); });
+      // A photo that arrives mid-pass joins the rest of the pass at a random place.
+      const known = new Set([...album.queue, ...album.passShown]);
+      album.photos.forEach((p) => {
+        if (known.has(p.id)) return;
+        album.queue.splice(Math.floor(Math.random() * (album.queue.length + 1)), 0, p.id);
+      });
+    }
+    if (album.visiting && !albumPlan()) {
+      album.pendingBoard = null;           // the board about to be applied is newer
+      endVisit(false);
+    }
+  }
+
+  function nextPhoto() {
+    const photos = album.photos;
+    if (!photos.length) return null;
+    let chosen;
+    if (album.cfg && album.cfg.order === "shuffle") {
+      if (!album.queue.length) {           // a new pass: every photo once more
+        album.queue = shuffled(photos.map((p) => p.id));
+        album.passShown = new Set();
+        const n = album.queue.length;
+        if (n > 1 && album.queue[0] === album.lastId) {   // no repeat across the seam
+          [album.queue[0], album.queue[n - 1]] = [album.queue[n - 1], album.queue[0]];
+        }
+      }
+      const id = album.queue.shift();
+      album.passShown.add(id);
+      chosen = photos.find((p) => p.id === id);
+    } else {
+      const at = photos.findIndex((p) => p.id === album.lastId);
+      const idx = (at >= 0 ? at + 1 : album.pos) % photos.length;   // past the end: start over
+      album.pos = idx + 1;
+      chosen = photos[idx];
+    }
+    if (chosen) album.lastId = chosen.id;
+    return chosen || null;
+  }
+
+  function startVisit() {
+    const cfg = albumPlan();
+    if (!cfg || album.visiting) return false;
+    clearTimeout(album.hideTimer);
+    album.visiting = true;
+    album.plan = { ...cfg };
+    album.shownInVisit = 0;
+    album.failures = 0;
+    album.seq++;
+    // Pause the upcoming surfaces: end whatever is up now, and upcomingTick
+    // stays quiet until the visit is over.
+    crossFadeForceEnd();
+    panelHide();
+    const fade = Math.min(Number(cfg.fade_seconds) || 0, Math.max(0, cfg.seconds_per_photo / 2));
+    albumEl.style.setProperty("--album-fade", fade + "s");
+    document.body.classList.add("album-visit");
+    document.body.classList.toggle("album-keep-ticker", cfg.keep_ticker === true);
+    albumEl.hidden = false;
+    albumEl.dataset.state = "visiting";
+    albumEl.querySelectorAll(".album-photo").forEach((img) => {
+      img.classList.remove("shown"); img.classList.add("instant"); img.removeAttribute("src");
+    });
+    void albumEl.offsetWidth;              // let the hidden -> shown change settle before fading in
+    albumEl.classList.add("on");
+    showNextPhoto();
+    return true;
+  }
+
+  function showNextPhoto() {
+    if (!album.visiting) return;
+    clearTimeout(album.timer);
+    const plan = album.plan;
+    const endless = plan.every_turns === 0;       // photos only
+    if (!albumPlan() ||
+        (!endless && album.shownInVisit >= Math.min(plan.photos_per_visit, album.photos.length))) {
+      endVisit(true);
+      return;
+    }
+    const photo = nextPhoto();
+    if (!photo) { endVisit(true); return; }
+    const seq = ++album.seq;
+    // Preload, so a slow LAN never fades to a half-drawn photo; a photo that
+    // will not load is skipped (and the visit gives up if none will).
+    const probe = new Image();
+    probe.onload = () => { if (seq === album.seq) drawPhoto(photo); };
+    probe.onerror = () => {
+      if (seq !== album.seq) return;
+      album.failures++;
+      if (album.failures >= album.photos.length) endVisit(true); else showNextPhoto();
+    };
+    probe.src = photo.url;
+  }
+
+  function drawPhoto(photo) {
+    const layers = albumEl.querySelectorAll(".album-photo");
+    album.layer = 1 - album.layer;
+    const up = layers[album.layer];
+    const down = layers[1 - album.layer];
+    album.failures = 0;
+    up.src = photo.url;
+    // The first photo of a visit appears with the layer's own fade-in; later
+    // ones cross-fade layer to layer.
+    const first = album.shownInVisit === 0;
+    up.classList.toggle("instant", first);
+    up.classList.add("shown");
+    down.classList.remove("shown");
+    down.classList.remove("instant");
+    albumEl.dataset.photo = photo.id;
+    album.shownInVisit++;
+    album.timer = setTimeout(showNextPhoto, Math.max(2, Number(album.plan.seconds_per_photo) || 10) * 1000);
+  }
+
+  // Enter, Space, a click or a swipe: on to the next photo (or back to the taps
+  // after the last one).
+  function advancePhoto() {
+    if (album.visiting) showNextPhoto();
+  }
+
+  function endVisit(returnToTaps) {
+    if (!album.visiting) return;
+    album.visiting = false;
+    album.seq++;
+    clearTimeout(album.timer);
+    album.timer = null;
+    // The classes come off first, so the header, ticker and dots are back
+    // underneath while the photo layer fades out over them.
+    document.body.classList.remove("album-visit", "album-keep-ticker");
+    albumEl.classList.remove("on");
+    albumEl.dataset.state = "idle";
+    clearTimeout(album.hideTimer);
+    album.hideTimer = setTimeout(() => {
+      albumEl.hidden = true;
+      albumEl.removeAttribute("data-photo");
+      albumEl.querySelectorAll(".album-photo").forEach((img) => {
+        img.classList.remove("shown"); img.removeAttribute("src");
+      });
+    }, (parseFloat(albumEl.style.getPropertyValue("--album-fade")) || 0) * 1000 + 50);
+    // Board updates that arrived during the visit show now that the taps return.
+    const pending = album.pendingBoard;
+    album.pendingBoard = null;
+    if (pending) applyBoard(pending);
+    album.turnsShown = 1;
+    if (returnToTaps !== false && state.pages.length > 1) {
+      showPage((state.currentPage + 1) % state.pages.length);
+    }
+    restartCarousel();
+    maybeStartPhotosOnly();
+  }
+
+  // every_turns 0 is a photo frame: a visit that never ends while photos exist.
+  function maybeStartPhotosOnly() {
+    const plan = albumPlan();
+    if (plan && plan.every_turns === 0 && !album.visiting && state.hasRendered) startVisit();
+  }
+
+  if (albumEl) {
+    albumEl.addEventListener("click", advancePhoto);
   }
 
   // ---- keyboard navigation: Enter / Space advance a page ----
@@ -1202,7 +1438,14 @@
       const resp = await fetch(BOARD_URL, { cache: "no-store" });
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       const board = await resp.json();
-      applyBoard(board);
+      albumUpdate(board.album);
+      if (album.visiting && state.hasRendered) {
+        // The photos own the screen: keep only the newest board and apply it
+        // when the taps return, so a keg change is never lost.
+        album.pendingBoard = board;
+      } else {
+        applyBoard(board);
+      }
       bootError.hidden = true;
     } catch (err) {
       console.warn("board poll failed:", err);
@@ -1272,6 +1515,7 @@
       diffUpdate(taps);
     }
     updateTicker(board.announcement_text);
+    maybeStartPhotosOnly();
   }
 
   function updateVenueHeader(board) {

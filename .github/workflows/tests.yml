@@ -57,3 +57,17 @@ jobs:
       # invocation here stays the same one a contributor runs locally.
       - name: Run the test suite
         run: python -m pytest
+
+      # The page tests (tests/browser) drive the real display page in Chromium
+      # against the app served locally with fixture photos. They run AFTER the
+      # suite above, which skips them because no browser is installed yet; here
+      # the browser is installed and REQUIRE_BROWSER makes a missing one a
+      # failure rather than a quiet skip, so this step cannot go green by not
+      # running. `--with-deps` adds the OS libraries Chromium needs.
+      - name: Install Chromium for the page tests
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run the page tests
+        env:
+          REQUIRE_BROWSER: "1"
+        run: python -m pytest tests/browser

@@ -533,3 +533,37 @@ html, body {
    the whole grid - last row and ticker included - fits what's actually on screen.
    (A previous attempt switched portrait phones to a single scrolling column; that
    masked the symptom rather than fixing it, so it's been removed.) */
+
+/* ---- Album visit (photo album, ADR-0008) -------------------------------------
+   A full-screen layer over the board. Photos are letterboxed (object-fit:
+   contain) on black; mounts and frames come later. The board underneath keeps
+   its layout, so the taps are exactly where they were when the visit ends. */
+.album {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: #000;
+  opacity: 0;
+  transition: opacity var(--album-fade, 1.5s) ease;
+  cursor: pointer;
+}
+.album.on { opacity: 1; }
+.album-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity var(--album-fade, 1.5s) ease;
+}
+.album-photo.shown { opacity: 1; }
+.album-photo.instant { transition: none; }
+
+/* During a visit the header, the page dots and (unless kept) the ticker go.
+   visibility, not display, so the board's grid does not reflow underneath. */
+body.album-visit #venue-header,
+body.album-visit #dots { visibility: hidden; }
+body.album-visit:not(.album-keep-ticker) #ticker { visibility: hidden; }
+/* A kept ticker rides above the photo layer. */
+body.album-visit.album-keep-ticker #ticker { position: relative; z-index: 30; }

@@ -26,6 +26,25 @@ Merged to `main` and shipping in the next release.
 
 ### Added
 
+- **Photo album, first version.** Drop JPEG, PNG or WebP photos into the
+  `photos` folder of your data directory (loose files form the album
+  "Unsorted"; each folder is an album, and folders inside it count as part of
+  it) and a screen whose profile has the album on shows them between its tap
+  pages. New and removed files are picked up within a minute, without a restart.
+  After every N tap-page turns the screen shows K photos full screen, cross-faded
+  and letterboxed, with the venue logo, the page dots and (unless you keep it)
+  the ticker hidden; Enter, Space or a click moves to the next photo. Choose how
+  many tap pages come between visits (0 = photos only), how many photos, how
+  long each stays, the order (Shuffle shows every photo once before any repeats;
+  Name A-Z; Date newest first, by the date the photo was taken) and which albums,
+  in the new Photo album section of the Settings tab. It is off in the Default
+  profile, so nothing changes until you customise it in a profile. Your originals
+  are never sent to a screen: each photo gets a screen copy (upright, standard
+  screen colour, fitted to 4K, WebP, with all metadata including location
+  removed) that is built in the background one photo at a time, and a photo
+  shows once its copy is ready. The copies live in `photo_cache` and are safe to
+  delete: they are simply rebuilt. Snapshots carry the album settings, never the
+  photos.
 - **Display profiles.** Screens can now show the board with their own settings.
   Make a profile for each kind of screen in the Admin and point the screen at it
   with `?display=<name>` on its kiosk start URL. Your existing settings become

@@ -425,3 +425,19 @@ def test_display_js_does_not_mirror_the_profile_declaration():
     for unit, keys in CUSTOMISABLE_UNITS.items():
         if len(keys) > 1:      # a named group exists only server-side
             assert f'"{unit}"' not in js, unit
+
+
+def test_display_js_runs_the_album_it_is_told_and_never_reads_album_settings():
+    """The page holds no album logic of its own (ADR-0007/0008).
+
+    Whether a screen shows photos, which albums and in what order are resolved
+    on the server and arrive as the board's `album` block. display.js may read
+    that block, never a raw Setting, and never anything that names an original.
+    """
+    js = _display_js()
+    for raw in ("album_enabled", "album_all", "album_selection", "album_order",
+                "album_every_turns", "album_photos_per_visit", "album_seconds_per_photo",
+                "album_keep_ticker", "album_fade_seconds"):
+        assert raw not in js, f"display.js reads the raw Setting {raw}"
+    assert "board.album" in js or "albumUpdate(board.album)" in js
+    assert "/photos" not in js and "photo_cache" not in js

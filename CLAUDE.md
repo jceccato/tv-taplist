@@ -57,6 +57,7 @@ app/                FastAPI app + all logic
   theme.py          colour theme presets + resolution (-> CSS variables)
   tap_store.py      Tap files by Slot+Source; Source precedence; md/image pair
   snapshot.py       Snapshot export/import: streamed zip, layout validation, credential gate
+  photo_library.py  The photo album: /data/photos, the Display copy cache, the scan and the one-at-a-time pipeline (Pillow); owns every photo path
   seen_screens.py   In-memory list of recently seen screens (User-Agent, profile, how chosen); lost on restart
   admin_ops.py      Manual-override domain ops (save/clear) and Display profile ops (create/rename/delete/save) behind the admin write routes
   persistence.py    startup durability checks: is /data mapped, and is it the same /data (DDI)
@@ -69,7 +70,7 @@ app/                FastAPI app + all logic
   timezone.py       TZ-aware iso_now()
 static/             css/display.css, css/admin.css, js/display.js, js/admin.js, placeholder.svg
 templates/          display.html, admin.html (tabbed), login.html
-tests/              pytest suite (772 tests, 22 files) + conftest.py fixtures
+tests/              pytest suite (863 tests, 25 files) + conftest.py fixtures; tests/browser = Playwright page tests
 Dockerfile · entrypoint.sh · docker-compose.yml · scripts/docker_test.sh
 scripts/setup.sh (guided installer / .env wizard)
 README.md           root landing page (embeds docs/venue_logo.png + docs/screenshot.png)
@@ -90,6 +91,12 @@ docs/               INSTALLATION.md · FAQ.md · UNRAID.md · WINDOWS.md · PUBL
   .data_dir_id       Data Directory Identity (random id; do not edit or delete)
   taps/              custom_tap_X.md / bf_tap_X.md (+ per-tap images)
   old_beers/         archived md+image pairs, datetime-suffixed
+  photos/            the photo album's ORIGINALS, untouched (ADR-0008): each
+                     folder an Album, loose files the Album "Unsorted", folders
+                     inside an album part of it. Operator-owned, hand-editable.
+  photo_cache/       DISPOSABLE: display/ (the Display copies), thumbs/ and
+                     index.json (sizes, mtimes, content hashes, date taken).
+                     Deleting it costs only reprocessing time.
 ```
 
 - **Source precedence is owned by `tap_store.py`**, not by callers. Callers name a
@@ -221,6 +228,63 @@ clear and `apply_settings`' clear all ask it, so `/data/upcoming/` is cleared
 only when no profile wants it (ADR-0006, ADR-0007). Whether a screen shows them is the
 board's per-profile answer from its own effective settings. A profile that
 turns the switch on or off needs no sync change.
+
+**The photo album settings** (all customisable units, off in the Default profile):
+`album_enabled`, `album_every_turns` (0-50; 0 = photos only), `album_photos_per_visit`
+(1-50), `album_seconds_per_photo` (2-600), `album_order` (`shuffle`/`name`/`date`;
+unknown coerces to shuffle), `album_all` + `album_selection` (one unit: every album,
+or a ticked list of album NAMES; a name with no folder is skipped, never an error),
+`album_keep_ticker` and `album_fade_seconds` (0-10). Bounds are in
+`SETTINGS_BOUNDS`. Each is a `unit(...)` in the Settings tab's "Photo album"
+fieldset with a `PROFILE_UNIT_LABELS` entry. The ticked names travel as ONE hidden
+JSON field (`album_selection`), parsed by a `before` validator on `SettingsForm`,
+because `admin.js` folds every checkbox of one name into a single true/false and an
+album name may hold any character. `album_all` defaults to True on the form (unlike
+the other booleans' "missing means off") so a missing field can never become "a
+ticked list with nothing ticked".
+
+---
+
+## The photo album (`photo_library.py`, ADR-0008)
+
+- **One module owns `/data/photos/` and `/data/photo_cache/`.** Nothing else in
+  `app/` builds a path under either (a guard test walks the AST for
+  `PHOTOS_DIR`/`PHOTO_CACHE_DIR`, as the Tap store's filenames are guarded). Its
+  operations: `list_albums`, `scan`, `process_next`/`process_pending`,
+  `ready_photos(albums, order)`, `copy_file(filename)`, `status`.
+- **Originals are never served or referenced.** The board carries only
+  `/img/photo/<copy id>.webp`; the copy id is an opaque hash of the original's
+  content and the pipeline settings, so a changed copy has a new URL and the route
+  can cache for a day. `copy_file` accepts only `<32 hex>.webp`, so traversal and
+  original names are plain 404s (not the Placeholder: an unready photo must not be
+  drawn as one).
+- **A photo shows only once its copy file exists.** `ready_photos` stats the copy,
+  so deleting `photo_cache/` (or just `display/`) takes photos off the board until
+  they are rebuilt. A stale copy (other settings, or an older version of the file)
+  stays listed until its replacement is written (`copy.settings`/`copy.src` in the
+  index); a replaced copy's files are removed at once, orphans after 10 minutes.
+- **Scan and pickup.** A scheduler job (`photo_scan`, every minute and once at
+  start-up, `max_instances=1`) runs `scan()` then `process_pending()`; the loop
+  re-scans every minute while it works, so a long batch never starves hand-made
+  changes. `scan` re-hashes only files whose size or mtime changed, ignores files
+  modified in the last 2 s (still being copied), skips hidden entries and symlinks,
+  and never empties the index when the folder itself is unreadable. Only JPEG, PNG
+  and WebP are photos here; other extensions are ignored, not reported.
+- **The pipeline, one photo at a time** (`_PROCESS_LOCK`; deliberately NOT under
+  `JOB_LOCK`, so a long decode never blocks an admin save): read the date taken
+  from EXIF first, JPEG `draft()` for big files, `exif_transpose`, ICC to sRGB
+  (a tag already called sRGB is left alone; CMYK converts through its profile;
+  alpha is split off and put back), Lanczos fit into 3840x2160 up or down, WebP
+  quality 99 with `info` cleared so no EXIF/GPS/ICC/XMP chunk survives, plus a 480
+  px thumbnail (admin use, later). Pillow's pixel limit is set explicitly (200 MP)
+  and a decompression-bomb warning is promoted to an error. Anything unreadable is
+  recorded in the index with its reason (`status().failures`), shown in the Settings
+  fieldset, and retried only when the file or the settings change.
+- **Order.** `name` is natural and case-blind, `date` is newest first by date taken
+  falling back to the file's mtime; `shuffle` returns the set in name order, since
+  the page shuffles it (it also has to remember its place).
+- **Runtime state is in memory only**: the library's index is a cache file, and the
+  page's place in the album is lost on reload (a reload starts a fresh Shuffle pass).
 
 ---
 
@@ -415,6 +479,29 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
   page position. Rotation is `rotation_seconds`; restarted on manual nav.
 - **Pagination:** up to 8 cards/page; or a fixed `page_size` when `paginate`.
   **Page dots are clickable** and **Enter/Space advances a page** (resets timer).
+- **Album visits** (`album` state, `startVisit`/`endVisit`): the board's `album`
+  block exists only for a profile with the album on. A tap-page turn is one tick of
+  the carousel timer (single-page boards count too); once `album.turnsShown >=
+  every_turns` the next tick starts a visit instead of turning the page. A visit
+  shows `min(photos_per_visit, photos)` photos, each `seconds_per_photo`, in two
+  `<img>` layers cross-faded by opacity over `fade_seconds` (capped at half a photo
+  so a short photo never fades its whole life), `object-fit: contain` on black
+  (letterboxed; frames and mounts come later). `body.album-visit` hides the header,
+  dots and (unless `body.album-keep-ticker`) the ticker with `visibility`, so the
+  board's grid does not reflow underneath. The visit plan is frozen at its start
+  (settings changes apply from the next visit). `upcomingTick` returns early during
+  a visit and the visit start ends any cross-fade or panel in flight, so both pick up
+  at their next tick afterwards. Board polls keep arriving during a visit but only
+  the newest is kept (`album.pendingBoard`) and applied when the taps return, so a
+  keg change is never lost; the photo list itself updates at once. Enter, Space, a
+  click on the photo or a swipe (`nextPage`) advance one photo; the last one ends
+  the visit. `every_turns` 0 is one endless visit (a photo frame) that only ends if
+  the photos all go. Shuffle keeps a queue of ids for the pass (new photos join it at
+  random places, a new pass never starts with the photo just shown); the ordered
+  orders continue after the last shown id. A photo that fails to load is skipped, and
+  the visit gives up when none will. No ready photos means `albumPlan()` is null and
+  the screen is just a tap board. **display.js never reads a raw album Setting** (a
+  guard test fails if it does); it runs the `album` block it is given.
 - **Auto-scroll marquee:** long `.name`/`.desc` text scrolls within its box
   instead of truncating (measured per card; off under `prefers-reduced-motion`).
 - **Layout = CSS grid** rows: venue header · stage · dots · ticker, so dots get
@@ -422,6 +509,11 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
 
 ## Admin UI (`templates/admin.html` + `static/js/admin.js`)
 
+- (The Settings tab's **Photo album** fieldset: each album setting is a `unit(...)`,
+  the album picker's ticks are unnamed and write one hidden JSON field, and the
+  fieldset reports how many Display copies are ready, still processing, or could not
+  be read, with the unreadable files named. Uploads, album management and Removed
+  come later.)
 - Four tabs - **Settings · Theme · Manual overrides · Snapshot** - plus an
   always-visible status panel with **Sync Brewfather now**.
 - **Cross-tab saving via HTML `form=` association:** theme pickers, glassware, and
@@ -468,6 +560,12 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
   `show_*`/`hide_*_when_empty` flags, the per-Tap tri-states and `color_known`
   are **gone from the wire**. `color_unit` and `show_source_badge` stay raw - a
   unit conversion and a one-step toggle are not Visibility chains.
+- **`GET /img/photo/{filename}`** (public) serves a Display copy with the standard
+  `/img` security headers; see the photo album section. The board's **`album`**
+  block (only with the album on) carries `every_turns`, `photos_per_visit`,
+  `seconds_per_photo`, `fade_seconds`, `order`, `keep_ticker` and `photos`: ready
+  copies only, each `{id, url, aspect, album, taken}`. With the album off the key is
+  absent, like `upcoming`. Built by `board.resolve_album`.
 - **`GET /api/preview-color`** (`?ebc=&sat=&hex=`) is **delegation** to
   `colors.resolve_color`; its only own step is the display-unit conversion
   (`colors.display_color_to_ebc`). A test asserts it returns what the board
@@ -616,7 +714,15 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 772 tests, 22 files: colours (incl. the single Colour resolution point -
+- 863 tests, 25 files (the nine page tests skip without a browser):
+  **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
+  the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a
+  Display P3 profile - upright, sRGB, 4K fit up and down, WebP q99, no metadata in
+  the copy or the thumbnail - plus stale copies, failures, the cache being deleted,
+  and the guard that nothing else builds a photo path), **the album on the board and
+  in the Admin** (`test_album_board.py`: payload only with the album on, order,
+  selection, clamping, no original referenced, the public copy route, the profile
+  editor), and **the page tests** (`tests/browser/`, Playwright - see below), colours (incl. the single Colour resolution point -
   swatch-vs-Placeholder agreement, preview-vs-board equivalence, Unknown
   fallbacks, `display_color_to_ebc`), beer-glass, themes, storage, the Tap file
   store (precedence walk, unreadable-file handling, the four on-disk filenames),
@@ -653,6 +759,17 @@ inside it (it would land as a stray file in `/data`).
   guard and both checkbox directions), and server<->client constant-drift guards
   (`test_frontend_constants.py`: the settings mirror's values, no Visibility flag
   in the mirror, no chain in the display, and the swatch grey).
+- **Page tests** (`tests/browser/`, Python Playwright, Chromium) drive the real
+  display against the app served in a thread (lifespan off) with fixture photos, and
+  assert DOM state and geometry from a 100 ms recorded timeline, not pixels
+  (`ALBUM_SHOTS=<dir>` keeps screenshots as artefacts). They **skip when no browser
+  can be launched**, so the plain suite passes on a box without one; CI runs them
+  after the suite with `REQUIRE_BROWSER=1`, which turns a missing browser into a
+  failure, after `playwright install --with-deps chromium`. On a box with only a
+  system Chrome: `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/google-chrome
+  python -m pytest tests/browser`. The board-update test uses Playwright's fake
+  clock to reach the 30 s poll; the others run in real time with 3 s pages and 2 s
+  photos (about a minute for the nine).
 - **The sync fixture fakes the httpx TRANSPORT, not `_list_batches`**, so the real
   listing, filtering, dedupe and pagination run in tests. Do not reintroduce a
   hand-written batch-list fake.

@@ -28,6 +28,15 @@
     </footer>
   </div>
 
+  <!-- The photo album's Album visit (ADR-0008): full-screen photos cross-faded
+       over the board, drawn by display.js from the board's `album` block. Two
+       layers alternate so one photo fades into the next. Hidden (and empty)
+       outside a visit; a profile with the album off never shows it. -->
+  <div id="album" class="album" data-state="idle" hidden aria-hidden="true">
+    <img class="album-photo" alt="">
+    <img class="album-photo" alt="">
+  </div>
+
   <!-- Shown only if the very first board fetch fails (cold start, no cache) -->
   <div id="boot-error" class="boot-error" hidden>Loading tap list…</div>
 

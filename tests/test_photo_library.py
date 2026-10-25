@@ -441,3 +441,47 @@ def test_a_corrupt_index_is_just_rebuilt():
     lib.scan()
     lib.process_pending()
     assert len(lib.ready_photos()) == 1
+
+
+# ---- guards on who may touch the photo folders ---------------------------------------------
+
+def test_nothing_outside_the_photo_library_builds_a_photo_path():
+    # ADR-0008, like ADR-0003 for Tap files: one module owns the photo folders.
+    import ast
+    from pathlib import Path
+    offenders = []
+    for py in sorted((Path(__file__).resolve().parent.parent / "app").glob("*.py")):
+        if py.name in ("photo_library.py", "paths.py"):
+            continue
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.Attribute):
+                names.append(node.attr)
+            elif isinstance(node, ast.Name):
+                names.append(node.id)
+            elif isinstance(node, ast.ImportFrom):
+                names += [a.name for a in node.names]
+            if {"PHOTOS_DIR", "PHOTO_CACHE_DIR"} & set(names):
+                offenders.append(f"{py.name}:{node.lineno}")
+    assert offenders == []
+
+
+def test_the_scheduler_scans_for_photos_every_minute_and_once_at_start(monkeypatch):
+    from app import scheduler
+
+    jobs = {}
+
+    class FakeScheduler:
+        def __init__(self, *a, **k): pass
+        def add_job(self, func, trigger, **kw): jobs[kw["id"]] = (func, trigger, kw)
+        def start(self): pass
+
+    monkeypatch.setattr(scheduler, "BackgroundScheduler", FakeScheduler)
+    monkeypatch.setattr(scheduler, "_scheduler", None)
+    scheduler.start_scheduler()
+    func, trigger, kw = jobs["photo_scan"]
+    assert trigger == "interval" and kw["minutes"] == 1
+    assert kw["max_instances"] == 1 and kw["coalesce"] is True
+    assert kw["next_run_time"] is not None            # runs at boot, not a minute later
+    assert func is scheduler._safe_photo_scan
