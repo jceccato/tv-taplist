@@ -25,6 +25,7 @@ from typing import Any, NamedTuple
 from . import upcoming_store
 from .atomic import JOB_LOCK, atomic_write_text
 from .beer_glass import DEFAULT_GLASS, normalize_glass
+from .colors import parse_hex_color
 from .paths import CONFIG_PATH, ensure_dirs
 from .photo_library import (
     FORMAT_WEBP, FORMATS as PHOTO_FORMATS, ORDER_SHUFFLE, ORDERS as ALBUM_ORDERS,
@@ -184,6 +185,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "album_selection": [],
     "album_keep_ticker": False,         # keep the announcement ticker over the photos
     "album_fade_seconds": 1.5,
+    # The framed print (issue #61): each photo on a mount, in a frame, drawn by
+    # the page. "random" is chosen per photo, by the page, from the other
+    # choices. "photo" is a muted colour sampled from the photo's edges when its
+    # Display copy is made; `album_mount_custom` is used for "custom".
+    "album_mount_style": "flat",        # see MOUNT_STYLES
+    "album_mount_color": "photo",       # see MOUNT_COLORS
+    "album_mount_custom": "#e9e4d8",
+    "album_frame": "thin-black",        # see FRAMES
     # Display profiles (ADR-0007): name -> {customised key: value}. A profile
     # holds ONLY its Customised settings; everything else follows the Default
     # profile (the rest of this dict). Names are validated and values clamped by
@@ -258,6 +267,9 @@ CUSTOMISABLE_UNITS: dict[str, tuple[str, ...]] = {
     "album_selection": ("album_all", "album_selection"),
     "album_keep_ticker": ("album_keep_ticker",),
     "album_fade_seconds": ("album_fade_seconds",),
+    "album_mount_style": ("album_mount_style",),
+    "album_mount_color": ("album_mount_color", "album_mount_custom"),
+    "album_frame": ("album_frame",),
 }
 
 CUSTOMISABLE_KEYS: frozenset[str] = frozenset(
@@ -618,6 +630,15 @@ def _preset_for_scale(presets: dict[str, float], scale: float) -> str:
     return "custom"
 
 
+# The framed print's choices (issue #61), in the order the Admin lists them.
+# "random" is last in each: the page picks one of the others for each photo.
+# display.js draws each of these by name, and a drift guard ties its lists to
+# these tuples.
+MOUNT_STYLES = ("none", "flat", "double", "shadow", "float", "random")
+MOUNT_COLORS = ("photo", "white", "cream", "black", "custom", "random")
+FRAMES = ("none", "thin-black", "thin-white", "oak", "walnut", "gilded", "polaroid", "random")
+
+
 def _coerce_choice(value: Any, allowed: tuple[str, ...], default: str) -> str:
     text = str(value).strip().lower() if isinstance(value, str) else ""
     return text if text in allowed else default
@@ -718,6 +739,11 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     order = str(merged["album_order"] or "").strip().lower()
     merged["album_order"] = order if order in ALBUM_ORDERS else ORDER_SHUFFLE
     merged["album_selection"] = _coerce_album_selection(merged["album_selection"])
+    for key, allowed in (("album_mount_style", MOUNT_STYLES),
+                         ("album_mount_color", MOUNT_COLORS), ("album_frame", FRAMES)):
+        merged[key] = _coerce_choice(merged[key], allowed, DEFAULT_CONFIG[key])
+    merged["album_mount_custom"] = (parse_hex_color(merged["album_mount_custom"])
+                                    or DEFAULT_CONFIG["album_mount_custom"])
 
     merged["venue_logo"] = (str(merged["venue_logo"]) if merged["venue_logo"] else None)
     merged["profiles"] = _coerce_profiles(merged["profiles"])

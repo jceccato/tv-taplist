@@ -22,6 +22,7 @@ REQUIRED = {"num_taps": "1", "max_archive_age_days": "1", "max_archive_storage_m
 ALBUM_KEYS = ("album_enabled", "album_every_turns", "album_photos_per_visit",
               "album_seconds_per_photo", "album_order", "album_all",
               "album_selection", "album_keep_ticker", "album_fade_seconds")
+PRINT_KEYS = ("album_mount_style", "album_mount_color", "album_mount_custom", "album_frame")
 
 
 def _photos(*rels, process=True):
@@ -138,7 +139,8 @@ def test_the_album_block_carries_the_visit_plan_and_the_ordered_ready_photos():
         "fade_seconds": 0.5, "keep_ticker": True, "order": "name"}
     assert [p["album"] for p in album["photos"]] == ["Brew day", "Brew day", "Unsorted"]
     first = album["photos"][0]
-    assert set(first) == {"id", "url", "aspect", "album", "taken"}
+    assert set(first) == {"id", "url", "aspect", "album", "taken", "mount"}
+    assert first["mount"].startswith("#") and len(first["mount"]) == 7
     assert first["url"].startswith("/img/photo/") and first["url"].endswith(".webp")
     assert first["aspect"] == pytest.approx(1.5, abs=0.05)
 
@@ -337,3 +339,77 @@ def test_two_files_with_the_same_content_have_distinct_board_ids():
     photos = _board()["album"]["photos"]
     assert len(photos) == 2 and len({p["id"] for p in photos}) == 2
     assert len({p["url"] for p in photos}) == 1
+
+
+# ---- the framed print (issue #61) -------------------------------------------------------
+
+def test_the_print_defaults_are_a_flat_mount_from_the_photo_in_a_thin_black_frame():
+    cfg = config_store.load_config()
+    assert (cfg["album_mount_style"], cfg["album_mount_color"], cfg["album_frame"]) == (
+        "flat", "photo", "thin-black")
+    assert config_store.MOUNT_STYLES == ("none", "flat", "double", "shadow", "float", "random")
+    assert config_store.MOUNT_COLORS == ("photo", "white", "cream", "black", "custom", "random")
+    assert config_store.FRAMES == ("none", "thin-black", "thin-white", "oak", "walnut",
+                                   "gilded", "polaroid", "random")
+
+
+def test_every_print_setting_is_customisable_and_the_custom_colour_goes_with_its_choice():
+    assert set(PRINT_KEYS) <= config_store.CUSTOMISABLE_KEYS
+    assert config_store.CUSTOMISABLE_UNITS["album_mount_color"] == (
+        "album_mount_color", "album_mount_custom")
+    assert config_store.CUSTOMISABLE_UNITS["album_mount_style"] == ("album_mount_style",)
+    assert config_store.CUSTOMISABLE_UNITS["album_frame"] == ("album_frame",)
+
+
+@pytest.mark.parametrize("key, bad, expected", [
+    ("album_mount_style", "Shadow ", "shadow"), ("album_mount_style", "velvet", "flat"),
+    ("album_mount_color", "RANDOM", "random"), ("album_mount_color", 7, "photo"),
+    ("album_frame", "Gilded", "gilded"), ("album_frame", "chrome", "thin-black"),
+    ("album_mount_custom", "ABC", "#aabbcc"), ("album_mount_custom", "nope",
+                                               config_store.DEFAULT_CONFIG["album_mount_custom"]),
+])
+def test_print_settings_are_coerced_never_rejected(key, bad, expected):
+    assert config_store.update_config(**{key: bad})[key] == expected
+
+
+def test_the_album_block_carries_the_print_choices():
+    _photos("a.jpg")
+    _album_profile(album_mount_style="double", album_mount_color="custom",
+                   album_mount_custom="#123456", album_frame="random")
+    assert _board()["album"]["print"] == {
+        "mount_style": "double", "mount_color": "custom", "mount_custom": "#123456",
+        "frame": "random"}
+
+
+def test_a_profile_follows_the_default_print_until_it_customises_it():
+    _photos("a.jpg")
+    config_store.update_config(album_frame="oak")
+    _album_profile(album_mount_style="none")
+    print_ = _board()["album"]["print"]
+    assert (print_["mount_style"], print_["frame"]) == ("none", "oak")
+
+
+def test_a_default_save_posts_the_print_settings():
+    c = _admin()
+    r = c.post("/admin/settings", data={
+        **REQUIRED, "album_mount_style": "float", "album_mount_color": "custom",
+        "album_mount_custom": "#a0b0c0", "album_frame": "polaroid"})
+    assert r.status_code == 200
+    saved = config_store.load_config()
+    assert [saved[k] for k in PRINT_KEYS] == ["float", "custom", "#a0b0c0", "polaroid"]
+    html = c.get("/admin").text
+    for name in PRINT_KEYS:
+        assert f'name="{name}"' in html
+    from app import main
+    assert set(PRINT_KEYS) <= set(main.SettingsForm.model_fields)
+    for unit in ("album_mount_style", "album_mount_color", "album_frame"):
+        assert unit in main.PROFILE_UNIT_LABELS
+
+
+def test_the_admin_offers_every_print_choice():
+    html = _admin().get("/admin").text
+    for name, choices in (("album_mount_style", config_store.MOUNT_STYLES),
+                          ("album_mount_color", config_store.MOUNT_COLORS),
+                          ("album_frame", config_store.FRAMES)):
+        select = html.split(f'name="{name}"', 1)[1].split("</select>", 1)[0]
+        assert [c for c in choices if f'value="{c}"' in select] == list(choices)

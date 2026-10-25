@@ -484,6 +484,9 @@ PROFILE_UNIT_LABELS = {
     "album_selection": "Albums shown",
     "album_keep_ticker": "Keep the ticker over photos",
     "album_fade_seconds": "Photo fade length",
+    "album_mount_style": "Mount style",
+    "album_mount_color": "Mount colour",
+    "album_frame": "Frame",
 }
 
 
@@ -870,6 +873,10 @@ class SettingsForm(BaseModel):
     album_selection: list[str] = []
     album_keep_ticker: bool = False
     album_fade_seconds: float = 1.5
+    album_mount_style: str = "flat"
+    album_mount_color: str = "photo"
+    album_mount_custom: str = "#e9e4d8"
+    album_frame: str = "thin-black"
 
     @field_validator("album_selection", mode="before")
     @classmethod

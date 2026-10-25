@@ -604,6 +604,14 @@ def resolve_album(cfg: dict[str, Any]) -> dict[str, Any] | None:
                                       DEFAULT_CONFIG["album_fade_seconds"])),
         "order": order,
         "keep_ticker": bool(cfg.get("album_keep_ticker", False)),
+        # The framed print, as chosen; "random" travels as it is, since the
+        # page picks per photo (and again each time the photo comes round).
+        "print": {
+            "mount_style": cfg.get("album_mount_style", DEFAULT_CONFIG["album_mount_style"]),
+            "mount_color": cfg.get("album_mount_color", DEFAULT_CONFIG["album_mount_color"]),
+            "mount_custom": cfg.get("album_mount_custom", DEFAULT_CONFIG["album_mount_custom"]),
+            "frame": cfg.get("album_frame", DEFAULT_CONFIG["album_frame"]),
+        },
         "photos": [
             {
                 "id": p.photo_id,
@@ -611,6 +619,9 @@ def resolve_album(cfg: dict[str, Any]) -> dict[str, Any] | None:
                 "aspect": p.aspect,
                 "album": p.album,
                 "taken": p.taken,
+                # The "From photo" mount colour; null for a copy made before
+                # it was sampled (the page then uses a neutral card colour).
+                "mount": p.mount,
             }
             for p in photos
         ],

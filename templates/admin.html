@@ -580,6 +580,39 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             <label for="album_fade_seconds">Cross-fade length (seconds)</label>
             <input id="album_fade_seconds" name="album_fade_seconds" type="number" {{ bounds_for('album_fade_seconds') }} step="0.1" value="{{ cfg.album_fade_seconds }}">
             {% endcall %}
+            {% call unit('album_mount_style') %}
+            <label for="album_mount_style">Mount</label>
+            <select id="album_mount_style" name="album_mount_style">
+              {% for value, label in [('none', 'None (frame only; the photo fills it, with blurred edges)'), ('flat', 'Flat'), ('double', 'Double'), ('shadow', 'Shadow box'), ('float', 'Float'), ('random', 'Random (a different one for each photo)')] %}
+              <option value="{{ value }}" {{ 'selected' if cfg.album_mount_style == value else '' }}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            {% endcall %}
+
+            {% call unit('album_mount_color') %}
+            <label for="album_mount_color">Mount colour</label>
+            <select id="album_mount_color" name="album_mount_color">
+              {% for value, label in [('photo', 'From the photo (a muted colour from its edges)'), ('white', 'White'), ('cream', 'Cream'), ('black', 'Black'), ('custom', 'Custom (below)'), ('random', 'Random (a different one for each photo)')] %}
+              <option value="{{ value }}" {{ 'selected' if cfg.album_mount_color == value else '' }}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <label for="album_mount_custom">Custom mount colour</label>
+            <div class="color-field">
+              <input type="color" id="album_mount_custom" name="album_mount_custom" value="{{ cfg.album_mount_custom }}">
+              <input type="text" class="hex-text" data-hex-text value="{{ cfg.album_mount_custom }}"
+                     aria-label="Custom mount colour hex value" spellcheck="false" autocomplete="off" maxlength="7">
+            </div>
+            {% endcall %}
+
+            {% call unit('album_frame') %}
+            <label for="album_frame">Frame</label>
+            <select id="album_frame" name="album_frame">
+              {% for value, label in [('none', 'None'), ('thin-black', 'Thin black'), ('thin-white', 'Thin white'), ('oak', 'Oak'), ('walnut', 'Walnut'), ('gilded', 'Gilded'), ('polaroid', 'Polaroid (wide bottom edge)'), ('random', 'Random (a different one for each photo)')] %}
+              <option value="{{ value }}" {{ 'selected' if cfg.album_frame == value else '' }}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            {% endcall %}
+
             <p class="hint">During a visit the venue logo, the ticker (unless kept) and the page dots are hidden, and Enter, Space or a click moves to the next photo. A screen whose albums hold no ready photos just shows the taps. The album is off in the Default profile; switch it on for one screen by customising it in that screen&rsquo;s profile.</p>
           </fieldset>
 
