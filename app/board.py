@@ -575,7 +575,8 @@ def build_board(effective: dict[str, Any] | None = None) -> dict[str, Any]:
 
     `effective` is the one settings input: the effective settings the board is
     resolved from (`config_store.effective_settings()` when omitted). Nothing
-    below reads Settings any other way, so a Display profile's settings can be
+    below reads Settings any other way (kept optional, not required: the
+    many bare `build_board()` callers in tests mean the Default profile), so a Display profile's settings can be
     fed in here without the resolution changing.
     """
     cfg = effective if effective is not None else effective_settings()

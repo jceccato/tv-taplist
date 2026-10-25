@@ -596,6 +596,9 @@ inside it (it would land as a stray file in `/data`).
   symlinks with a bytes-and-mtime assertion that nothing changed, and a
   round trip that restores by plain `extractall` so the hand-unpack path
   cannot drift from the import route),
+  **Display profiles** (`test_display_profiles.py`: storage, unit coercion,
+  clamping, names, `?display=` through `/api/board`, the unknown-name list,
+  Snapshot round trip, the display.js forwarding guard),
   Brewfather sync (conflicts, override precedence, token parsing, OG/FG, archive,
   Conditioning and Fermenting status selection, image-client credential isolation
   at both the factories and the download call site), **the admin domain ops**

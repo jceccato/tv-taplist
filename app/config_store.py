@@ -229,6 +229,7 @@ _PROFILE_NAME_RE = re.compile(r"^[a-z0-9-]{1,%d}$" % MAX_PROFILE_NAME_LEN)
 # "default" names the Default profile, which is not stored and cannot be a
 # stored profile (it cannot be created, renamed or deleted).
 DEFAULT_PROFILE = "default"
+_MAX_RECORDED_NAME_LEN = 64   # longest name logged or remembered
 
 # How a screen's profile was chosen (the last field of `Effective`).
 CHOSEN_DEFAULT = "default"    # no profile named
@@ -272,6 +273,9 @@ def resolve_effective(settings: dict[str, Any], profile_name: str | None) -> Eff
     base = {k: v for k, v in settings.items() if k != "profiles"}
     if profile_name is None or not str(profile_name).strip():
         return Effective(base, DEFAULT_PROFILE, CHOSEN_DEFAULT)
+    if str(profile_name).strip().lower() == DEFAULT_PROFILE:
+        # Naming the Default profile explicitly is not a typo.
+        return Effective(base, DEFAULT_PROFILE, CHOSEN_DEFAULT)
     name = normalize_profile_name(profile_name)
     if name is None or name not in profiles:
         return Effective(base, DEFAULT_PROFILE, CHOSEN_UNKNOWN)
@@ -292,7 +296,6 @@ def effective_settings() -> dict[str, Any]:
 # runtime observations live in memory, not in Settings). Bounded, most recent
 # last, so a scanner cannot grow it.
 MAX_UNKNOWN_PROFILE_NAMES = 50
-_MAX_RECORDED_NAME_LEN = 64
 _unknown_names: dict[str, None] = {}
 _unknown_lock = threading.Lock()
 
@@ -321,6 +324,9 @@ def clear_unknown_profile_names() -> None:
         _unknown_names.clear()
 
 
+# Upper bound on the tap count. Well above any real venue; guards /api/board and
+# the admin's per-tap rows from an accidental or pasted absurd value that would
+# balloon every board build (each tap does per-slot filesystem probing).
 MAX_NUM_TAPS = 200
 # Cap the venue logo at a third of the screen height (per the design).
 MAX_VENUE_LOGO_VH = 33
@@ -611,7 +617,8 @@ def _coerce_profiles(profiles: Any) -> dict[str, dict[str, Any]]:
     for raw_name, values in profiles.items():
         name = normalize_profile_name(raw_name)
         if name is None:
-            log.warning("dropping Display profile with invalid name %r", str(raw_name)[:64])
+            log.warning("dropping Display profile with invalid name %r",
+                        str(raw_name)[:_MAX_RECORDED_NAME_LEN])
             continue
         out[name] = _coerce_profile(values)
     return out

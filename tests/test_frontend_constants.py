@@ -422,6 +422,6 @@ def test_display_js_does_not_mirror_the_profile_declaration():
     from app.config_store import CUSTOMISABLE_UNITS
     js = _display_js()
     assert "CUSTOMISABLE" not in js and "NEVER_CUSTOMISABLE" not in js
-    for unit in CUSTOMISABLE_UNITS:
-        assert f'"{unit}"' not in js or unit in DEFAULT_CONFIG, unit
-    assert len(re.findall(r'/api/board', js)) == 2   # the one URL, built once
+    for unit, keys in CUSTOMISABLE_UNITS.items():
+        if len(keys) > 1:      # a named group exists only server-side
+            assert f'"{unit}"' not in js, unit

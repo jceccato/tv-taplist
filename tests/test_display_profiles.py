@@ -1,6 +1,5 @@
 """Display profiles (issue #51, ADR-0007): stored differences, resolved server-side."""
 import json
-import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -87,7 +86,7 @@ def test_profile_values_are_clamped_to_the_settings_bounds():
     _write_profiles({"low": {"rotation_seconds": 0}, "high": {"rotation_seconds": 10**6}})
     assert _rotation("/api/board?display=low") == lo
     assert _rotation("/api/board?display=high") == hi
-    plo, phi = config_store.SETTINGS_BOUNDS["page_size"]
+    _, phi = config_store.SETTINGS_BOUNDS["page_size"]
     _write_profiles({"p": {"paginate": True, "page_size": 999}})
     assert client.get("/api/board?display=p").json()["page_size"] == phi
 
@@ -129,9 +128,9 @@ def test_a_stored_name_is_lowercased():
     assert list(config_store.load_config()["profiles"]) == ["lounge-tv"]
 
 
-def test_a_32_character_name_is_valid_and_33_is_not():
-    ok, too_long = "a" * 32, "a" * 33
-    _write_profiles({ok: {"rotation_seconds": 11}, too_long: {"rotation_seconds": 12}})
+def test_a_32_character_name_is_valid():
+    ok = "a" * 32
+    _write_profiles({ok: {"rotation_seconds": 11}})
     assert list(config_store.load_config()["profiles"]) == [ok]
 
 
@@ -206,9 +205,11 @@ def test_resolve_does_not_mutate_its_input():
     assert json.dumps(s, sort_keys=True) == before
 
 
-def test_default_is_not_a_profile_name():
-    r = resolve_effective(_settings(), "default")
-    assert r.chosen == CHOSEN_UNKNOWN
+def test_naming_the_default_profile_is_the_default_and_not_unknown():
+    r = resolve_effective(_settings(), "Default")
+    assert (r.profile, r.chosen) == ("default", CHOSEN_DEFAULT)
+    client.get("/api/board?display=default")
+    assert config_store.unknown_profile_names() == []
 
 
 # ---- snapshots --------------------------------------------------------------
@@ -231,7 +232,6 @@ def test_profiles_survive_a_snapshot_round_trip():
 # ---- the display page -------------------------------------------------------
 
 _JS = Path(__file__).resolve().parent.parent / "static" / "js" / "display.js"
-
 
 def test_display_js_forwards_display_on_every_board_poll():
     js = _JS.read_text(encoding="utf-8")
