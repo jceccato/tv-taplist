@@ -9,15 +9,19 @@ form and reading a file back, which made them expensive to assert and easy to
 change by accident.
 
 Nothing here knows about HTTP. A submitted value that cannot be used raises
-`OverrideRejected`, and the route decides that means 422; the Settings side has
+`OverrideRejected` (or `ProfileRejected` for a Display profile operation), and the route decides that means 422; the Settings side has
 no equivalent because Settings clamp rather than reject (see GLOSSARY.md).
 """
 from __future__ import annotations
 
 import logging
+import threading
+from collections.abc import Iterable, Mapping
 from typing import Any
 
+from . import config_store
 from . import tap_store as taps
+from . import upcoming_store
 from .archive import archive_tap
 from .atomic import JOB_LOCK
 from .beer import Beer, TapPresentation
@@ -146,3 +150,154 @@ def save_override(
     log.info("override saved for tap %d (name=%r image=%s)",
              slot, beer.name, stored_image.name if stored_image else None)
     return beer
+
+
+# ---- Display profiles (ADR-0007) -------------------------------------------
+#
+# A profile is a name mapped to its Customised settings and nothing else. These
+# operations are the only writers of `profiles` from the Admin: create, rename,
+# delete, and save one profile's customised units. Each one goes through
+# `config_store.update_config`, so every value is clamped and every name
+# validated by the same coercion the Default profile gets - nothing here
+# restates a bound. The Default profile is the top-level Settings and is never a
+# stored profile, so none of these can touch it.
+
+
+class ProfileRejected(ValueError):
+    """A Display profile operation cannot be done (bad, missing or clashing name).
+
+    Carries a message written for the operator; the route turns it into a 4xx.
+    """
+
+
+# Profile saves are read-modify-write on one mapping, so two at once would lose
+# one. (A Settings Save never touches `profiles`, so it needs no part in this.)
+_PROFILES_LOCK = threading.Lock()
+
+
+def _name(raw: Any) -> str:
+    """The canonical profile name, or a rejection saying why not."""
+    name = config_store.normalize_profile_name(raw)
+    if name is None:
+        raise ProfileRejected(
+            "A profile name is 1-%d lowercase letters, digits or hyphens, and "
+            "cannot be \"default\"." % config_store.MAX_PROFILE_NAME_LEN)
+    return name
+
+
+def _existing(raw: Any, profiles: Mapping[str, Any]) -> str:
+    name = config_store.normalize_profile_name(raw)
+    if name is None or name not in profiles:
+        raise ProfileRejected("There is no profile called %r." % str(raw)[:64])
+    return name
+
+
+def _write_profiles(change) -> dict[str, Any]:
+    """Apply `change(profiles)` to a copy of the stored profiles and save it.
+
+    Returns the Settings as saved. If the change leaves no profile (and not the
+    Default) wanting Upcoming Beers where one did, the upcoming cache is cleared
+    here, at the write, exactly as a Settings Save does (ADR-0006).
+    """
+    with _PROFILES_LOCK:
+        before = config_store.load_config()
+        profiles = {name: dict(values) for name, values in before["profiles"].items()}
+        profiles = change(profiles)
+        saved = config_store.update_config(profiles=profiles)
+    if (config_store.upcoming_wanted(before)
+            and not config_store.upcoming_wanted(saved)):
+        with JOB_LOCK:
+            upcoming_store.clear()
+    return saved
+
+
+def customised_units(values: Mapping[str, Any]) -> list[str]:
+    """The units a profile customises, in declaration order.
+
+    A unit counts only when all of its keys are present: the store never holds
+    half a unit, and this reads the same declaration the save path does.
+    """
+    return [unit for unit, keys in config_store.CUSTOMISABLE_UNITS.items()
+            if all(key in values for key in keys)]
+
+
+def create_profile(name: Any) -> str:
+    """Add an empty profile (it follows the Default profile in everything)."""
+    clean = _name(name)
+
+    def add(profiles):
+        if clean in profiles:
+            raise ProfileRejected("There is already a profile called %r." % clean)
+        profiles[clean] = {}
+        return profiles
+
+    _write_profiles(add)
+    log.info("profile created: %s", clean)
+    return clean
+
+
+def rename_profile(old: Any, new: Any) -> str:
+    """Rename a profile, keeping its values and its place in the list.
+
+    There is no redirect: a screen still asking for the old name gets the
+    Default profile and the name is listed as unknown. The Admin warns of this
+    before it calls here.
+    """
+    new_name = _name(new)
+
+    def rename(profiles):
+        old_name = _existing(old, profiles)
+        if new_name != old_name and new_name in profiles:
+            raise ProfileRejected("There is already a profile called %r." % new_name)
+        return {(new_name if name == old_name else name): values
+                for name, values in profiles.items()}
+
+    _write_profiles(rename)
+    log.info("profile renamed: %s -> %s", str(old)[:64], new_name)
+    return new_name
+
+
+def delete_profile(name: Any) -> None:
+    """Delete a profile. Its screens get the Default profile from then on."""
+    def drop(profiles):
+        del profiles[_existing(name, profiles)]
+        return profiles
+
+    _write_profiles(drop)
+    log.info("profile deleted: %s", str(name)[:64])
+
+
+def save_profile(name: Any, *, customise: Iterable[str],
+                 values: Mapping[str, Any]) -> dict[str, Any]:
+    """Write one profile: exactly the units named in `customise`, from `values`.
+
+    `values` is a full Settings submission; only the keys of the customised units
+    are read from it, so a followed unit's value, whatever the form carried, is
+    dropped - that is what Follow means. Units that are not declared customisable
+    are ignored. A named card-size preset owns its scale, as it does in a
+    Settings Save. Returns the profile as stored (after clamping).
+    """
+    wanted = set(customise)
+
+    def save(profiles):
+        key = _existing(name, profiles)
+        mine: dict[str, Any] = {}
+        for unit, keys in config_store.CUSTOMISABLE_UNITS.items():
+            if unit in wanted and all(k in values for k in keys):
+                mine.update({k: values[k] for k in keys})
+        if "tap_photo_preset" in mine:
+            mine["tap_photo_preset"], mine["tap_image_scale"] = (
+                config_store.resolve_tap_photo_preset(
+                    mine["tap_photo_preset"], mine["tap_image_scale"]))
+        if "tap_text_preset" in mine:
+            mine["tap_text_preset"], mine["tap_text_scale"] = (
+                config_store.resolve_tap_text_preset(
+                    mine["tap_text_preset"], mine["tap_text_scale"]))
+        profiles[key] = mine
+        return profiles
+
+    saved = _write_profiles(save)
+    stored = saved["profiles"][config_store.normalize_profile_name(name)]
+    log.info("profile saved: %s (%d customised unit(s))",
+             config_store.normalize_profile_name(name), len(customised_units(stored)))
+    return stored

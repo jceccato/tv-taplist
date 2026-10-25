@@ -145,3 +145,212 @@ def test_a_colour_override_that_will_not_parse_is_dropped_and_noted():
 def test_the_operations_only_ever_touch_the_manual_source():
     """Named as a constant rather than remembered as a rule at each call site."""
     assert admin_ops.ADMIN_SOURCE is taps.Source.MANUAL
+
+
+# ---- Display profiles (issue #52, ADR-0007) ---------------------------------
+#
+# The profile operations are domain rules, stated without HTTP: a profile holds
+# only its differences, Follow drops a value, and the Default profile is never
+# something these operations can create, rename or delete.
+
+from app import config_store, upcoming_store  # noqa: E402
+
+
+def _profiles():
+    return config_store.load_config()["profiles"]
+
+
+def test_create_adds_an_empty_profile_with_a_normalised_name():
+    assert admin_ops.create_profile("  Lounge-TV ") == "lounge-tv"
+    assert _profiles() == {"lounge-tv": {}}
+
+
+@pytest.mark.parametrize("bad", ["", "   ", "default", "DEFAULT", "has space",
+                                 "under_score", "x" * 33, "café"])
+def test_create_refuses_a_name_that_cannot_be_a_profile(bad):
+    with pytest.raises(admin_ops.ProfileRejected):
+        admin_ops.create_profile(bad)
+    assert _profiles() == {}
+
+
+def test_create_refuses_a_name_that_exists_in_any_case():
+    admin_ops.create_profile("tv")
+    with pytest.raises(admin_ops.ProfileRejected):
+        admin_ops.create_profile("TV")
+
+
+def test_save_stores_only_the_customised_units():
+    admin_ops.create_profile("tv")
+    saved = admin_ops.save_profile(
+        "tv", customise={"rotation_seconds"},
+        values={"rotation_seconds": 12, "hide_vacant_taps": True,
+                "announcement_text": "typed but followed"})
+    assert saved == {"rotation_seconds": 12}
+    assert _profiles()["tv"] == {"rotation_seconds": 12}
+
+
+def test_save_writes_only_the_profile_being_edited():
+    admin_ops.create_profile("tv")
+    admin_ops.create_profile("tablet")
+    admin_ops.save_profile("tablet", customise={"rotation_seconds"},
+                           values={"rotation_seconds": 9})
+    default_before = {k: v for k, v in config_store.load_config().items()
+                      if k != "profiles"}
+
+    admin_ops.save_profile("tv", customise={"announcement_text"},
+                           values={"announcement_text": "Hello"})
+
+    assert _profiles()["tablet"] == {"rotation_seconds": 9}
+    assert {k: v for k, v in config_store.load_config().items()
+            if k != "profiles"} == default_before
+
+
+def test_follow_drops_the_value_so_the_default_is_tracked_again():
+    admin_ops.create_profile("tv")
+    admin_ops.save_profile("tv", customise={"rotation_seconds", "hide_vacant_taps"},
+                           values={"rotation_seconds": 9, "hide_vacant_taps": True})
+    # The next Save leaves rotation on Customise and flips hide_vacant_taps back.
+    admin_ops.save_profile("tv", customise={"rotation_seconds"},
+                           values={"rotation_seconds": 9, "hide_vacant_taps": True})
+    assert _profiles()["tv"] == {"rotation_seconds": 9}
+
+    config_store.update_config(rotation_seconds=45)
+    resolved = config_store.resolve_effective(config_store.load_config(), "tv")
+    assert resolved.settings["rotation_seconds"] == 9
+    assert resolved.settings["hide_vacant_taps"] is False
+
+
+def test_a_unit_is_saved_whole_or_not_at_all():
+    admin_ops.create_profile("tv")
+    admin_ops.save_profile(
+        "tv", customise={"pagination", "stat_og"},
+        values={"paginate": True, "page_size": 4, "show_og": True,
+                "hide_og_when_empty": False})
+    assert _profiles()["tv"] == {"paginate": True, "page_size": 4,
+                                 "show_og": True, "hide_og_when_empty": False}
+
+
+def test_a_false_checkbox_is_stored_as_false_not_dropped():
+    admin_ops.create_profile("tv")
+    config_store.update_config(show_abv=True)
+    admin_ops.save_profile("tv", customise={"stat_abv"},
+                           values={"show_abv": False, "hide_abv_when_empty": False})
+    assert _profiles()["tv"] == {"show_abv": False, "hide_abv_when_empty": False}
+
+
+def test_a_named_card_size_preset_owns_its_scale_in_a_profile_too():
+    admin_ops.create_profile("tv")
+    admin_ops.save_profile(
+        "tv", customise={"tap_photo_size"},
+        values={"tap_photo_preset": "small", "tap_image_scale": 0.99})
+    assert _profiles()["tv"] == {"tap_photo_preset": "small", "tap_image_scale": 0.6}
+
+
+def test_profile_values_are_clamped_like_the_default_profiles():
+    admin_ops.create_profile("tv")
+    saved = admin_ops.save_profile("tv", customise={"rotation_seconds"},
+                                   values={"rotation_seconds": 1})
+    assert saved == {"rotation_seconds": config_store.MIN_ROTATION_SECONDS}
+
+
+def test_a_key_that_is_not_customisable_is_never_stored():
+    admin_ops.create_profile("tv")
+    saved = admin_ops.save_profile(
+        "tv", customise={"num_taps", "color_unit", "rotation_seconds"},
+        values={"num_taps": 9, "color_unit": "srm", "rotation_seconds": 20})
+    assert saved == {"rotation_seconds": 20}
+
+
+def test_saving_an_unknown_profile_is_refused():
+    with pytest.raises(admin_ops.ProfileRejected):
+        admin_ops.save_profile("ghost", customise={"rotation_seconds"},
+                               values={"rotation_seconds": 9})
+    assert _profiles() == {}
+
+
+def test_the_default_profile_cannot_be_saved_renamed_or_deleted_as_a_profile():
+    with pytest.raises(admin_ops.ProfileRejected):
+        admin_ops.save_profile("default", customise={"rotation_seconds"},
+                               values={"rotation_seconds": 9})
+    admin_ops.create_profile("tv")
+    with pytest.raises(admin_ops.ProfileRejected):
+        admin_ops.rename_profile("default", "main")
+    with pytest.raises(admin_ops.ProfileRejected):
+        admin_ops.rename_profile("tv", "default")
+    with pytest.raises(admin_ops.ProfileRejected):
+        admin_ops.delete_profile("default")
+    assert list(_profiles()) == ["tv"]
+
+
+def test_rename_keeps_the_values_and_the_position():
+    admin_ops.create_profile("aaa")
+    admin_ops.create_profile("tv")
+    admin_ops.create_profile("zzz")
+    admin_ops.save_profile("tv", customise={"rotation_seconds"},
+                           values={"rotation_seconds": 9})
+    assert admin_ops.rename_profile("tv", "Lounge") == "lounge"
+    assert list(_profiles()) == ["aaa", "lounge", "zzz"]
+    assert _profiles()["lounge"] == {"rotation_seconds": 9}
+
+
+def test_rename_leaves_no_redirect_the_old_name_is_unknown():
+    """A start URL using the old name falls back to the Default profile."""
+    admin_ops.create_profile("tv")
+    admin_ops.save_profile("tv", customise={"rotation_seconds"},
+                           values={"rotation_seconds": 9})
+    admin_ops.rename_profile("tv", "lounge")
+    settings = config_store.load_config()
+    old = config_store.resolve_effective(settings, "tv")
+    assert (old.profile, old.chosen) == ("default", config_store.CHOSEN_UNKNOWN)
+    assert old.settings["rotation_seconds"] == settings["rotation_seconds"]
+
+
+def test_rename_refuses_a_missing_source_a_bad_name_and_a_clash():
+    admin_ops.create_profile("tv")
+    admin_ops.create_profile("tablet")
+    for old, new in (("ghost", "x"), ("tv", "bad name"), ("tv", "TABLET")):
+        with pytest.raises(admin_ops.ProfileRejected):
+            admin_ops.rename_profile(old, new)
+    assert list(_profiles()) == ["tv", "tablet"]
+
+
+def test_renaming_to_the_same_name_changes_nothing():
+    admin_ops.create_profile("tv")
+    assert admin_ops.rename_profile("tv", "TV") == "tv"
+    assert list(_profiles()) == ["tv"]
+
+
+def test_delete_removes_the_profile_and_sends_its_screens_to_the_default():
+    admin_ops.create_profile("tv")
+    admin_ops.delete_profile("tv")
+    assert _profiles() == {}
+    resolved = config_store.resolve_effective(config_store.load_config(), "tv")
+    assert resolved.chosen == config_store.CHOSEN_UNKNOWN
+
+
+def test_delete_refuses_a_profile_that_does_not_exist():
+    with pytest.raises(admin_ops.ProfileRejected):
+        admin_ops.delete_profile("ghost")
+
+
+def test_customised_units_names_what_a_profile_differs_in():
+    values = {"rotation_seconds": 9, "paginate": True, "page_size": 3,
+              "show_og": True}      # show_og without its partner: half a unit
+    assert admin_ops.customised_units(values) == ["pagination", "rotation_seconds"]
+
+
+def test_a_profile_save_that_ends_upcoming_beers_everywhere_clears_the_cache():
+    admin_ops.create_profile("tv")
+    admin_ops.save_profile("tv", customise={"show_upcoming_previews"},
+                           values={"show_upcoming_previews": True})
+    marker = paths.UPCOMING_DIR / f"{upcoming_store._PREFIX}1.md"
+    marker.write_text("x", encoding="utf-8")
+
+    # Still wanted by the profile after the Default is not: the cache stays.
+    admin_ops.save_profile("tv", customise={"show_upcoming_previews"},
+                           values={"show_upcoming_previews": True})
+    assert marker.exists()
+
+    # The profile goes back to following a Default that is off: nobody wants it.
+    admin_ops.save_profile("tv", customise=set(), values={})
+    assert not marker.exists()
