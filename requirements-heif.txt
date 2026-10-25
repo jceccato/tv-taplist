@@ -1,0 +1,6 @@
+# HEIC decoding for the photo album (ADR-0009). Built FROM SOURCE in the Dockerfile
+# against Debian's libheif (decoder plugins only), never installed from a PyPI
+# wheel: the wheels bundle x265 (GPLv2-only), which does not combine with this
+# repository's AGPL-3.0. Kept out of requirements.txt so `pip install -r` there can
+# never pull a wheel. Needs libheif >= 1.23.4 (Debian trixie has it).
+pillow-heif==1.8.1

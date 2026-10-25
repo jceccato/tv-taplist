@@ -867,10 +867,12 @@
   if (photosPanel) {
     const PHOTO_MAX_BYTES = 250 * 1024 * 1024;   // mirrors photo_library.MAX_UPLOAD_BYTES; the server decides
     const PHOTO_PARALLEL = 3;
-    const PHOTO_EXT = /\.(jpe?g|png|webp)$/i;
     const albumSel = document.getElementById("photos-album");
     const drop = document.getElementById("photos-drop");
     const fileInput = document.getElementById("photos-file");
+    // The extensions the photo library reads, rendered from its PHOTO_EXTENSIONS.
+    const photoExts = new Set((fileInput.dataset.extensions || "").split(" ").filter(Boolean));
+    const isPhotoName = (name) => photoExts.has((name.match(/\.[^.]+$/) || [""])[0].toLowerCase());
     const list = document.getElementById("photos-uploads");
     const progress = document.getElementById("photos-progress");
     const grid = document.getElementById("photos-grid");
@@ -936,6 +938,12 @@
               : p.state === "waiting" ? "Waiting"
               : "Failed: " + (p.reason || "unknown reason");
             li.append(cap, state);
+            if (p.low_res) {
+              const soft = document.createElement("span");
+              soft.className = "photo-lowres";
+              soft.textContent = "Low resolution, will look soft";
+              li.append(soft);
+            }
             return li;
           }));
           moveTo.replaceChildren(...st.albums.filter((a) => a !== albumSel.value).map((a) => {
@@ -1211,8 +1219,8 @@
       for (const file of files) {
         const item = { file, album: albumSel.value };
         addRow(item);
-        if (!PHOTO_EXT.test(file.name)) {
-          setRow(item, "failed", "Only JPEG, PNG and WebP photos can be added.", false);
+        if (!isPhotoName(file.name)) {
+          setRow(item, "failed", "Not a photo format this can read (JPEG, PNG, WebP, GIF, TIFF, BMP, AVIF, HEIC or camera RAW).", false);
         } else if (file.size > PHOTO_MAX_BYTES) {
           setRow(item, "failed", "Over the 250 MB limit for one photo.", false);
         } else {

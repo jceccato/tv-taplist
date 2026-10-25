@@ -54,6 +54,18 @@ from typing import Any, BinaryIO, Iterable, NamedTuple
 
 from PIL import Image, ImageCms, ImageOps
 
+try:      # HEIC (ADR-0009): built from source against a decoder-only libheif
+    import pillow_heif
+except ImportError:      # a dev box without it; HEIC files are then reported, not read
+    pillow_heif = None
+else:
+    pillow_heif.register_heif_opener()
+
+try:
+    import rawpy
+except ImportError:      # pragma: no cover - a pinned dependency; RAW files are then reported
+    rawpy = None
+
 from . import paths
 from .atomic import atomic_write_bytes, atomic_write_text, safe_unlink
 
@@ -61,10 +73,23 @@ log = logging.getLogger("taplist.photos")
 
 # ---- the pipeline's fixed choices (ADR-0008) ------------------------------------
 
-# Formats this ticket reads. Everything else (GIF, TIFF, BMP, AVIF, HEIC, RAW) is
-# a later ticket's business, so such files are not even listed as unreadable.
-PHOTO_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
-_ACCEPTED_FORMATS = ("JPEG", "PNG", "WEBP")
+# Every format a phone or camera produces. Pillow reads the first group (GIF and
+# TIFF give their first frame), pillow-heif adds HEIC, and rawpy (LibRaw) reads
+# camera RAW. Files with any other extension are not photos: they are ignored,
+# not listed as unreadable.
+HEIC_EXTENSIONS = (".heic", ".heif")
+RAW_EXTENSIONS = (".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".dng")
+PHOTO_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".tif", ".tiff", ".bmp",
+                    ".avif") + HEIC_EXTENSIONS + RAW_EXTENSIONS
+# What Pillow must say the content is: the extension alone decides nothing.
+_ACCEPTED_FORMATS = ("JPEG", "PNG", "WEBP", "GIF", "TIFF", "BMP", "AVIF", "HEIF")
+# A RAW's embedded JPEG preview is used when its long side is at least this; a
+# half-size develop otherwise. The preview is the camera's own rendering and far
+# quicker to decode on a Raspberry Pi (ADR-0009).
+RAW_PREVIEW_MIN_LONG_SIDE = 2000
+# A photo whose long side is under this is marked "low resolution, will look
+# soft" on the Photos tab. It is still shown.
+LOW_RES_LONG_SIDE = 1000
 
 UNSORTED = "Unsorted"
 
@@ -517,8 +542,119 @@ def _flatten(im: Image.Image) -> Image.Image:
     return flat
 
 
-def _render(path: Path, pipe: Pipeline) -> tuple[bytes, bytes, int, int, str | None]:
-    """Decode one original and return (display copy, thumbnail, width, height, date taken).
+class Rendered(NamedTuple):
+    """One original made into a Display copy and its thumbnail."""
+    display: bytes
+    thumb: bytes
+    width: int               # of the Display copy
+    height: int
+    taken: str | None        # ISO date taken, when the metadata had one
+    long_side: int           # the original's long side in pixels (for the low-resolution note)
+    source: str              # what was decoded: "image", "raw preview" or "raw develop"
+
+
+# LibRaw's `flip` as the EXIF orientation that means the same turn.
+_RAW_FLIP_TO_ORIENTATION = {3: 3, 5: 8, 6: 6}
+_ORIENTATION_TRANSPOSE = {
+    2: Image.Transpose.FLIP_LEFT_RIGHT, 3: Image.Transpose.ROTATE_180,
+    4: Image.Transpose.FLIP_TOP_BOTTOM, 5: Image.Transpose.TRANSPOSE,
+    6: Image.Transpose.ROTATE_270, 7: Image.Transpose.TRANSVERSE,
+    8: Image.Transpose.ROTATE_90,
+}
+
+
+def _decode_opened(im: Image.Image, pipe: Pipeline,
+                   fallback_orientation: int = 1) -> tuple[Image.Image, str | None, int]:
+    """An opened Pillow image as (upright sRGB image, date taken, original long side).
+
+    `fallback_orientation` turns an image whose own EXIF says nothing (a RAW's
+    embedded preview often carries none; the RAW records the turn instead).
+    """
+    taken = _date_taken(im)
+    own = im.getexif().get(0x0112, 1)
+    orientation = own if own in _ORIENTATION_TRANSPOSE else fallback_orientation
+    icc = im.info.get("icc_profile")
+    w, h = im.size
+    if orientation in (5, 6, 7, 8):
+        w, h = h, w
+    if im.format == "JPEG":
+        # Decode large JPEGs at reduced scale: draft() only ever picks a
+        # size at least as big as asked for, so quality is unaffected.
+        fw, fh = _fit(w, h, pipe.box)
+        if fw < w:
+            im.draft("RGB", (fh, fw) if orientation in (5, 6, 7, 8) else (fw, fh))
+    im.load()
+    if own in _ORIENTATION_TRANSPOSE:
+        im = ImageOps.exif_transpose(im)
+    elif orientation in _ORIENTATION_TRANSPOSE:
+        im = im.transpose(_ORIENTATION_TRANSPOSE[orientation])
+    return _to_srgb(im, icc), taken, max(w, h)
+
+
+def _decode_raw(path: Path, pipe: Pipeline) -> tuple[Image.Image, str | None, int, str]:
+    """A camera RAW as (upright sRGB image, date taken, original long side, source).
+
+    The embedded JPEG preview is used when it is big enough (the camera's own
+    rendering, and quick); otherwise LibRaw develops the RAW at half size.
+    """
+    if rawpy is None:
+        raise UnreadablePhoto("camera RAW support is not installed")
+    try:
+        with rawpy.imread(str(path)) as raw:
+            sizes = raw.sizes
+            long_side = max(sizes.width, sizes.height)
+            if sizes.raw_width * sizes.raw_height > Image.MAX_IMAGE_PIXELS:
+                raise UnreadablePhoto(
+                    f"too large ({sizes.raw_width} x {sizes.raw_height} pixels)")
+            flip = _RAW_FLIP_TO_ORIENTATION.get(sizes.flip, 1)
+            taken = _raw_taken(raw)
+            try:
+                thumb = raw.extract_thumb()
+            except (rawpy.LibRawNoThumbnailError, rawpy.LibRawUnsupportedThumbnailError):
+                thumb = None
+            if thumb is not None and thumb.format == rawpy.ThumbFormat.JPEG:
+                with Image.open(io.BytesIO(thumb.data)) as preview:
+                    if preview.format == "JPEG" \
+                            and max(preview.size) >= RAW_PREVIEW_MIN_LONG_SIDE:
+                        # The preview's EXIF is LibRaw's own copy of the RAW's, so the
+                        # date comes from the RAW either way.
+                        im, _, _ = _decode_opened(preview, pipe, fallback_orientation=flip)
+                        return im, taken, long_side, "raw preview"
+            # use_camera_wb: the white balance the photographer saw. postprocess()
+            # turns the image upright itself and outputs 8-bit sRGB.
+            rgb = raw.postprocess(half_size=True, use_camera_wb=True, output_bps=8)
+    except rawpy.LibRawError as exc:
+        raise UnreadablePhoto(
+            f"cannot be read as a camera RAW ({type(exc).__name__}: {str(exc)[:_ERROR_TEXT_LEN]})") from exc
+    return Image.fromarray(rgb, "RGB"), taken, long_side, "raw develop"
+
+
+def _raw_taken(raw: Any) -> str | None:
+    """When a RAW was taken, as LibRaw read it; it reports an unknown date as the epoch."""
+    try:
+        ts = raw.other.timestamp
+        if isinstance(ts, datetime) and ts.timestamp() > 0:
+            return ts.replace(microsecond=0, tzinfo=None).isoformat()
+    except (AttributeError, OSError, OverflowError, ValueError):
+        pass
+    return None
+
+
+def _decode(path: Path, pipe: Pipeline) -> tuple[Image.Image, str | None, int, str]:
+    """Any original as (upright sRGB image, date taken, original long side, source)."""
+    if path.suffix.lower() in RAW_EXTENSIONS:
+        return _decode_raw(path, pipe)
+    if path.suffix.lower() in HEIC_EXTENSIONS and pillow_heif is None:
+        raise UnreadablePhoto("HEIC support is not installed; export the photo as JPEG")
+    with Image.open(path) as im:
+        if im.format not in _ACCEPTED_FORMATS:
+            raise UnreadablePhoto(f"unsupported format {im.format or 'unknown'}")
+        decoded, taken, long_side = _decode_opened(im, pipe)
+    return decoded, taken, long_side, "image"
+
+
+def _render(path: Path, pipe: Pipeline) -> Rendered:
+    """Decode one original into its Display copy and thumbnail.
 
     Raises UnreadablePhoto with an operator-readable reason for anything that
     cannot be decoded, is the wrong format, or is absurdly large.
@@ -526,28 +662,12 @@ def _render(path: Path, pipe: Pipeline) -> tuple[bytes, bytes, int, int, str | N
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
-            with Image.open(path) as im:
-                if im.format not in _ACCEPTED_FORMATS:
-                    raise UnreadablePhoto(f"unsupported format {im.format or 'unknown'}")
-                taken = _date_taken(im)
-                orientation = im.getexif().get(0x0112, 1)
-                icc = im.info.get("icc_profile")
-                w, h = im.size
-                if orientation in (5, 6, 7, 8):
-                    w, h = h, w
-                if im.format == "JPEG":
-                    # Decode large JPEGs at reduced scale: draft() only ever picks a
-                    # size at least as big as asked for, so quality is unaffected.
-                    fw, fh = _fit(w, h, pipe.box)
-                    if fw < w:
-                        im.draft("RGB", (fh, fw) if orientation in (5, 6, 7, 8) else (fw, fh))
-                im.load()
-                im = ImageOps.exif_transpose(im)
-                im = _to_srgb(im, icc)
+            im, taken, long_side, source = _decode(path, pipe)
     except UnreadablePhoto:
         raise
-    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError,
+    except (OSError, ValueError, SyntaxError, RuntimeError, Image.DecompressionBombError,
             Image.DecompressionBombWarning) as exc:
+        # RuntimeError: libheif's own errors, as pillow-heif raises them.
         raise UnreadablePhoto(f"cannot be read as an image ({str(exc)[:_ERROR_TEXT_LEN]})") from exc
 
     width, height = im.size
@@ -566,7 +686,8 @@ def _render(path: Path, pipe: Pipeline) -> tuple[bytes, bytes, int, int, str | N
     thumb.info = {}
     tbuf = io.BytesIO()
     thumb.save(tbuf, "WEBP", quality=THUMB_QUALITY, method=4)
-    return buf.getvalue(), tbuf.getvalue(), target[0], target[1], taken
+    return Rendered(buf.getvalue(), tbuf.getvalue(), target[0], target[1], taken,
+                    long_side, source)
 
 
 def _copy_id(content_hash: str, key: str) -> str:
@@ -614,18 +735,22 @@ def process_next() -> bool:
         rel, snapshot = picked
         path = paths.PHOTOS_DIR / rel
         try:
-            display, thumb, width, height, taken = _render(path, pipe)
+            out = _render(path, pipe)
         except UnreadablePhoto as exc:
             _record_failure(rel, snapshot, str(exc), pipe.key)
             return True
         except OSError as exc:       # the file vanished or became unreadable mid-run
             _record_failure(rel, snapshot, f"cannot be read ({str(exc)[:_ERROR_TEXT_LEN]})", pipe.key)
             return True
+        except Exception as exc:  # noqa: BLE001 - one bad file must never stop the queue
+            log.exception("photo %s could not be processed", rel)
+            _record_failure(rel, snapshot, f"could not be processed ({type(exc).__name__})", pipe.key)
+            return True
 
         copy_id = _copy_id(snapshot["hash"], pipe.key)
         try:
-            atomic_write_bytes(_display_dir() / f"{copy_id}{pipe.extension}", display)
-            atomic_write_bytes(_thumb_dir() / f"{copy_id}.webp", thumb)
+            atomic_write_bytes(_display_dir() / f"{copy_id}{pipe.extension}", out.display)
+            atomic_write_bytes(_thumb_dir() / f"{copy_id}.webp", out.thumb)
         except OSError as exc:
             # Recorded, or this photo stays first in line and is retried forever.
             _record_failure(rel, snapshot, f"copy could not be written ({str(exc)[:_ERROR_TEXT_LEN]})", pipe.key)
@@ -641,10 +766,11 @@ def process_next() -> bool:
                 return True
             old = entry.get("copy")
             entry["copy"] = {"id": copy_id, "settings": pipe.key, "ext": pipe.extension,
-                             "src": snapshot["hash"], "w": width, "h": height}
+                             "src": snapshot["hash"], "w": out.width, "h": out.height,
+                             "long": out.long_side}
             entry["error"] = None
-            entry["taken"] = taken
-            entry["date"] = _epoch(taken) if taken else _mtime_seconds(entry)
+            entry["taken"] = out.taken
+            entry["date"] = _epoch(out.taken) if out.taken else _mtime_seconds(entry)
             _save_index()
             if isinstance(old, dict) and old.get("id") and old["id"] != copy_id:
                 _retire_copy(entry, old["id"])
@@ -919,7 +1045,8 @@ class Upload:
         stem, ext = _clean_name(filename)
         if ext not in PHOTO_EXTENSIONS:
             raise UploadRejected(
-                f"“{stem}{ext}” is not a JPEG, PNG or WebP photo.")
+                f"“{stem}{ext}” is not a photo format this can read "
+                f"(JPEG, PNG, WebP, GIF, TIFF, BMP, AVIF, HEIC or camera RAW).")
         if self.size == 0:
             raise UploadRejected("The file is empty.")
         folder = _album_dir(album)
@@ -1023,6 +1150,7 @@ class PhotoRow:
     state: str               # ready | waiting | failed
     reason: str | None       # why, when failed
     copy_id: str | None      # names the thumbnail, when there is one
+    low_res: bool = False    # under LOW_RES_LONG_SIDE: shown, but will look soft
 
 
 def photos_in(album: str) -> list[PhotoRow]:
@@ -1039,8 +1167,10 @@ def photos_in(album: str) -> list[PhotoRow]:
             state, reason = "ready", None      # a stale copy is still served until replaced
         else:
             state, reason = "waiting", None
+        long_side = copy.get("long") if copy else None
         out.append(PhotoRow(_photo_id(rel), album, _name_of(rel),
-                            state, reason, copy["id"] if copy else None))
+                            state, reason, copy["id"] if copy else None,
+                            isinstance(long_side, int) and long_side < LOW_RES_LONG_SIDE))
     out.sort(key=lambda r: _natural_key(r.name))
     return out
 

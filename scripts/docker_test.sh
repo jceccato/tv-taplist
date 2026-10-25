@@ -43,7 +43,7 @@ echo "== preparing a clean WSL-native build context =="
 # Building from a native ext4 path avoids /mnt/c perf and any line-ending issues.
 BUILD_DIR="$(mktemp -d)"
 # Copy only what the image needs (mirrors .dockerignore intent).
-for item in app static templates Dockerfile entrypoint.sh requirements.txt .dockerignore; do
+for item in app static templates Dockerfile entrypoint.sh requirements.txt requirements-heif.txt .dockerignore; do
   cp -r "$SRC/$item" "$BUILD_DIR/"
 done
 

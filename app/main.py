@@ -617,6 +617,9 @@ async def admin_page(request: Request, profile: str | None = None):
             # no longer match one (kept visible so a Save does not drop them). How
             # the Display copies are getting on lives on the Photos tab.
             "album_names": (album_names := photo_library.list_albums()),
+            # What the Photos tab's file picker offers and the page checks before
+            # sending: the library's own list, so the two cannot drift apart.
+            "photo_extensions": photo_library.PHOTO_EXTENSIONS,
             "album_missing": [n for n in cfg.get("album_selection", [])
                               if n not in album_names],
             "venue_logo_url": "/img/venue-logo" if venue_logo_path() else None,
@@ -1050,6 +1053,7 @@ async def photos_status(album: str = photo_library.UNSORTED,
         "albums": albums,
         "album": album,
         "photos": [{"id": r.photo_id, "name": r.name, "state": r.state, "reason": r.reason,
+                    "low_res": r.low_res,
                     "thumb": f"/admin/photos/thumb/{r.copy_id}.webp" if r.copy_id else None}
                    for r in photo_library.photos_in(album)],
     }

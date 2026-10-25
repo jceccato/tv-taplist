@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from app import admin_ops, cleanup, config_store, paths, photo_library as lib
 from app.main import app
 
-from photo_fixtures import halves, write_image
+from photo_fixtures import HEIC_FIXTURE, dng_bytes, halves, write_bytes, write_image
 
 
 @pytest.fixture(autouse=True)
@@ -233,6 +233,27 @@ def test_restore_returns_a_photo_to_its_remembered_album_even_after_the_folder_w
     assert [r.name for r in lib.list_removed()] == ["b.jpg"]
     lib.process_pending()
     assert [(p.album, p.name) for p in lib.ready_photos()] == [("Events", "a.jpg")]
+
+
+@pytest.mark.parametrize("name, data", [
+    ("IMG_0001.HEIC", lambda: HEIC_FIXTURE.read_bytes()),
+    ("DSC_0001.dng", lambda: dng_bytes(halves((60, 40)))),
+    ("IMG_0002.CR3", lambda: b"not developed, but a photo all the same"),
+])
+def test_a_heic_or_raw_photo_is_removed_and_restored_like_any_other(name, data):
+    # PHOTO_EXTENSIONS also gates the Removed bin's records (issue #58).
+    write_bytes(paths.PHOTOS_DIR / "Events" / name, data())
+    lib.scan()
+    lib.process_pending()
+    lib.remove_photos(ids("Events", name))
+    (removed,) = lib.list_removed()
+    assert (removed.album, removed.name) == ("Events", name)
+    assert any(f.endswith(name.rsplit(".", 1)[1].lower()) for f in removed_files())
+    assert lib.restore_removed([removed.removed_id]) == 1
+    # Restore lowercases the extension (as it always has, for .JPG too).
+    restored = name.rsplit(".", 1)[0] + "." + name.rsplit(".", 1)[1].lower()
+    assert (paths.PHOTOS_DIR / "Events" / restored).is_file() and lib.list_removed() == []
+    assert names("Events") == [restored]
 
 
 def test_restore_suffixes_a_name_that_was_taken_meanwhile():

@@ -10,6 +10,8 @@ from PIL import Image
 
 from app import paths
 
+from photo_fixtures import dng_bytes, halves
+
 
 def _jpeg(color) -> bytes:
     buf = io.BytesIO()
@@ -92,3 +94,37 @@ def test_a_file_that_cannot_be_decoded_shows_as_failed_with_its_reason(serve, pa
     page.wait_for_selector("#photos-grid .photo-tile[data-state='failed']", timeout=30_000)
     assert "cannot be read" in page.inner_text("#photos-grid .photo-tile[data-state='failed']")
     assert "could not be read" in page.inner_text("#photos-progress")
+
+
+def test_camera_formats_are_sent_other_files_refused_and_small_photos_marked_soft(serve, page):
+    base = serve()
+    _sign_in(page, base)
+    page.goto(f"{base}/admin")
+    page.click('.tab[data-tab="photos"]')
+    page.set_input_files("#photos-file", files=[
+        {"name": "DSC_0001.DNG", "mimeType": "image/x-adobe-dng",
+         "buffer": dng_bytes(halves((1600, 1200)))},
+        _file("tiny.jpg", (200, 40, 40)),                   # 640 px: low resolution
+        {"name": "notes.pdf", "mimeType": "application/pdf", "buffer": b"%PDF-1.4"},
+    ])
+    page.wait_for_function(
+        "document.querySelectorAll('#photos-uploads .upload-row[data-state=\"waiting\"],"
+        "#photos-uploads .upload-row[data-state=\"uploading\"]').length === 0")
+    rows = page.eval_on_selector_all(
+        "#photos-uploads .upload-row",
+        "rs => rs.map(r => ({name: r.querySelector('.upload-name').textContent, state: r.dataset.state,"
+        " msg: r.querySelector('.upload-msg').textContent}))")
+    by = {r["name"]: r for r in rows}
+    assert by["DSC_0001.DNG"]["state"] == "done" and by["tiny.jpg"]["state"] == "done"
+    assert by["notes.pdf"]["state"] == "failed" and "camera RAW" in by["notes.pdf"]["msg"]
+    # Stored with the extension lowercased, as every upload is.
+    assert sorted(p.name for p in paths.PHOTOS_DIR.iterdir()) == ["DSC_0001.dng", "tiny.jpg"]
+
+    page.wait_for_function(
+        "document.querySelectorAll('#photos-grid .photo-tile[data-state=\"ready\"]').length === 2",
+        timeout=30_000)
+    soft = page.eval_on_selector_all(
+        "#photos-grid .photo-tile",
+        "ts => Object.fromEntries(ts.map(t => [t.dataset.name, !!t.querySelector('.photo-lowres')]))")
+    assert soft == {"DSC_0001.dng": False, "tiny.jpg": True}
+    assert "will look soft" in page.inner_text("#photos-grid .photo-tile[data-name='tiny.jpg']")

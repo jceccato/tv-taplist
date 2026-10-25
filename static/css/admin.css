@@ -281,6 +281,7 @@ input[type=color] {
 .photo-state { color: var(--muted); }
 .photo-tile.failed .photo-state { color: var(--danger); }
 .photo-tile.ready .photo-state { color: var(--ok); }
+.photo-lowres { color: var(--warn); }
 
 /* ---- organising photos and Removed (issue #58) ---- */
 .album-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }

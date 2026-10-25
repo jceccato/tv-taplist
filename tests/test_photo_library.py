@@ -17,8 +17,17 @@ from PIL import Image
 from app import config_store, paths, photo_library as lib
 
 from photo_fixtures import (
-    backdate, exif_bytes, halves, p3_profile, riff_chunks, write_image,
+    HEIC_FIXTURE, backdate, dng_bytes, exif_bytes, halves, p3_profile, riff_chunks,
+    write_bytes, write_image,
 )
+
+# HEIC needs pillow-heif built against a decoder-only libheif (ADR-0009), which a
+# plain `pip install` box does not have, so its tests skip there. The image has
+# it, and CI runs this suite inside the image with REQUIRE_HEIC=1, which makes a
+# missing decoder a failure rather than a quiet skip.
+needs_heic = pytest.mark.skipif(
+    lib.pillow_heif is None and os.environ.get("REQUIRE_HEIC") != "1",
+    reason="pillow-heif is not installed (built from source in the image, ADR-0009)")
 
 
 def build(*relpaths_and_images):
@@ -63,10 +72,11 @@ def test_unsorted_is_listed_only_while_loose_photos_exist():
     assert lib.list_albums() == ["Events"]
 
 
-def test_only_jpeg_png_and_webp_are_photos_and_hidden_things_are_skipped():
+def test_only_photo_extensions_are_photos_and_hidden_things_are_skipped():
     build(("a.jpg", halves()), ("b.jpeg", halves()), ("c.PNG", halves()), ("d.webp", halves()))
-    (paths.PHOTOS_DIR / "notes.txt").write_text("hello")
-    (paths.PHOTOS_DIR / "anim.gif").write_bytes(b"GIF89a")
+    write_bytes(paths.PHOTOS_DIR / "notes.txt", b"hello")
+    write_bytes(paths.PHOTOS_DIR / "layers.psd", b"8BPS")
+    write_bytes(paths.PHOTOS_DIR / "clip.mov", b"\0\0\0\x14ftypqt  ")
     (paths.PHOTOS_DIR / ".hidden.jpg").write_bytes(b"x")
     write_image(paths.PHOTOS_DIR / ".secret" / "e.jpg", halves())
     outside = paths.DATA_DIR / "outside.jpg"
@@ -457,12 +467,11 @@ def test_a_truncated_jpeg_is_reported_not_shown():
     assert lib.ready_photos() == [] and lib.status().failed == 1
 
 
-def test_a_png_pretending_to_be_a_gif_family_format_is_refused_by_content():
-    # Anything Pillow decodes that is not JPEG/PNG/WebP is a later ticket's format.
-    gif = io.BytesIO()
-    Image.new("P", (10, 10)).save(gif, "GIF")
-    (paths.PHOTOS_DIR / "x.jpg").write_bytes(gif.getvalue())
-    backdate(paths.PHOTOS_DIR / "x.jpg", 60)
+def test_a_format_pillow_reads_but_we_do_not_accept_is_refused_by_content():
+    # The extension decides nothing: a PPM renamed .jpg is not a photo format here.
+    ppm = io.BytesIO()
+    Image.new("RGB", (10, 10)).save(ppm, "PPM")
+    write_bytes(paths.PHOTOS_DIR / "x.jpg", ppm.getvalue())
     lib.scan()
     lib.process_pending()
     assert lib.ready_photos() == []
@@ -530,6 +539,228 @@ def test_a_corrupt_index_is_just_rebuilt():
     lib.scan()
     lib.process_pending()
     assert len(lib.ready_photos()) == 1
+
+
+# ---- every phone and camera format (issue #59) ----------------------------------------------
+
+def _is_red(px): return px[0] > 150 > px[2] and px[1] < 100
+def _is_blue(px): return px[2] > 150 > px[0] and px[1] < 100
+def _is_green(px): return px[1] > 150 > px[0] and px[2] < 120
+
+
+@pytest.mark.parametrize("name, kwargs", [
+    ("still.gif", {}),
+    ("scan.tif", {}),
+    ("scan.tiff", {"compression": "tiff_lzw"}),
+    ("old.bmp", {}),
+    ("phone.avif", {"quality": 90}),
+])
+def test_gif_tiff_bmp_and_avif_each_become_a_correct_display_copy(name, kwargs):
+    build((name, halves((400, 200)), kwargs))
+    photo, copy = only_copy()
+    assert copy.format == "WEBP" and copy.size == (3840, 1920)
+    rgb = copy.convert("RGB")
+    assert _is_red(rgb.getpixel((200, 960))) and _is_blue(rgb.getpixel((3640, 960)))
+    assert set(riff_chunks(lib.copy_file(photo.filename).read_bytes())) <= {"VP8 ", "VP8X", "ALPH"}
+
+
+def test_an_animated_gif_shows_its_first_frame():
+    first, second = halves((300, 200)), Image.new("RGB", (300, 200), (20, 200, 20))
+    path = paths.PHOTOS_DIR / "anim.gif"
+    first.save(path, "GIF", save_all=True, append_images=[second], duration=100, loop=0)
+    backdate(path, 60)
+    lib.scan()
+    lib.process_pending()
+    _, copy = only_copy()
+    rgb = copy.convert("RGB")
+    assert _is_red(rgb.getpixel((100, copy.height // 2)))
+    assert _is_blue(rgb.getpixel((copy.width - 100, copy.height // 2)))
+
+
+def test_a_tiff_is_turned_upright_from_its_orientation():
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    build(("scan.tif", halves((400, 200)), {"exif": exif}))
+    _, copy = only_copy()
+    rgb = copy.convert("RGB")
+    assert copy.width < copy.height
+    assert _is_red(rgb.getpixel((copy.width // 2, 20)))
+    assert _is_blue(rgb.getpixel((copy.width // 2, copy.height - 20)))
+
+
+@needs_heic
+def test_a_heic_becomes_an_upright_display_copy_with_its_date_and_no_metadata():
+    shutil.copy(HEIC_FIXTURE, paths.PHOTOS_DIR / "IMG_0001.HEIC")
+    backdate(paths.PHOTOS_DIR / "IMG_0001.HEIC", 60)
+    lib.scan()
+    lib.process_pending()
+    assert lib.status().failed == 0
+    photo, copy = only_copy()
+    # Stored landscape with a 90 degree turn: upright it is a portrait, red over
+    # blue, turned once (libheif applies the turn; nothing turns it again).
+    assert copy.size == (1440, 2160) and photo.aspect < 1
+    rgb = copy.convert("RGB")
+    assert _is_red(rgb.getpixel((720, 100))) and _is_blue(rgb.getpixel((720, 2060)))
+    assert photo.taken == "2025-03-04T05:06:07"
+    blob = lib.copy_file(photo.filename).read_bytes()
+    assert set(riff_chunks(blob)) <= {"VP8 ", "VP8X", "ALPH"}
+    assert b"Exif" not in blob and b"GPS" not in blob
+
+
+def test_a_heic_without_the_decoder_is_reported_with_what_to_do(monkeypatch):
+    monkeypatch.setattr(lib, "pillow_heif", None)
+    shutil.copy(HEIC_FIXTURE, paths.PHOTOS_DIR / "IMG_0001.heic")
+    backdate(paths.PHOTOS_DIR / "IMG_0001.heic", 60)
+    lib.scan()
+    lib.process_pending()
+    [(_, name, reason)] = lib.status().failures
+    assert name == "IMG_0001.heic" and "HEIC" in reason
+
+
+def test_a_camera_raw_with_no_big_preview_is_developed_at_half_size():
+    # A small linear DNG with no embedded preview: LibRaw develops it, and turns
+    # it upright from the RAW's own orientation (6: 90 degrees clockwise).
+    raw = Image.new("RGB", (120, 80), (40, 200, 40))
+    write_bytes(paths.PHOTOS_DIR / "Camera" / "DSC_0001.dng",
+                dng_bytes(raw, orientation=6, taken="2023:01:02 03:04:05"))
+    lib.scan()
+    lib.process_pending()
+    assert lib.status().failed == 0
+    photo, copy = only_copy()
+    assert copy.size == (1440, 2160)
+    assert photo.taken == "2023-01-02T03:04:05"
+    assert _is_green(copy.convert("RGB").getpixel((720, 1080)))
+    out = lib._render(paths.PHOTOS_DIR / "Camera" / "DSC_0001.dng", lib.pipeline())
+    assert out.source == "raw develop"
+
+
+def test_a_camera_raw_uses_its_embedded_preview_when_it_is_big_enough():
+    # The preview (red/blue halves, 2400 px) differs from the RAW (green), so the
+    # copy shows which one was used. The preview has no orientation of its own,
+    # so the RAW's (6) turns it. The date taken is the RAW's.
+    raw = Image.new("RGB", (120, 80), (40, 200, 40))
+    preview = halves((2400, 1600))
+    data = dng_bytes(raw, preview, orientation=6, taken="2024:05:06 07:08:09")
+    write_bytes(paths.PHOTOS_DIR / "IMG_0002.dng", data)
+    lib.scan()
+    lib.process_pending()
+    photo, copy = only_copy()
+    assert copy.size == (1440, 2160)
+    rgb = copy.convert("RGB")
+    assert _is_red(rgb.getpixel((720, 100))) and _is_blue(rgb.getpixel((720, 2060)))
+    assert photo.taken == "2024-05-06T07:08:09"
+    assert lib._render(paths.PHOTOS_DIR / "IMG_0002.dng", lib.pipeline()).source == "raw preview"
+
+
+def test_an_embedded_preview_with_its_own_orientation_is_turned_by_that_alone():
+    # Turned once: by the preview's EXIF, not again by the RAW's flag.
+    data = dng_bytes(Image.new("RGB", (120, 80), (40, 200, 40)), halves((2400, 1600)),
+                     orientation=6, preview_exif=exif_bytes(orientation=6))
+    write_bytes(paths.PHOTOS_DIR / "IMG_0003.dng", data)
+    lib.scan()
+    lib.process_pending()
+    _, copy = only_copy()
+    assert copy.width < copy.height
+    assert _is_red(copy.convert("RGB").getpixel((copy.width // 2, 50)))
+
+
+def test_a_camera_raw_with_no_date_falls_back_to_the_file_date():
+    # LibRaw reports an unknown date as the epoch, which must not become "1970".
+    write_bytes(paths.PHOTOS_DIR / "nodate.dng", dng_bytes(Image.new("RGB", (60, 40), (40, 200, 40))))
+    lib.scan()
+    lib.process_pending()
+    photo, _ = only_copy()
+    assert photo.taken is None and photo.date > 1e9
+
+
+def test_a_camera_raw_with_a_small_preview_is_developed_instead():
+    raw = Image.new("RGB", (120, 80), (40, 200, 40))
+    small = halves((lib.RAW_PREVIEW_MIN_LONG_SIDE - 400, 1000))
+    write_bytes(paths.PHOTOS_DIR / "IMG_0004.dng", dng_bytes(raw, small))
+    lib.scan()
+    lib.process_pending()
+    _, copy = only_copy()
+    assert _is_green(copy.convert("RGB").getpixel((copy.width // 2, copy.height // 2)))
+    assert lib.RAW_PREVIEW_MIN_LONG_SIDE == 2000
+
+
+@pytest.mark.parametrize("name", ["IMG_0001.CR2", "IMG_0001.CR3", "DSC_0001.NEF", "DSC01.ARW",
+                                  "DSCF0001.RAF", "P0001.ORF", "broken.dng"])
+def test_every_raw_extension_is_read_and_a_corrupt_one_is_reported_not_raised(name):
+    write_bytes(paths.PHOTOS_DIR / name, b"II*\0" + os.urandom(2048))
+    write_image(paths.PHOTOS_DIR / "fine.jpg", halves())
+    lib.scan()
+    lib.process_pending()
+    status = lib.status()
+    assert (status.total, status.ready, status.failed, status.pending) == (2, 1, 1, 0)
+    [(_, failed, reason)] = status.failures
+    assert failed == name and "RAW" in reason
+
+
+def test_an_oversized_raw_is_reported_before_it_is_developed(monkeypatch):
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 5000)
+    write_bytes(paths.PHOTOS_DIR / "huge.dng", dng_bytes(Image.new("RGB", (120, 80), (9, 9, 9))))
+    lib.scan()
+    lib.process_pending()
+    [(_, _, reason)] = lib.status().failures
+    assert "too large" in reason
+
+
+def test_an_unexpected_error_in_one_photo_never_stops_the_queue(monkeypatch):
+    real = lib._decode
+
+    def flaky(path, pipe):
+        if path.name == "a.jpg":
+            raise KeyError("something nobody expected")
+        return real(path, pipe)
+
+    monkeypatch.setattr(lib, "_decode", flaky)
+    build(("a.jpg", halves()), ("b.jpg", halves((300, 300))))
+    assert [p.name for p in lib.ready_photos()] == ["b.jpg"]
+    [(_, name, reason)] = lib.status().failures
+    assert name == "a.jpg" and "could not be processed" in reason
+
+
+@pytest.mark.parametrize("long_side, soft", [(800, True), (999, True), (1000, False), (3000, False)])
+def test_a_small_photo_is_marked_low_resolution_and_still_shown(long_side, soft):
+    build(("p.jpg", halves((long_side, long_side * 2 // 3))))
+    [row] = lib.photos_in(lib.UNSORTED)
+    assert row.state == "ready" and row.low_res is soft
+    assert len(lib.ready_photos()) == 1
+
+
+def test_a_portrait_is_judged_by_its_long_side_and_a_raw_by_its_full_size():
+    build(("tall.jpg", halves((700, 1200))))
+    # The RAW is developed at half size, but it is the camera's full size that counts.
+    write_bytes(paths.PHOTOS_DIR / "cam.dng", dng_bytes(Image.new("RGB", (1200, 800), (40, 200, 40))))
+    lib.scan()
+    lib.process_pending()
+    assert {r.name: r.low_res for r in lib.photos_in(lib.UNSORTED)} == {
+        "tall.jpg": False, "cam.dng": False}
+
+
+def test_heic_and_raw_uploads_are_taken():
+    for name, data in (("IMG_0001.HEIC", HEIC_FIXTURE.read_bytes()),
+                       ("DSC_0001.DNG", dng_bytes(Image.new("RGB", (60, 40), (40, 200, 40)))),
+                       *((f"x{ext}", ext.encode()) for ext in (
+                           ".cr3", ".nef", ".arw", ".raf", ".orf", ".cr2", ".gif", ".tif",
+                           ".tiff", ".bmp", ".avif", ".heif"))):
+        assert _upload(data, name).outcome == "stored", name
+
+
+def test_heic_is_never_installed_from_a_pypi_wheel():
+    # ADR-0009: pillow-heif's wheels bundle x265 (GPLv2-only). It must be built from
+    # source in the image, and kept out of the requirements a plain `pip install` uses.
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    if not (root / "Dockerfile").is_file():
+        pytest.skip("run inside the image, which holds no build files")
+    for req in ("requirements.txt", "requirements-dev.txt"):
+        lines = [ln.split("#")[0].strip().lower() for ln in (root / req).read_text().splitlines()]
+        assert not any(ln.startswith(("pillow-heif", "pillow_heif")) for ln in lines), req
+    dockerfile = (root / "Dockerfile").read_text()
+    assert "--no-binary pillow-heif" in dockerfile
+    assert "--no-install-recommends" in dockerfile and "x265" in dockerfile
 
 
 # ---- guards on who may touch the photo folders ---------------------------------------------
@@ -669,7 +900,7 @@ def test_a_client_supplied_name_can_never_leave_the_album(sent, kept):
 
 
 def test_only_photo_formats_are_taken_and_nothing_is_left_staged():
-    with pytest.raises(lib.UploadRejected, match="not a JPEG, PNG or WebP"):
+    with pytest.raises(lib.UploadRejected, match="not a photo format"):
         _upload(b"%PDF-1.4", "doc.pdf")
     with pytest.raises(lib.UploadRejected, match="empty"):
         _upload(b"", "empty.jpg")

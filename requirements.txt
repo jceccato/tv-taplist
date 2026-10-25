@@ -11,6 +11,9 @@ jinja2==3.1.5
 # (the Docker image also installs OS tzdata; this is a cross-platform fallback).
 tzdata==2024.2
 # Photo album Display copies (ADR-0008): decode, orient, sRGB, fit, WebP. The
-# wheels bundle libwebp and lcms2, so the slim image needs no extra OS packages
-# (amd64 and arm64 wheels exist).
-Pillow==11.1.0
+# wheels bundle libwebp, libavif and lcms2, so the slim image needs no extra OS
+# packages for these (amd64 and arm64 wheels exist). AVIF needs Pillow >= 11.3.
+Pillow==13.0.0
+# Camera RAW (CR2, CR3, NEF, ARW, RAF, ORF, DNG). MIT; the wheels bundle LibRaw
+# and numpy comes with them (amd64 and arm64 wheels exist).
+rawpy==0.27.1

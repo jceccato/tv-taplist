@@ -71,3 +71,28 @@ jobs:
         env:
           REQUIRE_BROWSER: "1"
         run: python -m pytest tests/browser
+
+  # HEIC is decoded by pillow-heif compiled against Debian's decoder-only libheif
+  # (ADR-0009), which only the image has: the job above skips the HEIC tests,
+  # because a runner's pip would fetch a wheel that bundles x265. So this builds
+  # the real image (whose build fails if any x265 file is in it) and runs the
+  # photo suites inside it. REQUIRE_HEIC makes a missing decoder a failure, so
+  # this cannot go green by skipping. A separate job, so it runs alongside.
+  photos-in-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t tv-taplist:ci .
+
+      - name: Run the photo suites inside the image
+        run: |
+          docker run --rm \
+            -v "$PWD/tests:/app/tests:ro" -v "$PWD/pytest.ini:/app/pytest.ini:ro" \
+            -e REQUIRE_HEIC=1 --entrypoint sh tv-taplist:ci -c \
+            "pip install --quiet --root-user-action=ignore pytest==8.3.4 && \
+             python -m pytest -p no:cacheprovider tests/test_photo_library.py tests/test_photo_removed.py"

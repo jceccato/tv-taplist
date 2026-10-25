@@ -71,7 +71,7 @@ def test_the_cap_and_the_free_space_floor_answer_413_and_507(monkeypatch):
 def test_a_rejected_upload_answers_with_the_reason_and_leaves_nothing_staged():
     c = _admin()
     r = c.post("/admin/photos/upload?name=doc.pdf", content=b"%PDF")
-    assert r.status_code == 422 and "JPEG, PNG or WebP" in r.json()["detail"]
+    assert r.status_code == 422 and "not a photo format" in r.json()["detail"]
     r = c.post("/admin/photos/upload?name=a.jpg&album=Nope", content=_jpeg())
     assert r.status_code == 404
     assert not list(paths.PHOTO_UPLOAD_STAGING_DIR.iterdir())
@@ -119,3 +119,27 @@ def test_the_photos_tab_and_its_status_have_left_the_settings_tab():
     html = _admin().get("/admin").text
     assert 'id="tab-photos"' in html and 'data-tab="photos"' in html
     assert "could not be read" not in html.split('id="tab-photos"')[0]
+
+
+def test_a_small_photo_carries_the_low_resolution_note_in_the_status():
+    c = _admin()
+    small, big = io.BytesIO(), io.BytesIO()
+    Image.new("RGB", (640, 480), (200, 20, 20)).save(small, "JPEG")
+    Image.new("RGB", (1600, 1200), (20, 20, 200)).save(big, "JPEG")
+    c.post("/admin/photos/upload?name=small.jpg", content=small.getvalue())
+    c.post("/admin/photos/upload?name=big.jpg", content=big.getvalue())
+    lib.process_pending()
+    by = {p["name"]: p for p in c.get("/admin/photos/status").json()["photos"]}
+    assert by["small.jpg"]["low_res"] is True and by["small.jpg"]["state"] == "ready"
+    assert by["big.jpg"]["low_res"] is False
+
+
+def test_the_file_picker_offers_every_format_the_library_reads():
+    html = _admin().get("/admin").text
+    tag = html.split('id="photos-file"')[1].split(">")[0]
+    accept = tag.split('accept="')[1].split('"')[0].split(",")
+    assert accept[0] == "image/*"          # the phone's own photo picker
+    assert set(accept[1:]) == set(lib.PHOTO_EXTENSIONS)
+    assert set(tag.split('data-extensions="')[1].split('"')[0].split()) == set(lib.PHOTO_EXTENSIONS)
+    for ext in (".heic", ".cr3", ".nef", ".arw", ".raf", ".orf", ".dng", ".cr2", ".avif"):
+        assert ext in accept

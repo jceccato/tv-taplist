@@ -1,4 +1,16 @@
 # Small appliance image: no front-end build toolchain, runs as non-root.
+
+# HEIC support (ADR-0009). pillow-heif is compiled here against Debian's own
+# libheif, never installed from a PyPI wheel: the wheels bundle x265, a GPLv2-only
+# HEVC encoder, which does not combine with this repository's AGPL-3.0. Only the
+# compiled wheel leaves this stage; the compiler and headers do not.
+FROM python:3.12-slim AS heif-build
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential pkgconf libheif-dev \
+ && rm -rf /var/lib/apt/lists/*
+COPY requirements-heif.txt .
+RUN pip wheel --no-cache-dir --no-deps --no-binary pillow-heif -w /wheels -r requirements-heif.txt
+
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -16,9 +28,17 @@ ENV TVTAPLIST_VERSION=$VERSION
 #   tzdata -> honour the TZ env var for archive timestamps / daily boundary
 #   gosu   -> drop privileges from the perms-fixing entrypoint to the app user
 #   curl   -> container HEALTHCHECK
+#   libheif1 -> HEIC photos. Debian packages each codec as its own plugin:
+#            libheif1 depends on the libde265 decoder (plus the AV1 decoders) and
+#            only RECOMMENDS the x265 encoder, so --no-install-recommends keeps
+#            x265 out. The check below fails the build if it ever slips in.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tzdata gosu curl \
- && rm -rf /var/lib/apt/lists/*
+ && apt-get install -y --no-install-recommends tzdata gosu curl libheif1 \
+ && rm -rf /var/lib/apt/lists/* \
+ && if dpkg-query -W -f '${Package}\n' | grep -i x265 \
+       || find / -xdev -iname '*x265*' -print 2>/dev/null | grep . ; then \
+      echo "x265 found in the image; HEIC must be decoder-only (ADR-0009)" >&2; exit 1; \
+    fi
 
 # Non-root app user. uid/gid are adjustable at runtime via PUID/PGID so a
 # host-mounted volume stays writable (see entrypoint.sh).
@@ -30,6 +50,11 @@ WORKDIR /app
 # Install Python deps first for better layer caching.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+COPY --from=heif-build /wheels /tmp/wheels
+RUN pip install --no-cache-dir --no-deps /tmp/wheels/*.whl \
+ && rm -rf /tmp/wheels \
+ && python -c "import pillow_heif as h; i = h.libheif_info(); \
+assert 'libde265' in i['decoders'], i; assert 'x265' not in i['encoders'], i"
 
 # Application code and bundled (committed) assets - no Node/Tailwind/PostCSS.
 COPY app ./app
