@@ -1350,8 +1350,10 @@
   const MOUNT_HEX = { white: "#f3f2ee", cream: "#ebe3cf", black: "#1c1c1c" };
   // A copy made before the colour was sampled has none: a neutral card stands in.
   const MOUNT_FALLBACK = "#d9d3c7";
-  // Mount width by style, as a fraction of the short side (Flat is the spec's ~10 %).
-  const MOUNT_WIDTH = { none: 0, flat: 0.10, double: 0.10, shadow: 0.10, float: 0.12 };
+  // Mount width by style, as a fraction of the short side. The spec's ~10 % read
+  // as far too much mount on a real TV (the maintainer, 2026-10-26), so ~6 %;
+  // Shadow box and Float are a little wider so their shadows have room.
+  const MOUNT_WIDTH = { none: 0, flat: 0.06, double: 0.06, shadow: 0.07, float: 0.075 };
   const DOUBLE_INNER = 0.014;     // the second mat's reveal inside a Double mount
   const BEVEL = 0.004;            // the cut mat's white core, around the window
   // Frame widths: [sides and top, bottom]. Polaroid's bottom edge is the wide one.
@@ -1482,7 +1484,7 @@
     const ix = fs, iy = fs, iw = Math.max(1, W - 2 * fs), ih = Math.max(1, H - fs - fb);
     const m = Math.round(MOUNT_WIDTH[choice.style] * S);
     const inner = choice.style === "double" ? Math.round(DOUBLE_INNER * S) : 0;
-    const bevel = parts.mount ? Math.max(1, Math.round(BEVEL * S)) : 0;
+    const bevel = parts.mount && choice.style !== "shadow" ? Math.max(1, Math.round(BEVEL * S)) : 0;
     // The photo fits inside the mount, at least m (plus the second mat and the
     // bevel) from its edges, keeping its own shape.
     const pad = m + inner + bevel;

@@ -75,6 +75,7 @@ INFO = """() => {
     fillSrc: fill ? fill.getAttribute('src') : null, src: img.getAttribute('src'),
     fillFilter: fill ? getComputedStyle(fill).filter : null,
     mountBg: mount ? getComputedStyle(mount).backgroundColor : null,
+    mountShadow: mount ? getComputedStyle(mount).boxShadow : null,
     windowShadow: getComputedStyle(layer.querySelector('.print-window')).boxShadow,
     sides: Array.from(layer.querySelectorAll('.frame-side')).map((s) => {
       const r = s.getBoundingClientRect();
@@ -141,8 +142,9 @@ def test_a_flat_mounted_landscape_photo(venue, serve, page):
     assert w["y"] + w["h"] / 2 == pytest.approx(info["vh"] / 2, abs=1)
     margins = [w["x"] - m["x"], w["y"] - m["y"],
                m["x"] + m["w"] - (w["x"] + w["w"]), m["y"] + m["h"] - (w["y"] + w["h"])]
-    assert min(margins) >= 0.10 * S
-    assert min(margins) <= 0.10 * S + 0.005 * S + 2
+    # ~6 % of the short side (the spec's 10 % was too much on a real TV).
+    assert min(margins) >= 0.06 * S
+    assert min(margins) <= 0.06 * S + 0.005 * S + 2
     # The photo fills its window; there is a bevel; nothing is blurred behind it.
     assert info["photo"] == w
     assert info["windowShadow"] != "none"
@@ -188,9 +190,14 @@ def test_every_mount_style_renders(venue, serve, page, style):
         assert info["mat"]["x"] < info["window"]["x"] and info["mat"]["w"] > info["window"]["w"]
     if style == "float":                   # a wider mount than Flat, and a cast shadow
         S = min(info["vw"], info["vh"])
-        assert info["window"]["y"] - info["mountBox"]["y"] >= 0.12 * S - 1
+        assert info["window"]["y"] - info["mountBox"]["y"] >= 0.075 * S - 1
     if style != "none":
         assert info["windowShadow"] != "none"
+    if style == "shadow":                  # a deep box, unlike Flat: no bevel ring, heavy walls
+        assert "rgb(247, 245, 239)" not in info["windowShadow"]
+        assert info["mountShadow"].count("inset") >= 3
+    if style == "flat":
+        assert "rgb(247, 245, 239)" in info["windowShadow"]
 
 
 @pytest.mark.parametrize("color, expected", [
@@ -257,4 +264,4 @@ def test_a_resize_lays_the_print_out_again(venue, serve, page):
     after = page.evaluate(INFO)
     assert after["id"] == before["id"] and after["style"] == before["style"]
     assert after["window"]["w"] / after["window"]["h"] == pytest.approx(1.6, abs=0.01)
-    assert after["window"]["x"] - after["mountBox"]["x"] >= 0.10 * 800
+    assert after["window"]["x"] - after["mountBox"]["x"] >= 0.06 * 800

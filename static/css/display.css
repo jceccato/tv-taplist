@@ -598,12 +598,15 @@ html, body {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.48 0 0 0 0 0.45 0 0 0 0.9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E");
   background-size: 240px 240px;
 }
-/* Shadow box: the print sits deep inside the frame, which throws a heavier
-   shadow on the mount, darker from the light's side (top left). */
+/* Shadow box: the print sits at the back of a deep box. The frame's walls
+   throw a heavy shadow onto the mount, deepest under the top and left edges
+   (the light is from the top left), and the photo sits flat on the back with
+   no bevel. Plainly not a Flat mount, which the first cut was too close to. */
 .print-mount-shadow {
   box-shadow:
-    inset calc(var(--print-s, 1080px) * 0.012) calc(var(--print-s, 1080px) * 0.016) calc(var(--print-s, 1080px) * 0.03) rgba(0, 0, 0, 0.5),
-    inset 0 0 calc(var(--print-s, 1080px) * 0.008) rgba(0, 0, 0, 0.35);
+    inset calc(var(--print-s, 1080px) * 0.022) calc(var(--print-s, 1080px) * 0.03) calc(var(--print-s, 1080px) * 0.035) calc(var(--print-s, 1080px) * -0.004) rgba(0, 0, 0, 0.62),
+    inset calc(var(--print-s, 1080px) * -0.006) calc(var(--print-s, 1080px) * -0.008) calc(var(--print-s, 1080px) * 0.02) rgba(0, 0, 0, 0.3),
+    inset 0 0 0 calc(var(--print-s, 1080px) * 0.003) rgba(0, 0, 0, 0.35);
 }
 /* Double: a second mat showing a thin reveal around the window. */
 .print-mat {
@@ -614,8 +617,7 @@ html, body {
    from the top left; Float has no bevel, the photo stands off the mount on a
    soft shadow instead; Shadow box adds a little shadow of its own. */
 .print-window-flat,
-.print-window-double,
-.print-window-shadow {
+.print-window-double {
   box-shadow:
     0 0 0 var(--bevel, 2px) #f7f5ef,
     calc(var(--bevel, 2px) * -0.5) calc(var(--bevel, 2px) * -0.5) 0 var(--bevel, 2px) rgba(255, 255, 255, 0.55),
@@ -624,8 +626,7 @@ html, body {
 }
 .print-window-shadow {
   box-shadow:
-    0 0 0 var(--bevel, 2px) #f7f5ef,
-    calc(var(--print-s, 1080px) * 0.004) calc(var(--print-s, 1080px) * 0.006) calc(var(--print-s, 1080px) * 0.014) rgba(0, 0, 0, 0.45);
+    calc(var(--print-s, 1080px) * 0.003) calc(var(--print-s, 1080px) * 0.004) calc(var(--print-s, 1080px) * 0.008) rgba(0, 0, 0, 0.4);
 }
 .print-window-float {
   box-shadow:

@@ -603,8 +603,9 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
   Polaroid's wide bottom in `FRAME_WIDTH`, fractions of the short side), the
   `.print-mount` filling inside it, an optional `.print-mat` (Double), and the
   `.print-window` with the `<img class="album-photo">`, fitted inside the mount with
-  at least `MOUNT_WIDTH` all round (so a mismatched shape gets wider sides, as a mat
-  cut for it would). With mount style none there is no mount: the photo fills the
+  at least `MOUNT_WIDTH` all round (~6 % of the short side: the spec's 10 % was far too
+  much mount on a real TV; a mismatched shape still gets wider sides, as a mat cut for
+  it would). Shadow box has no bevel and heavy inset walls, so it never reads as Flat. With mount style none there is no mount: the photo fills the
   frame and a `.print-fill` behind it shows the same copy blurred and darkened.
   Paper and wood textures are inline SVG `feTurbulence` data URIs (no fetch). The
   resolved choices are on the layer as `data-style`/`data-color`/`data-frame`/
