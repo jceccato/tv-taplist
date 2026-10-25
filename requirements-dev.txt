@@ -1,3 +1,7 @@
 # Dev/test-only dependencies. Install with:
 #   pip install -r requirements.txt -r requirements-dev.txt
 pytest==8.3.4
+# Page tests for the photo album (tests/browser). Optional at run time: they skip
+# cleanly when no Chromium is available. CI installs the browser with
+# `playwright install --with-deps chromium`.
+playwright==1.49.1

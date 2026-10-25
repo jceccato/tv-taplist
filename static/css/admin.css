@@ -255,3 +255,8 @@ input[type=color] {
 .unit-row { display: contents; }
 .stat-grid.with-switch { grid-template-columns: 1fr auto auto auto; max-width: 460px; }
 .unit-row.following > :not(.unit-customise) { opacity: 0.55; }
+
+/* Photo album picker: the album ticks sit under "Show every album" and are
+   dimmed (not disabled) while every album is shown. */
+.album-picker { display: flex; flex-wrap: wrap; gap: 0.2rem 1.2rem; margin: 0.3rem 0 0.6rem; }
+.album-picker.dim { opacity: 0.55; }

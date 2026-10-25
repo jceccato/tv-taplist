@@ -188,10 +188,40 @@
     };
   }
 
+  // ---- photo album picker: ticked album names -> one JSON text field ----
+  // The ticked names travel as a single hidden field holding a JSON array,
+  // because the submit handler below folds every checkbox of one name into a
+  // single true/false and an album name may hold any character. The visible
+  // ticks carry no `name` for the same reason. Returns a function that redraws
+  // the ticks from the hidden value, for the profile Follow / Customise switch.
+  function setupAlbumPicker(form) {
+    const hidden = form.querySelector("#album_selection");
+    const picker = document.getElementById("album-picker");
+    const all = form.querySelector("#album_all");
+    if (!hidden || !picker) return null;
+    const picks = () => Array.from(picker.querySelectorAll(".album-pick"));
+    const read = () => {
+      try { const v = JSON.parse(hidden.value); return Array.isArray(v) ? v : []; }
+      catch (e) { return []; }
+    };
+    const dim = () => { picker.classList.toggle("dim", !!(all && all.checked)); };
+    picks().forEach((box) => box.addEventListener("change", () => {
+      hidden.value = JSON.stringify(picks().filter((b) => b.checked).map((b) => b.dataset.album));
+    }));
+    if (all) all.addEventListener("change", dim);
+    dim();
+    return function syncFromValue() {
+      const names = read();
+      picks().forEach((b) => { b.checked = names.includes(b.dataset.album); });
+      dim();
+    };
+  }
+
   // ---- settings form ----
   const settingsForm = document.getElementById("settings-form");
   if (settingsForm) {
     const syncUpcomingLabel = setupUpcomingLabel(settingsForm);
+    const syncAlbumPicker = setupAlbumPicker(settingsForm);
 
     // Keep the logo-height slider and number input in sync.
     const hRange = document.getElementById("logo_h_range");
@@ -231,6 +261,7 @@
         const logoRange = document.getElementById("logo_h_range");
         if (logoNum && logoRange) logoRange.value = logoNum.value;
         if (syncUpcomingLabel) syncUpcomingLabel();
+        if (syncAlbumPicker) syncAlbumPicker();
         const theme = document.getElementById("theme");
         if (theme) theme.dispatchEvent(new Event("change"));
       };
@@ -251,7 +282,8 @@
             controls().forEach((el) => {
               const v = el.name ? defaultFor(el.name) : undefined;
               if (v === undefined) return;
-              if (isBox(el)) el.checked = !!v; else el.value = String(v);
+              if (isBox(el)) el.checked = !!v;
+              else el.value = (v !== null && typeof v === "object") ? JSON.stringify(v) : String(v);
             });
           } else if (typed) {
             const saved = typed;

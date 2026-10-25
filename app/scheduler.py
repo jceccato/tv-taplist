@@ -3,6 +3,8 @@
 - Brewfather sync: every SYNC_INTERVAL_MINUTES (default 15; env-configurable).
 - Update check: once per day at 03:00 local time (polls GitHub for new releases).
 - Archive cleanup: once per day at 03:30 local time.
+- Photo scan: every minute (and once at start-up); reconciles hand-made changes
+  in /data/photos and builds Display copies one photo at a time (ADR-0008).
 
 All jobs take JOB_LOCK internally, so even though APScheduler runs them on a
 thread pool they never interleave file writes. max_instances=1 prevents a slow
@@ -16,11 +18,13 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from .brewfather import run_sync
 from .cleanup import run_cleanup
+from .photo_library import run_scan_and_process
 from .timezone import local_tzinfo
 from .update_check import check_for_updates
 
@@ -72,8 +76,21 @@ def start_scheduler() -> BackgroundScheduler:
         max_instances=1,
         coalesce=True,
     )
+    # Photos: a minute is the promised pickup time for hand-made changes. The
+    # first run is now, so photos already on disk start processing at boot. One
+    # instance at a time: a long run (a big batch on a Pi) re-scans by itself
+    # every minute (photo_library.process_pending), so nothing is starved.
+    scheduler.add_job(
+        _safe_photo_scan,
+        "interval",
+        minutes=1,
+        id="photo_scan",
+        max_instances=1,
+        coalesce=True,
+        next_run_time=datetime.now(tz),
+    )
     scheduler.start()
-    log.info("scheduler started (sync every %dm, update check 03:00, cleanup 03:30 %s)",
+    log.info("scheduler started (sync every %dm, update check 03:00, cleanup 03:30, photo scan every minute %s)",
              SYNC_INTERVAL_MINUTES, tz)
     _scheduler = scheduler
     return scheduler
@@ -91,6 +108,13 @@ def _safe_sync() -> None:
         run_sync()
     except Exception:  # noqa: BLE001 - never let a job crash the scheduler thread
         log.exception("unhandled error in sync job")
+
+
+def _safe_photo_scan() -> None:
+    try:
+        run_scan_and_process()
+    except Exception:  # noqa: BLE001
+        log.exception("unhandled error in photo scan job")
 
 
 def _safe_cleanup() -> None:

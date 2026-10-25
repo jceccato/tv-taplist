@@ -32,6 +32,14 @@ OLD_BEERS_DIR = DATA_DIR / "old_beers"
 # the next sync cycle.
 UPCOMING_DIR = DATA_DIR / "upcoming"
 
+# The photo album (ADR-0008). `photos/` holds the operator's untouched originals
+# (each Album a folder, loose files forming Unsorted); `photo_cache/` holds the
+# disposable Display copies, thumbnails and the index the box rebuilds from the
+# originals. Only app/photo_library.py builds a path under either - nothing else
+# in app/ may.
+PHOTOS_DIR = DATA_DIR / "photos"
+PHOTO_CACHE_DIR = DATA_DIR / "photo_cache"
+
 # Operator Settings, including the Brewfather credentials (atomic-written).
 CONFIG_PATH = DATA_DIR / "config.json"
 
@@ -53,7 +61,7 @@ BUNDLED_PLACEHOLDER = STATIC_DIR / "placeholder.svg"
 
 def ensure_dirs() -> None:
     """Create the data directory tree if it does not exist yet (first run)."""
-    for d in (DATA_DIR, TAPS_DIR, OLD_BEERS_DIR, UPCOMING_DIR):
+    for d in (DATA_DIR, TAPS_DIR, OLD_BEERS_DIR, UPCOMING_DIR, PHOTOS_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
 

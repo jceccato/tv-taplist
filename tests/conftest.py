@@ -7,6 +7,7 @@ and a reset config + auth rate-limit state.
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -22,7 +23,7 @@ os.environ.setdefault("DEMO_MODE", "false")
 import pytest  # noqa: E402
 import yaml  # noqa: E402
 
-from app import auth, config_store, paths, seen_screens  # noqa: E402
+from app import auth, config_store, paths, photo_library, seen_screens  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -35,6 +36,12 @@ def clean_state():
                 f.unlink()
             except OSError:
                 pass
+    # The photo album: originals and the disposable Display copy cache, plus the
+    # library's in-memory index of them.
+    shutil.rmtree(paths.PHOTOS_DIR, ignore_errors=True)
+    shutil.rmtree(paths.PHOTO_CACHE_DIR, ignore_errors=True)
+    paths.PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+    photo_library.reset_state()
     if paths.CONFIG_PATH.exists():
         paths.CONFIG_PATH.unlink()
     # Status is a separate file and is deliberately NOT seeded: a fresh box has

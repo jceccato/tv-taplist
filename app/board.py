@@ -40,6 +40,7 @@ from .beer_glass import DEFAULT_GLASS, normalize_glass
 from .colors import ResolvedColor, resolve_color
 from .config_store import DEFAULT_CONFIG, effective_settings
 from .mapping import status_rank_for_label
+from . import photo_library
 from .paths import venue_logo_path
 from .tap_store import resolve as resolve_tap_file
 from .theme import resolve_theme
@@ -570,6 +571,52 @@ def resolve_upcoming(entry: UpcomingEntry, cfg: dict[str, Any],
     }
 
 
+def resolve_album(cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """The photo album's part of the board: the visit plan and the ready photos.
+
+    None when the album is off for this profile, and build_board then adds no
+    `album` key at all (the same contract the Upcoming Beers have: with the
+    feature off the payload is exactly what it was before it existed).
+
+    Only photos whose Display copy exists on disk are listed, so a screen never
+    draws a photo that is still being processed. Each entry names the copy by a
+    public URL - never an original, whose existence the board does not even
+    admit (ADR-0008). An empty list is a valid answer ("no ready photos"): the
+    page then simply shows the taps.
+
+    The visit's numbers travel as they are because the page has to execute them
+    (it counts tap-page turns and times photos); order is resolved here for Name
+    and Date, while Shuffle sends the set - the page shuffles it, since it also
+    has to remember its place across visits.
+    """
+    if not bool(cfg.get("album_enabled", False)):
+        return None
+    albums = None if cfg.get("album_all", True) else cfg.get("album_selection") or []
+    order = cfg.get("album_order", DEFAULT_CONFIG["album_order"])
+    photos = photo_library.ready_photos(albums, order)
+    return {
+        "every_turns": int(cfg.get("album_every_turns", DEFAULT_CONFIG["album_every_turns"])),
+        "photos_per_visit": int(cfg.get("album_photos_per_visit",
+                                        DEFAULT_CONFIG["album_photos_per_visit"])),
+        "seconds_per_photo": int(cfg.get("album_seconds_per_photo",
+                                         DEFAULT_CONFIG["album_seconds_per_photo"])),
+        "fade_seconds": float(cfg.get("album_fade_seconds",
+                                      DEFAULT_CONFIG["album_fade_seconds"])),
+        "order": order,
+        "keep_ticker": bool(cfg.get("album_keep_ticker", False)),
+        "photos": [
+            {
+                "id": p.copy_id,
+                "url": f"/img/photo/{p.filename}",
+                "aspect": p.aspect,
+                "album": p.album,
+                "taken": p.taken,
+            }
+            for p in photos
+        ],
+    }
+
+
 def build_board(effective: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build the full board payload consumed by the TV display.
 
@@ -663,6 +710,9 @@ def build_board(effective: dict[str, Any] | None = None) -> dict[str, Any]:
         # carry upstream API error text. It lives in status.json - a file this
         # module never opens - and is shown only on the authenticated admin page.
     }
+    album = resolve_album(cfg)
+    if album is not None:
+        board["album"] = album
     if upcoming is not None:
         board["upcoming"] = upcoming
         # The ribbon's own text: the one input from this ticket's four

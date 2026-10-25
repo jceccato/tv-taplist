@@ -26,6 +26,7 @@ from . import upcoming_store
 from .atomic import JOB_LOCK, atomic_write_text
 from .beer_glass import DEFAULT_GLASS, normalize_glass
 from .paths import CONFIG_PATH, ensure_dirs
+from .photo_library import ORDER_SHUFFLE, ORDERS as ALBUM_ORDERS
 from .theme import DEFAULT_THEME, coerce_custom_theme, normalize_theme_name
 
 log = logging.getLogger("taplist.config")
@@ -153,6 +154,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # operator's intent lives here; what the check FOUND is Status and lives in
     # status.json, along with the sync timestamps that used to sit below it.
     "update_check_enabled": True,     # operator can disable for air-gapped deploys
+    # The photo album (issue #47, ADR-0008). All customisable per Display profile
+    # and OFF in the Default profile, so an upgrade changes no screen. When on, the
+    # screen shows an Album visit after every `album_every_turns` tap-page turns
+    # (0 = photos only): `album_photos_per_visit` photos, each for
+    # `album_seconds_per_photo`, cross-faded over `album_fade_seconds`.
+    "album_enabled": False,
+    "album_every_turns": 4,
+    "album_photos_per_visit": 6,
+    "album_seconds_per_photo": 10,
+    "album_order": ORDER_SHUFFLE,       # "shuffle" | "name" | "date" (see photo_library.ORDERS)
+    # Which Albums: every one (the default), or a ticked list by album NAME. A
+    # name that no longer exists is skipped, never an error (a folder renamed by
+    # hand shows up as a new, unticked album).
+    "album_all": True,
+    "album_selection": [],
+    "album_keep_ticker": False,         # keep the announcement ticker over the photos
+    "album_fade_seconds": 1.5,
     # Display profiles (ADR-0007): name -> {customised key: value}. A profile
     # holds ONLY its Customised settings; everything else follows the Default
     # profile (the rest of this dict). Names are validated and values clamped by
@@ -216,6 +234,14 @@ CUSTOMISABLE_UNITS: dict[str, tuple[str, ...]] = {
     "show_upcoming_panel": ("show_upcoming_panel",),
     "upcoming_panel_multiple": ("upcoming_panel_multiple",),
     "upcoming_surface_scope": ("upcoming_surface_scope",),
+    "album_enabled": ("album_enabled",),
+    "album_every_turns": ("album_every_turns",),
+    "album_photos_per_visit": ("album_photos_per_visit",),
+    "album_seconds_per_photo": ("album_seconds_per_photo",),
+    "album_order": ("album_order",),
+    "album_selection": ("album_all", "album_selection"),
+    "album_keep_ticker": ("album_keep_ticker",),
+    "album_fade_seconds": ("album_fade_seconds",),
 }
 
 CUSTOMISABLE_KEYS: frozenset[str] = frozenset(
@@ -477,6 +503,13 @@ SETTINGS_BOUNDS: dict[str, tuple[float, float | None]] = {
     "venue_logo_height_vh": (0, MAX_VENUE_LOGO_VH),
     "tap_image_scale": (MIN_TAP_IMAGE_SCALE, MAX_TAP_IMAGE_SCALE),
     "tap_text_scale": (MIN_TAP_TEXT_SCALE, MAX_TAP_TEXT_SCALE),
+    # The photo album (ADR-0008). 0 tap-page turns between visits means photos
+    # only; the 2-second floor on a photo keeps a cross-fade readable; the fade
+    # may be 0 (a hard cut) up to a long, slow dissolve.
+    "album_every_turns": (0, 50),
+    "album_photos_per_visit": (1, 50),
+    "album_seconds_per_photo": (2, 600),
+    "album_fade_seconds": (0, 10),
 }
 
 # The fixed scale behind each named preset, one map per axis. "custom" is absent
@@ -581,7 +614,8 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     for key in ("num_taps", "max_upcoming_previews", "upcoming_interval_seconds",
                 "max_archive_age_days", "max_archive_storage_mb", "page_size",
                 "rotation_seconds", "venue_logo_height_vh",
-                "upcoming_panel_multiple"):
+                "upcoming_panel_multiple", "album_every_turns",
+                "album_photos_per_visit", "album_seconds_per_photo"):
         lo, hi = SETTINGS_BOUNDS[key]
         merged[key] = _coerce_int(merged[key], lo, hi, DEFAULT_CONFIG[key])
 
@@ -630,7 +664,7 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     # Card sizing. Each scale is coerced independently of its preset: the scales
     # are what the board actually sends, and a config hand-edited to an unknown
     # preset name should still render at whatever scale it asks for.
-    for key in ("tap_image_scale", "tap_text_scale"):
+    for key in ("tap_image_scale", "tap_text_scale", "album_fade_seconds"):
         lo, hi = SETTINGS_BOUNDS[key]
         merged[key] = _coerce_float(merged[key], lo, hi, DEFAULT_CONFIG[key])
     # A config written before the axes were split has no preset key of its own
@@ -652,9 +686,38 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     # Pagination / carousel. The two numbers are clamped with the rest above.
     merged["paginate"] = bool(merged["paginate"])
 
+    # The photo album. Unrecognised order coerces to Shuffle, never rejected.
+    for flag in ("album_enabled", "album_all", "album_keep_ticker"):
+        merged[flag] = bool(merged[flag])
+    order = str(merged["album_order"] or "").strip().lower()
+    merged["album_order"] = order if order in ALBUM_ORDERS else ORDER_SHUFFLE
+    merged["album_selection"] = _coerce_album_selection(merged["album_selection"])
+
     merged["venue_logo"] = (str(merged["venue_logo"]) if merged["venue_logo"] else None)
     merged["profiles"] = _coerce_profiles(merged["profiles"])
     return merged
+
+
+MAX_ALBUM_SELECTION = 200       # ticked albums kept (a venue has a handful)
+MAX_ALBUM_NAME_LEN = 255        # a folder name's own limit
+
+
+def _coerce_album_selection(value: Any) -> list[str]:
+    """A ticked-albums list: strings only, trimmed, de-duplicated, order kept.
+
+    Anything else coerces to no albums rather than being rejected. Whether a name
+    still names a folder is not decided here: a stale name is skipped when the
+    board is built, so a renamed folder never breaks a hand-edited config.
+    """
+    if not isinstance(value, (list, tuple)):
+        return []
+    out: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            name = item.strip()[:MAX_ALBUM_NAME_LEN]
+            if name and name not in out:
+                out.append(name)
+    return out[:MAX_ALBUM_SELECTION]
 
 
 def _coerce_profile(values: Any) -> dict[str, Any]:

@@ -8,6 +8,7 @@ Public display:
   GET  /api/preview-color -> computed swatch colour for the admin live preview
   GET  /img/{filename}  -> tap image from /data/taps (path-sanitised)
   GET  /img/upcoming/{filename} -> upcoming-beer image from /data/upcoming (path-sanitised)
+  GET  /img/photo/{filename} -> a photo's Display copy from the photo cache (never an original)
   GET  /img/placeholder -> fallback image
   GET  /healthz         -> lightweight healthcheck
 
@@ -27,6 +28,7 @@ Admin (session-protected):
 """
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -44,9 +46,9 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
-from . import admin_ops, auth, seen_screens, snapshot, tap_store as taps
+from . import admin_ops, auth, photo_library, seen_screens, snapshot, tap_store as taps
 from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
 from .beer import Beer, TapPresentation
 from .beer_glass import DEFAULT_GLASS, GLASS_TYPES, beer_glass_svg
@@ -351,6 +353,22 @@ async def img_upcoming_file(filename: str):
     return FileResponse(p, headers=_img_headers(60))
 
 
+@app.get("/img/photo/{filename}")
+async def img_photo(filename: str):
+    """Serve a photo's Display copy (never an original).
+
+    The filename is an opaque hash of the original's content and the pipeline
+    settings (ADR-0008), so it is its own version: a changed copy has a new URL
+    and can be cached for long. The photo library resolves it; this route never
+    builds a path, and a name it does not know is a plain 404 (not the
+    Placeholder: a photo that is not ready must not be drawn as one).
+    """
+    p = photo_library.copy_file(filename)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no such photo")
+    return FileResponse(p, headers=_img_headers(86400))
+
+
 # ---- admin: auth ---------------------------------------------------------
 
 @app.get("/admin/login", response_class=HTMLResponse)
@@ -448,6 +466,14 @@ PROFILE_UNIT_LABELS = {
     "show_upcoming_panel": "Half-board panel",
     "upcoming_panel_multiple": "Half-board panel frequency",
     "upcoming_surface_scope": "Surface scope",
+    "album_enabled": "Photo album",
+    "album_every_turns": "Tap pages between album visits",
+    "album_photos_per_visit": "Photos per album visit",
+    "album_seconds_per_photo": "Seconds per photo",
+    "album_order": "Photo order",
+    "album_selection": "Albums shown",
+    "album_keep_ticker": "Keep the ticker over photos",
+    "album_fade_seconds": "Photo fade length",
 }
 
 
@@ -577,6 +603,13 @@ async def admin_page(request: Request, profile: str | None = None):
             # silently does nothing is worse than no checkbox.
             "snapshot_credential_option": snapshot.credential_choice_available(),
             "color_label": "SRM" if cfg.get("color_unit") == "srm" else "EBC",
+            # The photo album fieldset: the folders found, the ticked names that
+            # no longer match one (kept visible so a Save does not drop them), and
+            # how the Display copies are getting on.
+            "album_names": photo_library.list_albums(),
+            "album_missing": [n for n in cfg.get("album_selection", [])
+                              if n not in photo_library.list_albums()],
+            "album_status": photo_library.status(),
             "venue_logo_url": "/img/venue-logo" if venue_logo_path() else None,
             # Every numeric Settings input takes its min/max from here, so the
             # browser refuses at the point of typing exactly what the store
@@ -812,6 +845,38 @@ class SettingsForm(BaseModel):
     page_size: int = 6
     rotation_seconds: int = 30
     venue_logo_height_vh: int = 0
+    # The photo album. `album_all` defaults to True, unlike the other booleans'
+    # "missing means off": a missing "all albums" must not quietly turn into "a
+    # ticked list with nothing ticked", which would show no photos at all.
+    album_enabled: bool = False
+    album_every_turns: int = 4
+    album_photos_per_visit: int = 6
+    album_seconds_per_photo: int = 10
+    album_order: str = "shuffle"
+    album_all: bool = True
+    album_selection: list[str] = []
+    album_keep_ticker: bool = False
+    album_fade_seconds: float = 1.5
+
+    @field_validator("album_selection", mode="before")
+    @classmethod
+    def _album_selection_from_form(cls, value):
+        """The picker posts the ticked names as ONE JSON text field.
+
+        Checkboxes cannot carry them: the Admin script normalises every
+        checkbox of a name to a single true/false, and an album name may hold
+        any character, so a delimiter would not be safe. Junk becomes no albums
+        (the store coerces, never rejects).
+        """
+        if isinstance(value, str):
+            value = [value]
+        if isinstance(value, list) and len(value) == 1 and isinstance(value[0], str):
+            try:
+                parsed = json.loads(value[0])
+            except ValueError:
+                return []
+            return parsed if isinstance(parsed, list) else []
+        return value if isinstance(value, list) else []
 
 
 # Settings that exist in the schema but are deliberately not on the Settings

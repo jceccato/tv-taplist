@@ -515,6 +515,75 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             <p class="hint">When off, the board fills each page with up to 8 taps. Rotation also applies without pagination when there is more than one page. On the display you can click a page dot or press Enter/Space to change pages.</p>
           </fieldset>
 
+          <fieldset id="album-settings">
+            <legend>Photo album</legend>
+            {% call unit('album_enabled') %}
+            <label class="checkbox">
+              <input type="checkbox" name="album_enabled" {{ 'checked' if cfg.album_enabled else '' }}>
+              Show photos on this screen between tap pages
+            </label>
+            {% endcall %}
+            <p class="hint">
+              Drop JPEG, PNG or WebP files into the <code>photos</code> folder of the data directory (loose files form the album &ldquo;Unsorted&rdquo;; each folder is an album, and folders inside it count as part of it). Changes are picked up within a minute. Each photo is shown once its screen copy is ready: {{ album_status.ready }} ready{% if album_status.pending %}, {{ album_status.pending }} still processing{% endif %}{% if album_status.failed %}, {{ album_status.failed }} could not be read{% endif %}.
+              {% if album_status.failures %}<br>Could not be read:
+                {% for album, file, reason in album_status.failures %}<code>{{ album }}/{{ file }}</code> ({{ reason }}){{ ', ' if not loop.last else '' }}{% endfor %}.{% endif %}
+            </p>
+
+            {% call unit('album_every_turns') %}
+            <label for="album_every_turns">Tap pages between photo visits <span class="muted">(0 = photos only)</span></label>
+            <input id="album_every_turns" name="album_every_turns" type="number" {{ bounds_for('album_every_turns') }} step="1" value="{{ cfg.album_every_turns }}">
+            {% endcall %}
+
+            {% call unit('album_photos_per_visit') %}
+            <label for="album_photos_per_visit">Photos per visit</label>
+            <input id="album_photos_per_visit" name="album_photos_per_visit" type="number" {{ bounds_for('album_photos_per_visit') }} step="1" value="{{ cfg.album_photos_per_visit }}">
+            {% endcall %}
+
+            {% call unit('album_seconds_per_photo') %}
+            <label for="album_seconds_per_photo">Seconds per photo</label>
+            <input id="album_seconds_per_photo" name="album_seconds_per_photo" type="number" {{ bounds_for('album_seconds_per_photo') }} step="1" value="{{ cfg.album_seconds_per_photo }}">
+            {% endcall %}
+
+            {% call unit('album_order') %}
+            <label for="album_order">Order</label>
+            <select id="album_order" name="album_order">
+              <option value="shuffle" {{ 'selected' if cfg.album_order == 'shuffle' else '' }}>Shuffle (every photo once before any repeats)</option>
+              <option value="name" {{ 'selected' if cfg.album_order == 'name' else '' }}>Name A-Z</option>
+              <option value="date" {{ 'selected' if cfg.album_order == 'date' else '' }}>Date newest first (date taken, else file date)</option>
+            </select>
+            {% endcall %}
+
+            {% call unit('album_selection') %}
+            <label class="checkbox">
+              <input type="checkbox" name="album_all" id="album_all" {{ 'checked' if cfg.album_all else '' }}>
+              Show every album
+            </label>
+            <div id="album-picker" class="album-picker">
+              {% for name in album_names %}
+              <label class="checkbox"><input type="checkbox" class="album-pick" data-album="{{ name }}" {{ 'checked' if name in cfg.album_selection else '' }}> {{ name }}</label>
+              {% endfor %}
+              {% for name in album_missing %}
+              <label class="checkbox"><input type="checkbox" class="album-pick" data-album="{{ name }}" checked> {{ name }} <span class="muted">(no such folder now; skipped)</span></label>
+              {% endfor %}
+              {% if not album_names and not album_missing %}<p class="muted">No albums yet.</p>{% endif %}
+              <input type="hidden" id="album_selection" name="album_selection" value="{{ cfg.album_selection | tojson | forceescape }}">
+            </div>
+            {% endcall %}
+
+            {% call unit('album_keep_ticker') %}
+            <label class="checkbox">
+              <input type="checkbox" name="album_keep_ticker" {{ 'checked' if cfg.album_keep_ticker else '' }}>
+              Keep the announcement ticker visible over the photos
+            </label>
+            {% endcall %}
+
+            {% call unit('album_fade_seconds') %}
+            <label for="album_fade_seconds">Cross-fade length (seconds)</label>
+            <input id="album_fade_seconds" name="album_fade_seconds" type="number" {{ bounds_for('album_fade_seconds') }} step="0.1" value="{{ cfg.album_fade_seconds }}">
+            {% endcall %}
+            <p class="hint">During a visit the venue logo, the ticker (unless kept) and the page dots are hidden, and Enter, Space or a click moves to the next photo. A screen whose albums hold no ready photos just shows the taps. The album is off in the Default profile; switch it on for one screen by customising it in that screen&rsquo;s profile.</p>
+          </fieldset>
+
           <fieldset {{ 'hidden' if editing else '' }} data-global-only>
             <legend>Archive cleanup</legend>
             <label for="max_age">Max archive age (days)</label>
