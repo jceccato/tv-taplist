@@ -847,6 +847,10 @@
 
   function nextPage() {
     if (album.visiting) { advancePhoto(); return; }   // Enter, Space and a swipe all move on
+    // A manual turn counts towards the next Album visit exactly as the timer's
+    // does, and starts it when one is due: before, only the timer could, so
+    // swiping through the taps never reached the photos (the maintainer, 2026-10-26).
+    if (turnOrVisit()) return;
     if (state.pages.length <= 1) return;
     goToPage((state.currentPage + 1) % state.pages.length);
   }
@@ -897,14 +901,20 @@
   // ---- carousel (independent, configurable timer) ----
   let carouselTimer = null;
   let carouselMs = DEFAULT_ROTATION_MS;
+  // One tap-page turn, from the timer or by hand: after N turns the next one
+  // starts an Album visit instead (true), else it is counted (false) and the
+  // caller turns the page. A single-page board still counts, or it would never
+  // reach a visit.
+  function turnOrVisit() {
+    const plan = albumPlan();
+    if (plan && plan.every_turns > 0 && album.turnsShown >= plan.every_turns && startVisit()) return true;
+    album.turnsShown++;
+    return false;
+  }
+
   function carouselTick() {
     if (album.visiting) return;             // the photos own the screen
-    // A tap-page turn is one tick of this timer, so a single-page board still
-    // counts (otherwise it would never reach a visit). After N turns the next
-    // tick starts an Album visit instead of turning the page.
-    const plan = albumPlan();
-    if (plan && plan.every_turns > 0 && album.turnsShown >= plan.every_turns && startVisit()) return;
-    album.turnsShown++;
+    if (turnOrVisit()) return;
     if (state.pages.length <= 1) return;
     showPage((state.currentPage + 1) % state.pages.length);
   }
@@ -1182,6 +1192,8 @@
     pos: 0,                // ordered lists: the next index when lastId has gone
     pendingBoard: null,    // the newest board that arrived mid-visit, applied when the taps return
     hideTimer: null,
+    ticker: null,          // a kept ticker's copy, drawn inside the frame for the visit
+    tickerH: 0,            // its height, taken from the real ticker
     failures: 0,           // photos that would not load in a row
     stalled: false,        // every photo failed to load: wait for the next poll before retrying
   };
@@ -1278,6 +1290,7 @@
     albumEl.querySelectorAll(".album-layer").forEach((layer) => {
       layer.classList.remove("shown"); layer.classList.add("instant"); clearPrint(layer);
     });
+    keepTicker(cfg.keep_ticker === true);
     void albumEl.offsetWidth;              // let the hidden -> shown change settle before fading in
     albumEl.classList.add("on");
     showNextPhoto();
@@ -1317,6 +1330,7 @@
     const down = layers[1 - album.layer];
     album.failures = 0;
     buildPrint(up, photo, choosePrint(album.plan.print));
+    placeTicker(up);
     // The first photo of a visit appears with the layer's own fade-in; later
     // ones cross-fade layer to layer.
     const first = album.shownInVisit === 0;
@@ -1481,7 +1495,10 @@
     layer.style.setProperty("--print-s", S + "px");
     const [fs, fb] = FRAME_WIDTH[choice.frame].map((f) => Math.round(f * S));
     // The space inside the frame: the mount, or the photo itself with no mount.
-    const ix = fs, iy = fs, iw = Math.max(1, W - 2 * fs), ih = Math.max(1, H - fs - fb);
+    // A kept ticker sits inside the frame, along its bottom edge, so the mount
+    // (or the photo, with no mount) stops above it.
+    const th = album.ticker ? album.tickerH : 0;
+    const ix = fs, iy = fs, iw = Math.max(1, W - 2 * fs), ih = Math.max(1, H - fs - fb - th);
     const m = Math.round(MOUNT_WIDTH[choice.style] * S);
     const inner = choice.style === "double" ? Math.round(DOUBLE_INNER * S) : 0;
     const bevel = parts.mount && choice.style !== "shadow" ? Math.max(1, Math.round(BEVEL * S)) : 0;
@@ -1513,9 +1530,37 @@
     }
   }
 
+  /* A kept ticker belongs inside the frame, not over it (the maintainer,
+     2026-10-26). The real ticker cannot move there without reflowing the tap
+     board underneath (it is a grid row), so for the visit it is hidden like
+     the header and a copy is drawn in the album, between the mount and the
+     frame's bottom edge. Board updates wait for the visit's end anyway, so
+     the copy's text cannot go stale meanwhile. */
+  function keepTicker(on) {
+    if (album.ticker) { album.ticker.remove(); album.ticker = null; }
+    if (!on || !tickerEl || tickerEl.hidden) return;
+    album.tickerH = tickerEl.offsetHeight;
+    album.ticker = tickerEl.cloneNode(true);
+    album.ticker.removeAttribute("id");
+    album.ticker.classList.add("album-ticker");
+    albumEl.appendChild(album.ticker);
+  }
+
+  // Put the ticker copy along the bottom edge inside `layer`'s frame.
+  function placeTicker(layer) {
+    const p = layer && layer._print;
+    if (!album.ticker || !p) return;
+    const W = albumEl.clientWidth || window.innerWidth;
+    const H = albumEl.clientHeight || window.innerHeight;
+    const S = Math.min(W, H);
+    const [fs, fb] = FRAME_WIDTH[p.choice.frame].map((f) => Math.round(f * S));
+    box(album.ticker, fs, H - fb - album.tickerH, W - 2 * fs, album.tickerH);
+  }
+
   window.addEventListener("resize", () => {
     if (!albumEl) return;
     albumEl.querySelectorAll(".album-layer").forEach(layoutPrint);
+    placeTicker(albumEl.querySelector(".album-layer.shown"));
   });
 
   // Enter, Space, a click or a swipe: on to the next photo (or back to the taps
@@ -1542,6 +1587,7 @@
       albumEl.querySelectorAll(".album-layer").forEach((layer) => {
         layer.classList.remove("shown"); clearPrint(layer);
       });
+      keepTicker(false);
     }, (parseFloat(albumEl.style.getPropertyValue("--album-fade")) || 0) * 1000 + 50);
     // Board updates that arrived during the visit show now that the taps return.
     const pending = album.pendingBoard;

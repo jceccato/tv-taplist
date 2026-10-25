@@ -685,10 +685,17 @@ html, body {
 }
 .frame-oak, .frame-walnut { background-blend-mode: normal, multiply, normal; }
 
-/* During a visit the header, the page dots and (unless kept) the ticker go.
-   visibility, not display, so the board's grid does not reflow underneath. */
+/* During a visit the header, the page dots and the ticker go. visibility, not
+   display, so the board's grid does not reflow underneath. A kept ticker is
+   drawn by display.js as a copy inside the print's frame (.album-ticker). */
 body.album-visit #venue-header,
-body.album-visit #dots { visibility: hidden; }
-body.album-visit:not(.album-keep-ticker) #ticker { visibility: hidden; }
-/* A kept ticker rides above the photo layer. */
-body.album-visit.album-keep-ticker #ticker { position: relative; z-index: 30; }
+body.album-visit #dots,
+body.album-visit #ticker { visibility: hidden; }
+.album-ticker {
+  position: absolute;
+  z-index: 2;
+  margin: 0;
+  border-radius: 0;
+  transition: left var(--album-fade, 1.5s) ease, width var(--album-fade, 1.5s) ease,
+    top var(--album-fade, 1.5s) ease;
+}

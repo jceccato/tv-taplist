@@ -53,6 +53,7 @@ def test_a_visit_shows_k_photos_then_returns_to_the_taps_with_the_header_hidden(
     page.wait_for_function("document.getElementById('album').dataset.photo")
     _shot(page, "visit")
     assert page.is_hidden("#venue-header") and page.is_hidden("#dots") and page.is_hidden("#ticker")
+    assert not page.query_selector(".album-ticker")       # not kept: no copy either
     _wait_state(page, "idle")
     page.wait_for_function("document.getElementById('album').hidden")
     _shot(page, "taps-again")
@@ -146,21 +147,34 @@ def test_enter_space_and_click_advance_a_photo_and_the_last_one_returns_to_the_t
     assert page.is_visible("#venue-header")
 
 
-def test_the_ticker_stays_over_the_photos_when_kept(venue, serve, page):
+def test_a_kept_ticker_shows_inside_the_frame_not_over_it(venue, serve, page):
     make_photos()
-    album_profile(album_keep_ticker=True, album_seconds_per_photo=3)
+    album_profile(album_keep_ticker=True, album_seconds_per_photo=3, album_frame="oak")
     _open(page, serve())
     _wait_state(page, "visiting")
-    page.wait_for_function("document.getElementById('album').dataset.photo")
+    page.wait_for_function("document.querySelector('.album-layer.shown .print-mount')")
+    page.wait_for_timeout(500)
     assert page.is_hidden("#venue-header") and page.is_hidden("#dots")
-    assert page.is_visible("#ticker")
-    # And it is on top: the element at the ticker's centre is the ticker, not a photo.
-    on_top = page.evaluate("""() => {
-        const r = document.getElementById('ticker').getBoundingClientRect();
-        const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-        return !!el && !!el.closest('#ticker');
+    # The real ticker is hidden like the header; a copy is inside the frame.
+    assert page.is_hidden("#ticker") and page.is_visible(".album-ticker")
+    geo = page.evaluate("""() => {
+        const r = (el) => { const b = el.getBoundingClientRect(); return {x: b.x, y: b.y, w: b.width, h: b.height}; };
+        const layer = document.querySelector('.album-layer.shown');
+        const t = document.querySelector('.album-ticker');
+        const c = {x: t.getBoundingClientRect().x + 20, y: t.getBoundingClientRect().y + t.getBoundingClientRect().height / 2};
+        const top = document.elementFromPoint(c.x, c.y);
+        return {ticker: r(t), mount: r(layer.querySelector('.print-mount')),
+                bottom: r(layer.querySelector('.frame-bottom')), left: r(layer.querySelector('.frame-left')),
+                text: t.innerText, onTop: !!top && !!top.closest('.album-ticker'),
+                realH: document.getElementById('ticker').offsetHeight, vw: innerWidth};
     }""")
-    assert on_top
+    t, m, b, l = geo["ticker"], geo["mount"], geo["bottom"], geo["left"]
+    assert "Ticker text" in geo["text"] and geo["onTop"]
+    assert t["h"] == geo["realH"]
+    # Between the frame's sides, resting on its bottom edge, and below the mount.
+    assert t["x"] == l["w"] and t["x"] + t["w"] == geo["vw"] - l["w"]
+    assert t["y"] + t["h"] == b["y"]
+    assert m["y"] + m["h"] <= t["y"] + 1
 
 
 def test_the_upcoming_surfaces_pause_for_the_visit_and_carry_on_after_it(venue, serve, page, write_tap):
@@ -222,3 +236,33 @@ def test_photos_only_is_one_endless_visit(venue, serve, page):
     assert not any(e["header"] or e["dots"] for e in log if e["visiting"])
     distinct = {e["photo"] for e in log if e["photo"]}
     assert len(distinct) >= 3             # it kept moving through the album (order: Name A-Z)
+
+
+def test_swiping_or_enter_through_the_taps_reaches_the_photos(venue, serve, page):
+    make_photos()
+    # Pages that would take a minute to turn by themselves.
+    config_store.update_config(rotation_seconds=60)
+    album_profile(album_every_turns=2, album_photos_per_visit=1, album_seconds_per_photo=120)
+    _open(page, serve())
+    page.keyboard.press("Enter")                      # turn 1 -> page 2
+    page.wait_for_timeout(300)
+    assert not _log(page)[-1]["visiting"]
+    # Two tap pages have now been on screen: the next forward move, a swipe to
+    # the left, starts the visit instead of turning the page.
+    box = page.query_selector("#board").bounding_box()
+    y = box["y"] + box["height"] / 2
+    page.evaluate("""([x1, x2, y]) => {
+        const b = document.getElementById('board');
+        const t = (x) => new Touch({identifier: 1, target: b, clientX: x, clientY: y});
+        b.dispatchEvent(new TouchEvent('touchstart', {touches: [t(x1)], changedTouches: [t(x1)], bubbles: true}));
+        b.dispatchEvent(new TouchEvent('touchend', {touches: [], changedTouches: [t(x2)], bubbles: true}));
+    }""", [box["width"] * 0.8, box["width"] * 0.2, y])
+    _wait_state(page, "visiting", timeout=3000)
+    # And by hand from the start: Enter twice from fresh taps also gets there.
+    page.keyboard.press("Enter")                      # K = 1: back to the taps
+    _wait_state(page, "idle", timeout=3000)
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(300)
+    assert not _log(page)[-1]["visiting"]
+    page.keyboard.press("Enter")
+    _wait_state(page, "visiting", timeout=3000)
