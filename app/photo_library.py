@@ -635,6 +635,9 @@ def process_next() -> bool:
             # The file changed under us: this copy is of the old content. Drop it
             # (the sweep removes the files) and let the next pass do the new one.
             if entry is None or entry.get("hash") != snapshot["hash"]:
+                # Unreferenced and fresh, so the sweep would spare it for the grace
+                # period: delete it now (a removed photo's copy must not be served).
+                _drop_copy_files_if_unused(copy_id)
                 return True
             old = entry.get("copy")
             entry["copy"] = {"id": copy_id, "settings": pipe.key, "ext": pipe.extension,
@@ -1277,9 +1280,13 @@ def _remove_rels(rels: Iterable[str]) -> list[str]:
             safe_unlink(_removed_meta_path(token))
             raise
         with _LOCK:
-            _load_index().pop(rel, None)
+            popped = _load_index().pop(rel, None) or {}
             _save_index()
         tokens.append(token)
+        # A copy installed by the pipeline since the snapshot above is dropped too.
+        latest = popped.get("copy")
+        if isinstance(latest, dict) and latest.get("id") and latest["id"] != meta["copy_id"]:
+            retired.append(latest["id"])
         for retired_id in retired:
             _drop_copy_files_if_unused(retired_id)    # a removed photo must stop showing at once
         if meta["copy_id"]:
