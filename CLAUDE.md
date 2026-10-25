@@ -244,6 +244,14 @@ because `admin.js` folds every checkbox of one name into a single true/false and
 album name may hold any character. `album_all` defaults to True on the form (unlike
 the other booleans' "missing means off") so a missing field can never become "a
 ticked list with nothing ticked".
+**The framed print (issue #61)** adds three more units: `album_mount_style`
+(`MOUNT_STYLES`: none/flat/double/shadow/float/random, default flat),
+`album_mount_color` with `album_mount_custom` (one unit; `MOUNT_COLORS`:
+photo/white/cream/black/custom/random, default photo; the custom hex goes through
+`parse_hex_color` and falls back to the default) and `album_frame` (`FRAMES`:
+none/thin-black/thin-white/oak/walnut/gilded/polaroid/random, default thin-black).
+Unknown values coerce to the default. The board's `album.print` carries the four
+as chosen; "random" travels as it is and the page picks per photo.
 
 ---
 
@@ -332,6 +340,14 @@ ticked list with nothing ticked".
   original's long side, the RAW's full size even when developed at half), and
   `photos_in` marks `low_res` under 1000 px (`LOW_RES_LONG_SIDE`): shown on the Photos
   tab as "Low resolution, will look soft", still shown on screens.
+- **The "From photo" mount colour (issue #61)** is sampled in `_render` from the fitted
+  copy's outer band (`MOUNT_EDGE_FRACTION`; transparency counted as the black it shows
+  on), desaturated and held inside
+  `MOUNT_LIGHTNESS`, and recorded as the index copy's `mount` (`#rrggbb`), carried on
+  `ReadyPhoto.mount` and each board photo entry. `_PIPELINE_VERSION` went to 2 for it,
+  so every older copy (which has no colour, and is served meanwhile with `mount`
+  null) is rebuilt once. **Change the sampling -> bump `_PIPELINE_VERSION`**, or the
+  old colours stay; a guard test pins the sampling constants to the version.
   `scripts/photo_decode_benchmark.py` times `_render` per file inside the image (the
   Raspberry Pi numbers are recorded on issue #59).
 - **Order.** `name` is natural and case-blind, `date` is newest first by date taken
@@ -581,8 +597,20 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
   every_turns` the next tick starts a visit instead of turning the page. A visit
   shows `min(photos_per_visit, photos)` photos, each `seconds_per_photo`, in two
   `<img>` layers cross-faded by opacity over `fade_seconds` (capped at half a photo
-  so a short photo never fades its whole life), `object-fit: contain` on black
-  (letterboxed; frames and mounts come later). `body.album-visit` hides the header,
+  so a short photo never fades its whole life). Each layer is a `.album-layer`
+  holding one **framed print** (issue #61) that `buildPrint`/`layoutPrint` lay out in
+  px: the frame's four mitred `.frame-side`s at the screen's edges (widths and the
+  Polaroid's wide bottom in `FRAME_WIDTH`, fractions of the short side), the
+  `.print-mount` filling inside it, an optional `.print-mat` (Double), and the
+  `.print-window` with the `<img class="album-photo">`, fitted inside the mount with
+  at least `MOUNT_WIDTH` all round (so a mismatched shape gets wider sides, as a mat
+  cut for it would). With mount style none there is no mount: the photo fills the
+  frame and a `.print-fill` behind it shows the same copy blurred and darkened.
+  Paper and wood textures are inline SVG `feTurbulence` data URIs (no fetch). The
+  resolved choices are on the layer as `data-style`/`data-color`/`data-frame`/
+  `data-mount`; "random" is picked per photo by `choosePrint`, from `MOUNT_STYLES`,
+  `MOUNT_COLORS` and `FRAMES` in display.js, which a drift guard ties to
+  config_store's tuples. A resize re-lays the shown print without choosing again. `body.album-visit` hides the header,
   dots and (unless `body.album-keep-ticker`) the ticker with `visibility`, so the
   board's grid does not reflow underneath. The visit plan is frozen at its start
   (settings changes apply from the next visit). `upcomingTick` returns early during
@@ -810,7 +838,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 996 tests, 30 files (the sixteen page tests skip without a browser, and the HEIC
+- 1038 tests, 31 files (the 36 page tests skip without a browser, and the HEIC
   tests without pillow-heif):
   **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
   the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a
@@ -826,7 +854,7 @@ inside it (it would land as a stray file in `/data`).
   login on every route), **the album on the board and
   in the Admin** (`test_album_board.py`: payload only with the album on, order,
   selection, clamping, no original referenced, the public copy route, the profile
-  editor), and **the page tests** (`tests/browser/`, Playwright - see below), colours (incl. the single Colour resolution point -
+  editor, the print settings), and **the page tests** (`tests/browser/`, Playwright - see below), colours (incl. the single Colour resolution point -
   swatch-vs-Placeholder agreement, preview-vs-board equivalence, Unknown
   fallbacks, `display_color_to_ebc`), beer-glass, themes, storage, the Tap file
   store (precedence walk, unreadable-file handling, the four on-disk filenames),
@@ -878,7 +906,10 @@ inside it (it would land as a stray file in `/data`).
   provenance in `photo_fixtures.py`), since nothing in CI can encode HEVC; a RAW is
   generated as a minimal linear DNG (`dng_bytes`). The board-update test uses Playwright's fake
   clock to reach the 30 s poll; the others run in real time with 3 s pages and 2 s
-  photos (about a minute for the nine).
+  photos (about two minutes for the 36). `test_framed_print.py` opens a photos-only
+  profile (the visit starts at once) for each mount style, mount colour and frame,
+  Random, a resize, and asserts that every request stays on the app; CI keeps every
+  screenshot as the `page-screenshots` artefact.
 - **The sync fixture fakes the httpx TRANSPORT, not `_list_batches`**, so the real
   listing, filtering, dedupe and pagination run in tests. Do not reintroduce a
   hand-written batch-list fake.

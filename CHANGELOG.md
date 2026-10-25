@@ -26,6 +26,18 @@ Merged to `main` and shipping in the next release.
 
 ### Added
 
+- **Photos as framed prints.** Each photo of an album visit is now shown as a
+  framed print, after Samsung's The Frame: a frame at the screen's edges (none,
+  thin black, thin white, oak, walnut, gilded or Polaroid with its wide bottom
+  edge), a mount inside it (none, flat, double, shadow box or float) and the
+  photo fitted inside the mount. The mount's colour is taken from the photo's
+  own edges by default (muted), or white, cream, black or a colour you pick.
+  Each can be Random, picked afresh for each photo, and each is set per screen
+  in the Settings tab's Photo album section. A photo with no mount fills the
+  frame, with a blurred, darkened copy of itself in the edges it leaves. All
+  drawn by the screen itself, with nothing fetched from the internet. Every
+  photo's screen copy is rebuilt once after the upgrade to pick up its mount
+  colour; photos stay on screen meanwhile.
 - **Every phone and camera photo format.** The photo album now reads GIF (the
   first frame), TIFF, BMP, AVIF, iPhone HEIC photos and camera RAW files (CR2,
   CR3, NEF, ARW, RAF, ORF and DNG) as well as JPEG, PNG and WebP, from the Photos
