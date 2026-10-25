@@ -383,6 +383,7 @@ def _scan(settle_seconds: float) -> ScanResult:
                 "date": prev.get("date") if prev else st.st_mtime,
                 # Kept so the previous copy is served until the new one is ready.
                 "copy": prev.get("copy") if prev else None,
+                "retired": prev.get("retired") if prev else None,
                 "error": None,
             }
             if prev is None:
@@ -643,7 +644,8 @@ def process_next() -> bool:
             entry["date"] = _epoch(taken) if taken else _mtime_seconds(entry)
             _save_index()
             if isinstance(old, dict) and old.get("id") and old["id"] != copy_id:
-                _drop_copy_files_if_unused(old["id"])
+                _retire_copy(entry, old["id"])
+                _save_index()
         return True
 
 
@@ -971,30 +973,39 @@ def begin_upload(declared_size: int | None = None, album: str = UNSORTED) -> Upl
 
 _kick_lock = threading.Lock()
 _kick_running = False
+_kick_again = False
 
 
 def kick_processing() -> None:
     """Start working through pending photos now rather than at the next minute's job.
 
     At most one such background run exists at a time; the one-at-a-time lock in
-    `process_next` still governs the actual decoding.
+    `process_next` still governs the actual decoding. A kick that arrives while a
+    run is going (even one just finishing) makes it take another pass, because
+    what the kick is about may have been missed by the pass in progress.
     """
-    global _kick_running
+    global _kick_running, _kick_again
     with _kick_lock:
         if _kick_running:
+            _kick_again = True
             return
         _kick_running = True
+        _kick_again = False
 
     def run() -> None:
-        global _kick_running
-        try:
-            scan()
-            process_pending()
-        except Exception:  # noqa: BLE001 - the scheduled job will try again
-            log.exception("photo processing after an upload failed")
-        finally:
+        global _kick_running, _kick_again
+        while True:
+            try:
+                scan()
+                process_pending()
+            except Exception:  # noqa: BLE001 - the scheduled job will try again
+                log.exception("photo processing after an upload failed")
             with _kick_lock:
+                if _kick_again:
+                    _kick_again = False
+                    continue
                 _kick_running = False
+                return
 
     threading.Thread(target=run, name="photo-process", daemon=True).start()
 
@@ -1091,6 +1102,30 @@ def _drop_copy_files_if_unused(copy_id: str) -> None:
             safe_unlink(_display_dir() / f"{copy_id}{ext}")
     if copy_id not in _referenced_ids(thumbs=True):
         safe_unlink(_thumb_dir() / f"{copy_id}.webp")
+
+
+def _retire_copy(entry: dict[str, Any], copy_id: str) -> None:
+    """A copy was replaced: keep its Display copy served for the grace period.
+
+    Screens fetch a new board only every 30 s, so one still on the previous list
+    asks for the old file. Its mtime is set to now, and the orphan sweep (which
+    spares files younger than `ORPHAN_GRACE_SECONDS`) removes it later. The
+    thumbnail is admin-only and goes at once. The id is remembered on the entry so
+    removing the photo can still delete it at once. The caller holds `_LOCK`.
+    """
+    now = time.time()
+    retired = [r for r in (entry.get("retired") or [])
+               if isinstance(r, dict) and now - float(r.get("at", 0)) < ORPHAN_GRACE_SECONDS]
+    if copy_id not in _referenced_ids():
+        for ext in _COPY_EXTENSIONS:
+            try:
+                os.utime(_display_dir() / f"{copy_id}{ext}", (now, now))
+            except OSError:
+                pass
+        retired.append({"id": copy_id, "at": now})
+    if copy_id not in _referenced_ids(thumbs=True):
+        safe_unlink(_thumb_dir() / f"{copy_id}.webp")
+    entry["retired"] = retired
 
 
 def create_album(name: str) -> str:
@@ -1230,6 +1265,8 @@ def _remove_rels(rels: Iterable[str]) -> list[str]:
         with _LOCK:
             entry = _load_index().get(rel) or {}
         copy = entry.get("copy")
+        retired = [r["id"] for r in (entry.get("retired") or [])
+                   if isinstance(r, dict) and r.get("id")]
         meta = {"album": _album_of(rel), "name": _name_of(rel), "ext": ext,
                 "removed_at": time.time(),
                 "copy_id": copy.get("id") if isinstance(copy, dict) else None}
@@ -1243,6 +1280,8 @@ def _remove_rels(rels: Iterable[str]) -> list[str]:
             _load_index().pop(rel, None)
             _save_index()
         tokens.append(token)
+        for retired_id in retired:
+            _drop_copy_files_if_unused(retired_id)    # a removed photo must stop showing at once
         if meta["copy_id"]:
             # The new Removed record keeps the thumbnail alive; the Display copy
             # (served on a public route) goes unless another photo shares it.

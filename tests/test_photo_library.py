@@ -318,7 +318,96 @@ def test_a_stale_copy_keeps_being_served_until_its_replacement_is_ready():
     new = lib.ready_photos()
     assert len(new) == 1 and new[0].copy_id != old.copy_id
     assert Image.open(lib.copy_file(new[0].filename)).size == (1440, 1080)
-    assert lib.copy_file(old.filename) is None                # the replaced copy is removed
+    assert lib.copy_file(old.filename) is not None            # screens on the old list still fetch it (see below)
+
+
+class Clock:
+    """A fake clock: the real time plus an offset the test advances, never slept."""
+
+    def __init__(self, monkeypatch):
+        real = time.time
+        self.offset = 0.0
+        monkeypatch.setattr(time, "time", lambda: real() + self.offset)
+
+    def advance(self, seconds):
+        self.offset += seconds
+
+
+def test_a_replaced_copy_keeps_serving_for_the_grace_period_then_is_swept(monkeypatch):
+    clock = Clock(monkeypatch)
+    build(("one.jpg", halves((800, 600))))
+    old, _ = only_copy()
+    old_path = lib.copy_file(old.filename)
+    old_path_age = 3 * 86400
+    backdate(old_path, old_path_age)                          # written long ago: its own age must not count
+    config_store.update_config(photo_size="1080p")
+    lib.process_next()
+    new, _ = only_copy()
+    assert new.copy_id != old.copy_id
+    assert lib.copy_file(old.filename) is not None            # a screen on the old list gets it
+    lib.scan()
+    assert lib.copy_file(old.filename) is not None            # a scan straight after still spares it
+    assert lib.ORPHAN_GRACE_SECONDS >= 2 * 30                 # at least two poll intervals (POLL_MS in display.js)
+    clock.advance(lib.ORPHAN_GRACE_SECONDS - 5)
+    lib.scan()
+    assert lib.copy_file(old.filename) is not None
+    clock.advance(10)
+    lib.scan()
+    assert lib.copy_file(old.filename) is None                # swept
+    assert lib.copy_file(new.filename) is not None
+
+
+def test_a_removed_photo_stops_serving_its_copy_at_once_even_just_after_a_rebuild(monkeypatch):
+    Clock(monkeypatch)
+    build(("one.jpg", halves((800, 600))))
+    old, _ = only_copy()
+    config_store.update_config(photo_size="1080p")
+    lib.process_next()
+    new, _ = only_copy()
+    assert lib.copy_file(old.filename) is not None            # in its grace period
+    (row,) = lib.photos_in("Unsorted")
+    lib.remove_photos([row.photo_id])
+    assert lib.copy_file(new.filename) is None                # the current copy goes at once
+    assert lib.copy_file(old.filename) is None                # and so does the one in grace
+    assert lib.ready_photos() == []
+
+
+def test_a_replaced_copy_shared_with_another_photo_is_not_retired(monkeypatch):
+    same = halves((640, 480))
+    build(("a.jpg", same), ("b.jpg", same))
+    (shared,) = {p.copy_id for p in lib.ready_photos()}
+    write_image(paths.PHOTOS_DIR / "a.jpg", Image.new("RGB", (900, 600), (1, 2, 3)))
+    lib.scan()
+    lib.process_pending()
+    # b still lists the old copy, so it is simply still in use, not retired.
+    assert shared in {p.copy_id for p in lib.ready_photos()}
+    assert len(lib.ready_photos()) == 2
+
+
+def test_a_kick_that_arrives_while_a_run_is_finishing_leads_to_another_pass(monkeypatch):
+    import threading
+    passes = []
+    done = threading.Event()
+
+    def fake_process_pending(*a, **k):
+        passes.append(1)
+        if len(passes) == 1:
+            lib.kick_processing()          # arrives while the first run has not yet marked itself finished
+        else:
+            done.set()
+        return 0
+
+    monkeypatch.setattr(lib, "scan", lambda *a, **k: None)
+    monkeypatch.setattr(lib, "process_pending", fake_process_pending)
+    lib.kick_processing()
+    assert done.wait(5)
+    assert len(passes) == 2
+    for _ in range(100):                   # the run then stops: a later kick starts a fresh one
+        with lib._kick_lock:
+            if not lib._kick_running:
+                break
+        time.sleep(0.02)
+    assert lib._kick_running is False
 
 
 def test_replacing_an_original_in_place_rebuilds_its_copy():

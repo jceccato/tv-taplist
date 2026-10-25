@@ -70,7 +70,7 @@ app/                FastAPI app + all logic
   timezone.py       TZ-aware iso_now()
 static/             css/display.css, css/admin.css, js/display.js, js/admin.js, placeholder.svg
 templates/          display.html, admin.html (tabbed), login.html
-tests/              pytest suite (956 tests, 30 files) + conftest.py fixtures; tests/browser = Playwright page tests
+tests/              pytest suite (960 tests, 30 files) + conftest.py fixtures; tests/browser = Playwright page tests
 Dockerfile · entrypoint.sh · docker-compose.yml · scripts/docker_test.sh
 scripts/setup.sh (guided installer / .env wizard)
 README.md           root landing page (embeds docs/venue_logo.png + docs/screenshot.png)
@@ -264,7 +264,13 @@ ticked list with nothing ticked".
   so deleting `photo_cache/` (or just `display/`) takes photos off the board until
   they are rebuilt. A stale copy (other settings, or an older version of the file)
   stays listed until its replacement is written (`copy.settings`/`copy.src` in the
-  index); a replaced copy's files are removed at once, orphans after 10 minutes.
+  index). **A replaced copy is not deleted at once**: screens poll the board only every 30 s,
+  so one still on the previous list would 404 every photo replaced since its last poll (and a
+  small album would blank to the taps). `_retire_copy` sets the old Display copy's mtime to now
+  and the orphan sweep (every scan) removes it once it is older than `ORPHAN_GRACE_SECONDS`
+  (10 minutes, well over two polls); its thumbnail goes at once. The index entry remembers the
+  retired ids (`retired`), so **removing a photo still deletes its current and retired copies at
+  once**. Other orphans are swept after the same 10 minutes.
 - **Format and size (issue #60).** Two global, never-customisable settings, `photo_format`
   (`webp` default / `jpeg`, compatibility mode for TVs that cannot show WebP) and `photo_size`
   (`4k` default / `1080p`), set from the Photos tab's Display copies panel by
@@ -773,7 +779,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 956 tests, 30 files (the fifteen page tests skip without a browser):
+- 960 tests, 30 files (the fifteen page tests skip without a browser):
   **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
   the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a
   Display P3 profile - upright, sRGB, 4K fit up and down, WebP q99, no metadata in

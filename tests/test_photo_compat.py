@@ -6,6 +6,7 @@ removal must still find a copy written under the old format.
 """
 import io
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -34,6 +35,13 @@ def _admin() -> TestClient:
     assert c.post("/admin/login", data={"password": "testpw"},
                   follow_redirects=False).status_code == 303
     return c
+
+
+def age_out(monkeypatch):
+    """Let the grace period of every replaced copy pass (a faked clock), then sweep."""
+    real = time.time
+    monkeypatch.setattr(time, "time", lambda: real() + lib.ORPHAN_GRACE_SECONDS + 60)
+    lib.scan()
 
 
 def display_files():
@@ -107,7 +115,7 @@ def test_a_1080p_jpeg_copy_has_both_changes():
     assert img.format == "JPEG" and img.size == (1620, 1080)
 
 
-def test_changing_the_format_keeps_serving_the_old_copy_until_each_new_one_is_written():
+def test_changing_the_format_keeps_serving_the_old_copy_until_each_new_one_is_written(monkeypatch):
     build("a.jpg", "b.jpg")
     old = {p.name: p for p in lib.ready_photos()}
     config_store.update_config(photo_format="jpeg")
@@ -120,12 +128,13 @@ def test_changing_the_format_keeps_serving_the_old_copy_until_each_new_one_is_wr
     assert lib.process_next() is True                    # one at a time
     mixed = {p.name: p for p in lib.ready_photos()}
     assert mixed["a.jpg"].filename.endswith(".jpg") and mixed["b.jpg"].filename.endswith(".webp")
-    assert lib.copy_file(old["a.jpg"].filename) is None            # the replaced copy is gone
+    assert lib.copy_file(old["a.jpg"].filename) is not None        # the replaced copy lingers for the grace period
     assert lib.copy_file(old["b.jpg"].filename) is not None        # the other is still served
     assert len(lib.ready_photos()) == 2 and lib.status().ready == 2
 
     lib.process_pending()
     assert [p.filename[-4:] for p in lib.ready_photos()] == [".jpg", ".jpg"]
+    age_out(monkeypatch)
     assert not any(n.endswith(".webp") for n in display_files())
     assert lib.status().pending == 0
 
@@ -140,7 +149,7 @@ def test_changing_the_size_keeps_serving_the_old_copy_until_replaced():
     assert new.copy_id != old.copy_id and Image.open(lib.copy_file(new.filename)).size == (1440, 1080)
 
 
-def test_changing_back_rebuilds_again():
+def test_changing_back_rebuilds_again(monkeypatch):
     build("a.jpg")
     config_store.update_config(photo_format="jpeg")
     lib.process_pending()
@@ -148,10 +157,11 @@ def test_changing_back_rebuilds_again():
     assert lib.status().pending == 1
     lib.process_pending()
     (photo,) = lib.ready_photos()
+    age_out(monkeypatch)
     assert photo.filename.endswith(".webp") and display_files() == [photo.filename]
 
 
-def test_removing_a_photo_during_a_format_change_deletes_its_old_format_copy():
+def test_removing_a_photo_during_a_format_change_deletes_its_old_format_copy(monkeypatch):
     build("a.jpg", "b.jpg")
     config_store.update_config(photo_format="jpeg")       # both copies are stale WebP
     rows = {r.name: r for r in lib.photos_in("Unsorted")}
@@ -160,15 +170,17 @@ def test_removing_a_photo_during_a_format_change_deletes_its_old_format_copy():
     assert [p.name for p in lib.ready_photos()] == ["b.jpg"]
     lib.process_pending()
     assert [p.filename[-4:] for p in lib.ready_photos()] == [".jpg"]
+    age_out(monkeypatch)
     assert len(display_files()) == 1
 
 
-def test_removing_a_photo_after_a_format_change_deletes_its_new_format_copy():
+def test_removing_a_photo_after_a_format_change_deletes_its_new_format_copy(monkeypatch):
     build("a.jpg", "b.jpg")
     config_store.update_config(photo_format="jpeg")
     lib.process_pending()
     rows = {r.name: r for r in lib.photos_in("Unsorted")}
     lib.remove_photos([rows["a.jpg"].photo_id])
+    age_out(monkeypatch)       # b's replaced WebP copy lingers until its grace is over; a's went at once
     assert display_files() == [lib.ready_photos()[0].filename]
     # The thumbnail waits in Removed (WebP, admin only), whatever the format.
     (removed,) = lib.list_removed()
