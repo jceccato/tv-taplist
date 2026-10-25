@@ -112,8 +112,12 @@ def test_a_flat_mounted_landscape_photo(venue, serve, page):
     make_prints()
     _frame_profile()                       # the defaults: Flat, From photo, thin black
     base = serve()
+    requests = []
+    page.on("request", lambda r: requests.append(r.url))
     _open(page, base)
     info = _settled(page)
+    # Drawn by the page itself: every request is to the app (textures are data: URIs).
+    assert requests and all(u.startswith((base, "data:")) for u in requests), requests
     _shot(page, "flat-landscape")
     S = min(info["vw"], info["vh"])
 

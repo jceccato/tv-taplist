@@ -457,4 +457,4 @@ def test_display_js_draws_exactly_the_print_choices_the_settings_offer():
     css = (_DISPLAY_JS.parent.parent / "css" / "display.css").read_text(encoding="utf-8")
     for frame in FRAMES:
         if frame not in ("none", "random"):
-            assert f".frame-{frame}" in css
+            assert re.search(rf"\.frame-{frame}(?![\w-])", css), f"no .frame-{frame} in display.css"

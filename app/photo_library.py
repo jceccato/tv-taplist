@@ -726,7 +726,7 @@ def _mount_colour(im: Image.Image) -> str:
     small copy so it costs nothing beside the encode, then desaturated and held
     inside MOUNT_LIGHTNESS. The page only paints it.
     """
-    small = im.convert("RGB")
+    small = _flatten(im.convert("RGBA") if "A" in im.getbands() else im.convert("RGB"))
     small.thumbnail((96, 96), Image.Resampling.BOX)
     w, h = small.size
     band = max(1, round(min(w, h) * MOUNT_EDGE_FRACTION))

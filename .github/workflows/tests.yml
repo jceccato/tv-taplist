@@ -67,10 +67,21 @@ jobs:
       - name: Install Chromium for the page tests
         run: python -m playwright install --with-deps chromium
 
+      # ALBUM_SHOTS keeps each page test's screenshots (the framed print in every
+      # style, colour and frame), uploaded below so the look can be judged by eye.
       - name: Run the page tests
         env:
           REQUIRE_BROWSER: "1"
+          ALBUM_SHOTS: page-shots
         run: python -m pytest tests/browser
+
+      - name: Keep the page screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: page-screenshots
+          path: page-shots
+          if-no-files-found: ignore
 
   # HEIC is decoded by pillow-heif compiled against Debian's decoder-only libheif
   # (ADR-0009), which only the image has: the job above skips the HEIC tests,

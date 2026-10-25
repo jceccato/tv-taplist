@@ -1400,12 +1400,12 @@
     }).join("");
   }
 
-  function box(el, x, y, w, h) {
-    el.style.left = x + "px"; el.style.top = y + "px";
-    el.style.width = w + "px"; el.style.height = h + "px";
+  function box(node, x, y, w, h) {
+    node.style.left = x + "px"; node.style.top = y + "px";
+    node.style.width = w + "px"; node.style.height = h + "px";
   }
 
-  function el(cls, tag) {
+  function printPart(cls, tag) {
     const node = document.createElement(tag || "div");
     node.className = cls;
     return node;
@@ -1429,40 +1429,40 @@
     const parts = {};
     if (!mount) {
       // The blurred fill: the same Display copy (already loaded), so no new fetch.
-      parts.fill = el("print-fill");
-      const fillImg = el("print-fill-img", "img");
+      parts.fill = printPart("print-fill");
+      const fillImg = printPart("print-fill-img", "img");
       fillImg.alt = "";
       fillImg.src = photo.url;
       parts.fill.appendChild(fillImg);
       layer.appendChild(parts.fill);
     } else {
-      parts.mount = el("print-mount");
+      parts.mount = printPart("print-mount");
       parts.mount.style.backgroundColor = mount;
       if (choice.style === "shadow") parts.mount.classList.add("print-mount-shadow");
       layer.appendChild(parts.mount);
       if (choice.style === "double") {
-        parts.mat = el("print-mat");
+        parts.mat = printPart("print-mat");
         parts.mat.style.backgroundColor = shade(mount, luminance(mount) > 0.35 ? 0.55 : -0.6);
         layer.appendChild(parts.mat);
       }
     }
-    parts.window = el("print-window print-window-" + choice.style);
+    parts.window = printPart("print-window print-window-" + choice.style);
     if (mount) {
       // The bevel's white core reads on any mount; on a very light mount it
       // needs a faint grey edge to show at all.
       parts.window.style.setProperty("--bevel-edge",
         luminance(mount) > 0.7 ? "rgba(0,0,0,0.22)" : "rgba(0,0,0,0.12)");
     }
-    const img = el("album-photo", "img");
+    const img = printPart("album-photo", "img");
     img.alt = "";
     img.src = photo.url;
     parts.window.appendChild(img);
     layer.appendChild(parts.window);
     if (choice.frame !== "none") {
       parts.sides = ["top", "right", "bottom", "left"].map((side) => {
-        const s = el(`frame-side frame-${side} frame-${choice.frame}`);
-        layer.appendChild(s);
-        return s;
+        const part = printPart(`frame-side frame-${side} frame-${choice.frame}`);
+        layer.appendChild(part);
+        return part;
       });
     }
     layer._print = { photo, choice, parts };

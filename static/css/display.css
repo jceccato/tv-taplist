@@ -662,7 +662,9 @@ html, body {
 .frame-gilded     { --mat-a: #f0d98c; --mat-b: #c49a3c; --mat-c: #7d5d1e; }
 .frame-polaroid   { --mat-a: #f6f4ee; --mat-b: #f1eee6; --mat-c: #e6e2d8; }
 .frame-polaroid.frame-side {
-  /* a flat card, not a moulding: barely any shading across it */
+  /* a flat card, not a moulding: barely any shading across it, a faint grain */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.48 0 0 0 0.12 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E");
+  --grain-size: 240px 240px;
   background-image: var(--grain), linear-gradient(var(--across), var(--mat-a), var(--mat-c));
   background-size: var(--grain-size), 100% 100%;
 }
@@ -680,12 +682,7 @@ html, body {
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='600'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.35 0.004' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.25 0 0 0 0 0.15 0 0 0 0 0.08 0 0 0 0.75 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
   --grain-size: 80px 600px;
 }
-.frame-walnut { background-blend-mode: normal, multiply, normal; }
-.frame-oak    { background-blend-mode: normal, multiply, normal; }
-.frame-polaroid.frame-side {
-  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.48 0 0 0 0.12 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E");
-  --grain-size: 240px 240px;
-}
+.frame-oak, .frame-walnut { background-blend-mode: normal, multiply, normal; }
 
 /* During a visit the header, the page dots and (unless kept) the ticker go.
    visibility, not display, so the board's grid does not reflow underneath. */

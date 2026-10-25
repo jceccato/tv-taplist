@@ -1049,3 +1049,19 @@ def test_a_copy_made_before_the_mount_colour_existed_is_rebuilt_with_one():
     assert stale.mount is None            # still served meanwhile, with no colour
     assert lib.process_pending() == 1     # the sampling change marked it stale
     assert only_copy()[0].mount is not None
+
+
+def test_retuning_the_mount_sampling_means_bumping_the_pipeline_version():
+    """Copies keep the colour they were made with until their key changes, so a
+    change to the sampling that leaves _PIPELINE_VERSION alone refreshes nothing.
+    Update this pin only together with a bump."""
+    assert (lib._PIPELINE_VERSION, lib.MOUNT_EDGE_FRACTION, lib.MOUNT_MAX_SATURATION,
+            lib.MOUNT_SATURATION_SCALE, lib.MOUNT_LIGHTNESS) == (2, 0.08, 0.22, 0.45, (0.18, 0.84))
+
+
+def test_a_transparent_edge_is_sampled_as_the_screen_shows_it_on_black():
+    im = Image.new("RGBA", (800, 600), (255, 255, 255, 0))        # clear white
+    im.paste(Image.new("RGBA", (400, 300), (200, 40, 30, 255)), (200, 150))
+    build(("clear.png", im))
+    _, light, _ = _hls(only_copy()[0].mount)
+    assert light == pytest.approx(lib.MOUNT_LIGHTNESS[0], abs=0.01)   # black, held at the floor
