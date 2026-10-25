@@ -172,6 +172,24 @@ Operator configuration - deliberate, human-authored, changed rarely. Lives in
 `config.json`.
 _Avoid_: config (in prose), options, preferences
 
+**Display profile**:
+A named set of differences from the Default profile for one kind of screen,
+chosen by the name in that screen's start URL. Each setting it does not
+customise follows the Default profile. Part of Settings, since the operator
+authors it.
+_Avoid_: screen config, display settings, mode, "display" alone (that is the TV page)
+
+**Default profile**:
+The Display profile every other profile follows, and the one a screen gets when
+it names no profile or one that does not exist. Cannot be deleted or renamed.
+_Avoid_: global profile, main profile, base
+
+**Customised setting**:
+A setting a Display profile holds its own value for, instead of following the
+Default profile. Some settings are customised only together, as one unit (a
+Theme and its colours).
+_Avoid_: override (that word belongs to Manual Taps and Colour), local setting
+
 **Status**:
 Machine-written runtime state - sync timestamps, last error, update-check
 results. Regenerable on the next cycle and written constantly by scheduled jobs,
@@ -229,6 +247,32 @@ _Avoid_: retired, removed
 Permanently deleted from the archive by the daily cleanup job - by age first,
 then oldest-first until under the size limit.
 _Avoid_: cleaned, pruned, expired
+
+### Photo album
+
+**Photo**:
+An image the operator added for screens to show between tap pages. The original
+is kept untouched. Not a Beer image: a Beer's photo belongs to the Beer.
+_Avoid_: picture, image (alone), slide
+
+**Album**:
+A named collection of Photos. A Display profile chooses which Albums it shows.
+_Avoid_: folder (in prose), gallery, collection
+
+**Album visit**:
+One stretch of Photos the carousel shows before returning to the tap pages.
+_Avoid_: slideshow, photo break
+
+**Display copy**:
+The version of a Photo that screens are actually sent: upright, in screen
+colour, sized for a TV. Disposable, because it is rebuilt from the original.
+_Avoid_: thumbnail (that is the Admin's small preview), cache, resized photo
+
+**Removed**:
+A Photo taken out of its Album but still recoverable. It is Purged (the same
+final step as for Archived beers) after a set number of days, or at once when
+the operator deletes it for good.
+_Avoid_: trashed, binned, archived (that word belongs to Taps)
 
 ## Known hazards
 
