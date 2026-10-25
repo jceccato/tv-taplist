@@ -515,7 +515,7 @@ until the next sync rebuilds it.
 ## Photos, and my old TV shows them blank
 
 Screens are never sent your original photos. Each photo is turned into a
-**Display copy**: upright, converted to ordinary sRGB colour, fitted to 4K and
+**Display copy**: upright, converted to ordinary sRGB colour, fitted to 4K (or 1080p, see below) and
 stripped of all metadata (so a phone's GPS location never leaves the box). By
 default that copy is WebP.
 

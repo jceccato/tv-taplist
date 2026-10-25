@@ -163,7 +163,7 @@ def pipeline() -> Pipeline:
     from . import config_store
     try:
         st = config_store.CONFIG_PATH.stat()
-        stamp: Any = (str(config_store.CONFIG_PATH), st.st_mtime_ns, st.st_size)
+        stamp: Any = (str(config_store.CONFIG_PATH), st.st_mtime_ns, st.st_size, st.st_ino)
     except OSError:
         stamp = None
     cached = _pipeline_cache
