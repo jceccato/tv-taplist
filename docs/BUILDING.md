@@ -129,6 +129,13 @@ DATA_DIR=./data ADMIN_PASSWORD=test SESSION_SECRET=dev DEMO_MODE=true \
 - **Display:** <http://localhost:8080/>
 - **Admin:** <http://localhost:8080/admin> (open -- `DEMO_MODE=true` with no password)
 
+HEIC photos need `pillow-heif` built from source against a decoder-only libheif
+(ADR-0009), which the Docker image does for you. Without it the app runs and the
+suite passes, with the HEIC tests skipped and HEIC photos reported as unreadable.
+Never `pip install pillow-heif` from a wheel: the wheels bundle x265 (GPLv2-only).
+On Debian trixie or newer, `apt install pkgconf libheif-dev` and then
+`pip install --no-binary pillow-heif -r requirements-heif.txt` builds it.
+
 Uvicorn's `--reload` watches Python files but is not perfectly reliable; restart
 manually for app-logic changes. Install dev dependencies (`-r requirements-dev.txt`)
 to run the test suite:

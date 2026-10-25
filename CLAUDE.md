@@ -57,7 +57,7 @@ app/                FastAPI app + all logic
   theme.py          colour theme presets + resolution (-> CSS variables)
   tap_store.py      Tap files by Slot+Source; Source precedence; md/image pair
   snapshot.py       Snapshot export/import: streamed zip, layout validation, credential gate
-  photo_library.py  The photo album: /data/photos, the Display copy cache, the scan and the one-at-a-time pipeline (Pillow); owns every photo path
+  photo_library.py  The photo album: /data/photos, the Display copy cache, the scan and the one-at-a-time pipeline (Pillow, pillow-heif, rawpy); owns every photo path
   seen_screens.py   In-memory list of recently seen screens (User-Agent, profile, how chosen); lost on restart
   admin_ops.py      Manual-override domain ops (save/clear) and Display profile ops (create/rename/delete/save) behind the admin write routes
   persistence.py    startup durability checks: is /data mapped, and is it the same /data (DDI)
@@ -70,7 +70,7 @@ app/                FastAPI app + all logic
   timezone.py       TZ-aware iso_now()
 static/             css/display.css, css/admin.css, js/display.js, js/admin.js, placeholder.svg
 templates/          display.html, admin.html (tabbed), login.html
-tests/              pytest suite (960 tests, 30 files) + conftest.py fixtures; tests/browser = Playwright page tests
+tests/              pytest suite (996 tests, 30 files) + conftest.py fixtures; tests/browser = Playwright page tests
 Dockerfile · entrypoint.sh · docker-compose.yml · scripts/docker_test.sh
 scripts/setup.sh (guided installer / .env wizard)
 README.md           root landing page (embeds docs/venue_logo.png + docs/screenshot.png)
@@ -291,8 +291,11 @@ ticked list with nothing ticked".
   re-scans every minute while it works, so a long batch never starves hand-made
   changes. `scan` re-hashes only files whose size or mtime changed, ignores files
   modified in the last 2 s (still being copied), skips hidden entries and symlinks,
-  and never empties the index when the folder itself is unreadable. Only JPEG, PNG
-  and WebP are photos here; other extensions are ignored, not reported.
+  and never empties the index when the folder itself is unreadable. Only
+  `PHOTO_EXTENSIONS` are photos here (JPEG, PNG, WebP, GIF, TIFF, BMP, AVIF, HEIC/HEIF
+  and the RAW list); other extensions are ignored, not reported. The same tuple
+  gates uploads, the Removed bin's records, and the Photos tab's file picker
+  (`accept` and the page's own check are rendered from it, so they cannot drift).
 - **The pipeline, one photo at a time** (`_PROCESS_LOCK`; deliberately NOT under
   `JOB_LOCK`, so a long decode never blocks an admin save): read the date taken
   from EXIF first, JPEG `draft()` for big files, `exif_transpose`, ICC to sRGB
@@ -302,7 +305,35 @@ ticked list with nothing ticked".
   px thumbnail (admin use, later). Pillow's pixel limit is set explicitly (200 MP)
   and a decompression-bomb warning is promoted to an error. Anything unreadable is
   recorded in the index with its reason (`status().failures`), shown in the Settings
-  fieldset, and retried only when the file or the settings change.
+  fieldset, and retried only when the file or the settings change. Any other
+  exception from one photo is logged and recorded as a failure too, so one file can
+  never stop the queue.
+- **Decoders (issue #59).** The extension picks the decoder; the content decides
+  whether it is accepted (`_ACCEPTED_FORMATS`: a PPM renamed `.jpg` is refused).
+  Pillow (>= 11.3 for AVIF) reads JPEG, PNG, WebP, GIF (first frame), TIFF, BMP and
+  AVIF. **HEIC** goes through `pillow_heif`'s opener: libheif applies the HEIF
+  rotation and pillow-heif resets the EXIF orientation to 1, so nothing turns it
+  twice. **It is optional at import** (`lib.pillow_heif is None` on a plain dev box,
+  and a HEIC is then a failure saying so) because it must be **built from source**
+  against Debian's decoder-only libheif (ADR-0009): the PyPI wheels bundle x265.
+  It is pinned in `requirements-heif.txt`, never `requirements.txt`; the Dockerfile
+  compiles it in a `heif-build` stage (`pkgconf` finds the multiarch headers;
+  pillow-heif 1.8 needs libheif >= 1.23.4, which trixie has) and the runtime stage
+  installs `libheif1` with `--no-install-recommends` (the x265 plugin is only a
+  Recommends) and **fails the build if any x265 package or file is present**. A
+  guard test pins the requirements and the Dockerfile flags. **Camera RAW**
+  (`RAW_EXTENSIONS`) goes through `rawpy`: the embedded JPEG preview when its long
+  side is >= 2000 px (`RAW_PREVIEW_MIN_LONG_SIDE`), turned by the RAW's flip when
+  the preview's own EXIF has no orientation, else a `postprocess(half_size=True,
+  use_camera_wb=True)` develop (which turns itself). The date taken is the RAW's
+  (`raw.other.timestamp`; LibRaw reports an unknown date as the epoch, which is
+  treated as none), never the preview EXIF, which is LibRaw's own copy. RAW size is
+  checked against the pixel limit before developing. Each copy records `long` (the
+  original's long side, the RAW's full size even when developed at half), and
+  `photos_in` marks `low_res` under 1000 px (`LOW_RES_LONG_SIDE`): shown on the Photos
+  tab as "Low resolution, will look soft", still shown on screens.
+  `scripts/photo_decode_benchmark.py` times `_render` per file inside the image (the
+  Raspberry Pi numbers are recorded on issue #59).
 - **Order.** `name` is natural and case-blind, `date` is newest first by date taken
   falling back to the file's mtime; `shuffle` returns the set in name order, since
   the page shuffles it (it also has to remember its place).
@@ -836,7 +867,12 @@ inside it (it would land as a stray file in `/data`).
   after the suite with `REQUIRE_BROWSER=1`, which turns a missing browser into a
   failure, after `playwright install --with-deps chromium`. On a box with only a
   system Chrome: `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/google-chrome
-  python -m pytest tests/browser`. The board-update test uses Playwright's fake
+  python -m pytest tests/browser`. **HEIC tests skip without `pillow_heif`** (a plain
+  `pip install` box): CI's `photos-in-image` job builds the image and runs the two
+  photo suites inside it with `REQUIRE_HEIC=1`, which makes a missing decoder a
+  failure. The HEIC fixture is the one binary fixture (`tests/fixtures/sideways.heic`,
+  provenance in `photo_fixtures.py`), since nothing in CI can encode HEVC; a RAW is
+  generated as a minimal linear DNG (`dng_bytes`). The board-update test uses Playwright's fake
   clock to reach the 30 s poll; the others run in real time with 3 s pages and 2 s
   photos (about a minute for the nine).
 - **The sync fixture fakes the httpx TRANSPORT, not `_list_batches`**, so the real

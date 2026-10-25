@@ -26,6 +26,15 @@ Merged to `main` and shipping in the next release.
 
 ### Added
 
+- **Every phone and camera photo format.** The photo album now reads GIF (the
+  first frame), TIFF, BMP, AVIF, iPhone HEIC photos and camera RAW files (CR2,
+  CR3, NEF, ARW, RAF, ORF and DNG) as well as JPEG, PNG and WebP, from the Photos
+  tab's uploads and from the `photos` folder. A RAW uses the camera's own preview
+  image when it is large enough and is developed at half size otherwise. A photo
+  under about 1000 pixels on its long side is marked "low resolution, will look
+  soft" on the Photos tab, and still shown. A file that cannot be read is listed
+  with the reason and never holds up the others. The FAQ has a JPEG fallback for
+  a HEIC photo that will not read.
 - **Manage photo albums, and a Removed bin.** On the Photos tab you can now create,
   rename and delete albums, tick many photos and move them to another album or
   remove them. Renaming an album in the Admin updates every screen that shows it

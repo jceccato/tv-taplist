@@ -19,6 +19,7 @@ A tour of what the app does and why. For getting it running, see
 - [Scrolling text, ticker & venue logo](#scrolling-text-ticker--venue-logo)
 - [Manual overrides](#manual-overrides)
 - [Photos, and my old TV shows them blank](#photos-and-my-old-tv-shows-them-blank)
+- [Which photo formats work? (HEIC, camera RAW)](#which-photo-formats-work-heic-camera-raw)
 - [Archiving & cleanup](#archiving--cleanup)
 - [Where is my data?](#where-is-my-data)
 - [Snapshots: getting your board off the box and back on](#snapshots-getting-your-board-off-the-box-and-back-on)
@@ -533,6 +534,28 @@ The same panel has a **Size** setting: 4K (default) or **1080p**, for a TV that
 is only 1080p or too slow to scale 4K images. Format and size are the same for
 every screen and profile, because there is one set of copies. Your originals
 are never touched, so you can switch back and forth.
+
+## Which photo formats work? (HEIC, camera RAW)
+
+Whatever a phone or camera produces: JPEG, PNG, WebP, GIF (the first frame of
+an animation), TIFF, BMP, AVIF, **HEIC** (an iPhone's default) and the common
+camera **RAW** formats: CR2, CR3, NEF, ARW, RAF, ORF and DNG. Upload them on
+the Photos tab or drop them into the `photos` folder; any other file there is
+ignored.
+
+- **Camera RAW.** The camera's own preview image, stored inside the RAW file,
+  is used when it is at least 2000 pixels on its long side, which is quick even
+  on a Raspberry Pi. Otherwise the RAW is developed at half size with the
+  camera's white balance. Either way, edits you made in Lightroom or similar
+  are not in the RAW file itself: export a JPEG if you want those.
+- **Small photos still show**, marked "low resolution, will look soft" on the
+  Photos tab when they are under about 1000 pixels on the long side.
+- **A file that cannot be read** is listed on the Photos tab with the reason,
+  and the rest carry on. Fix or re-export it and it is tried again.
+- **If a HEIC photo will not read**, export it as JPEG instead. On an iPhone,
+  Settings > Camera > Formats > **Most Compatible** makes the camera save JPEG
+  from then on, and Settings > Photos > Transfer to Mac or PC > **Automatic**
+  converts photos to JPEG when you copy them off the phone.
 
 ---
 
