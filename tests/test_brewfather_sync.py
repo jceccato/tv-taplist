@@ -8,7 +8,7 @@ import pytest
 
 from app import board, brewfather, config_store, mapping, paths, status_store, tap_store as taps
 from app import upcoming_store
-from app.beer import BEER_KEYS
+from app.beer import BEER_KEYS, Beer
 
 
 # ---- efficient list (complete=True + pagination) -----------------------
@@ -866,3 +866,118 @@ def test_a_batch_that_becomes_upcoming_is_logged_by_name(mock_network, caplog):
     with caplog.at_level("INFO", logger="taplist.sync"):
         brewfather.run_sync()
     assert "Loggable Lager" in caplog.text
+
+
+# ---- show upcoming beers per profile (issue #53, ADR-0006/0007) -----------
+
+def _one_upcoming_batch(mock_network):
+    mock_network["batches"] = [_batch(
+        "b1", None, "Someday IPA", status="Completed", batchNotes="upcoming:")]
+
+
+def test_sync_caches_upcoming_when_only_a_profile_has_it_on(mock_network):
+    _set_creds()
+    config_store.update_config(show_upcoming_previews=False,
+                               profiles={"tablet": {"show_upcoming_previews": True}})
+    _one_upcoming_batch(mock_network)
+    assert brewfather.run_sync()["upcoming"] == 1
+    assert len(upcoming_store.list_all()) == 1
+
+
+def test_sync_caches_upcoming_when_only_the_default_has_it_on(mock_network):
+    _set_creds()
+    config_store.update_config(show_upcoming_previews=True,
+                               profiles={"tv": {"show_upcoming_previews": False}})
+    _one_upcoming_batch(mock_network)
+    assert brewfather.run_sync()["upcoming"] == 1
+
+
+def test_sync_keeps_the_cache_while_a_profile_still_has_it_on(mock_network):
+    _set_creds()
+    config_store.update_config(show_upcoming_previews=False,
+                               profiles={"tablet": {"show_upcoming_previews": True}})
+    upcoming_store.write("stale", Beer(name="Old"), "", slot=None,
+                         status="fermenting", revision=1)
+    _one_upcoming_batch(mock_network)
+    brewfather.run_sync()
+    assert [e.beer.name for e in upcoming_store.list_all()] == ["Someday IPA"]
+
+
+def test_sync_clears_the_cache_only_when_no_profile_has_it_on(mock_network):
+    _set_creds()
+    config_store.update_config(show_upcoming_previews=False,
+                               profiles={"tv": {"show_upcoming_previews": False}})
+    upcoming_store.write("stale", Beer(name="Old"), "", slot=None,
+                         status="fermenting", revision=1)
+    _one_upcoming_batch(mock_network)
+    result = brewfather.run_sync()
+    assert result["upcoming"] == 0
+    assert upcoming_store.list_all() == []
+
+
+def test_a_profile_off_beside_a_default_that_is_on_does_not_stop_the_cache(mock_network):
+    _set_creds()
+    config_store.update_config(show_upcoming_previews=True,
+                               profiles={"tv": {"show_upcoming_previews": False}})
+    _one_upcoming_batch(mock_network)
+    brewfather.run_sync()
+    assert len(upcoming_store.list_all()) == 1
+
+
+def test_apply_settings_keeps_the_cache_while_a_profile_has_it_on():
+    config_store.update_config(show_upcoming_previews=True,
+                               profiles={"tablet": {"show_upcoming_previews": True}})
+    upcoming_store.write("b1", Beer(name="Saison"), "", slot=None,
+                         status="fermenting", revision=1)
+    config_store.apply_settings(show_upcoming_previews=False)
+    assert upcoming_store.list_all() != []
+
+
+def test_apply_settings_clears_the_cache_when_the_last_profile_goes_off():
+    config_store.update_config(show_upcoming_previews=True,
+                               profiles={"tv": {"show_upcoming_previews": False}})
+    upcoming_store.write("b1", Beer(name="Saison"), "", slot=None,
+                         status="fermenting", revision=1)
+    config_store.apply_settings(show_upcoming_previews=False)
+    assert upcoming_store.list_all() == []
+
+
+def test_apply_settings_clears_the_cache_when_a_save_turns_off_a_profiles_switch():
+    config_store.update_config(show_upcoming_previews=False,
+                               profiles={"tablet": {"show_upcoming_previews": True}})
+    upcoming_store.write("b1", Beer(name="Saison"), "", slot=None,
+                         status="fermenting", revision=1)
+    config_store.apply_settings(profiles={"tablet": {"show_upcoming_previews": False}})
+    assert upcoming_store.list_all() == []
+
+
+def test_the_board_shows_upcoming_per_profile_from_one_cache():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    config_store.update_config(
+        num_taps=2, show_upcoming_previews=False,
+        profiles={"tablet": {"show_upcoming_previews": True}})
+    upcoming_store.write("b1", Beer(name="Saison"), "", slot=None,
+                         status="fermenting", revision=1)
+    client = TestClient(app)
+    assert "upcoming" not in client.get("/api/board").json()
+    assert "upcoming" not in client.get("/api/board?display=nobody").json()
+    tablet = client.get("/api/board?display=tablet").json()
+    assert [t["batch_id"] for t in tablet["upcoming"]] == ["b1"]
+
+
+def test_a_profile_off_beside_a_default_on_gets_no_upcoming_fields():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    config_store.update_config(
+        num_taps=2, show_upcoming_previews=True,
+        profiles={"tv": {"show_upcoming_previews": False}})
+    upcoming_store.write("b1", Beer(name="Saison"), "", slot=None,
+                         status="fermenting", revision=1)
+    client = TestClient(app)
+    assert [t["batch_id"] for t in client.get("/api/board").json()["upcoming"]] == ["b1"]
+    assert "upcoming" not in client.get("/api/board?display=tv").json()
+
+
+def test_show_upcoming_previews_is_customisable_per_profile():
+    assert "show_upcoming_previews" in config_store.CUSTOMISABLE_KEYS

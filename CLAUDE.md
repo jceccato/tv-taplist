@@ -68,7 +68,7 @@ app/                FastAPI app + all logic
   timezone.py       TZ-aware iso_now()
 static/             css/display.css, css/admin.css, js/display.js, js/admin.js, placeholder.svg
 templates/          display.html, admin.html (tabbed), login.html
-tests/              pytest suite (690 tests, 20 files) + conftest.py fixtures
+tests/              pytest suite (701 tests, 20 files) + conftest.py fixtures
 Dockerfile · entrypoint.sh · docker-compose.yml · scripts/docker_test.sh
 scripts/setup.sh (guided installer / .env wizard)
 README.md           root landing page (embeds docs/venue_logo.png + docs/screenshot.png)
@@ -197,6 +197,14 @@ is the Default profile's, for callers with no screen in hand. `GET
 (`config_store.unknown_profile_names()`, bounded to 50, most recent last, lost on
 restart); `display.js` only forwards its own `?display=` on each poll.
 
+**"Show upcoming beers" is customisable per profile, but the cache is shared.**
+`config_store.upcoming_wanted(settings)` is true while the Default profile or
+any profile has `show_upcoming_previews` on; the sync's gate and convergence
+clear and `apply_settings`' clear all ask it, so `/data/upcoming/` is cleared
+only when no profile wants it (ADR-0006). Whether a screen shows them is the
+board's per-profile answer from its own effective settings. A profile that
+turns the switch on or off needs no sync change.
+
 ---
 
 ## Brewfather sync (`brewfather.py`)
@@ -272,7 +280,7 @@ restart); `display.js` only forwards its own `?display=` on each poll.
   `taps.occupied_slots(Source.MANUAL)` to learn which Slots a Manual Tap holds,
   because "a Manual Tap means the Slot is occupied" is part of the Occupancy
   rule deciding what becomes an Upcoming Beer. That is existence only, never
-  content, and only while `show_upcoming_previews` is on. Writes, image saves
+  content, and only while `config_store.upcoming_wanted` is true (the Default profile or any profile has `show_upcoming_previews` on). Writes, image saves
   and archives remain exclusively `SYNC_SOURCE` - do not "tidy" the exception
   away, and do not widen it into reading a Manual Tap's contents.
 - **Image downloads use a SEPARATE unauthenticated client** (`_image_client`):
@@ -578,7 +586,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 690 tests, 20 files: colours (incl. the single Colour resolution point -
+- 701 tests, 20 files: colours (incl. the single Colour resolution point -
   swatch-vs-Placeholder agreement, preview-vs-board equivalence, Unknown
   fallbacks, `display_color_to_ebc`), beer-glass, themes, storage, the Tap file
   store (precedence walk, unreadable-file handling, the four on-disk filenames),

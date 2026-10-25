@@ -46,6 +46,7 @@ from .atomic import JOB_LOCK
 from .config_store import (
     brewfather_credentials,
     load_config,
+    upcoming_wanted,
 )
 from .paths import ensure_dirs
 from .status_store import update_status
@@ -329,7 +330,7 @@ def run_sync() -> dict[str, Any]:
     """Execute one full sync. Returns a small status dict. Never raises."""
     ensure_dirs()
     cfg = load_config()
-    show_upcoming = bool(cfg.get("show_upcoming_previews", False))
+    show_upcoming = upcoming_wanted(cfg)
     if not show_upcoming:
         # Gate convergence (docs/adr/0006): a hand-edited config.json that
         # turns the feature off must reach an honest /data even without a
@@ -413,7 +414,8 @@ def run_sync() -> dict[str, Any]:
                 # Archive any existing bf_tap no Batch claims any more.
                 archived = _archive_undesired(desired)
 
-                # Upcoming Beers (issue #4): gated on show_upcoming_previews,
+                # Upcoming Beers (issue #4): gated on upcoming_wanted (the Default
+                # profile or any profile has show_upcoming_previews on, #53),
                 # and computed from the SAME `batches` list already fetched
                 # above - fetch scope is unchanged by this feature. Manual
                 # occupancy is read (never written) here, see the SYNC_SOURCE
@@ -429,8 +431,7 @@ def run_sync() -> dict[str, Any]:
                 # answer. The pre-lock value still decides the convergence
                 # clear above and nothing else.
                 teased = 0
-                show_upcoming = bool(
-                    load_config().get("show_upcoming_previews", False))
+                show_upcoming = upcoming_wanted(load_config())
                 if show_upcoming:
                     manual_slots = taps.occupied_slots(taps.Source.MANUAL)
                     occupied = mapping.resolve_occupancy(batches, manual_slots=manual_slots)

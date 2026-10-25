@@ -282,6 +282,23 @@ def resolve_effective(settings: dict[str, Any], profile_name: str | None) -> Eff
     return Effective({**base, **profiles[name]}, name, CHOSEN_URL)
 
 
+def upcoming_wanted(settings: dict[str, Any]) -> bool:
+    """True while the Default profile or any profile has "show upcoming beers" on.
+
+    The sync works out and caches Upcoming Beers on this answer, and
+    `/data/upcoming/` is cleared only when it is False (ADR-0006, ADR-0007).
+    Each profile's effective value is resolved the way a screen's is, so a
+    profile that follows the Default counts as the Default does. Whether a
+    given screen *shows* them is a separate, per-profile answer made at board
+    time.
+    """
+    profiles = settings.get("profiles") or {}
+    return any(
+        bool(resolve_effective(settings, name).settings.get(
+            "show_upcoming_previews", False))
+        for name in (None, *profiles))
+
+
 def effective_settings() -> dict[str, Any]:
     """The Default profile's effective settings, read from config.json.
 
@@ -805,15 +822,15 @@ def apply_settings(**fields: Any) -> dict[str, Any]:
     Deliberately validates nothing itself. An out-of-range value is clamped; the
     Admin form's inputs are what stop an operator entering one. See GLOSSARY.md.
 
-    One exception to "validates nothing": `show_upcoming_previews` going from
-    on to off clears `/data/upcoming/` immediately, right here at the write
-    seam, rather than waiting for the next sync's own convergence check
-    (`brewfather.run_sync` clears it too, for a hand-edited config.json - see
-    docs/adr/0006). It is the only Setting that deletes files, which is why
-    the admin's checkbox carries its own warning rather than this being a
-    surprise.
+    One exception to "validates nothing": `/data/upcoming/` is cleared
+    immediately, right here at the write seam, when a Save leaves no profile
+    (the Default included) with "show upcoming beers" on, rather than waiting
+    for the next sync's own convergence check (`brewfather.run_sync` clears it
+    too, for a hand-edited config.json - see docs/adr/0006). It is the only
+    Setting that deletes files, which is why the admin's checkbox carries its
+    own warning rather than this being a surprise.
     """
-    was_on = bool(load_config().get("show_upcoming_previews", False))
+    was_on = upcoming_wanted(load_config())
     fields = dict(fields)
     # The two axes resolve independently - picking a photo preset must not move
     # the text scale - and each is resolved only when the caller submitted it.
@@ -824,7 +841,7 @@ def apply_settings(**fields: Any) -> dict[str, Any]:
         fields["tap_text_preset"], fields["tap_text_scale"] = resolve_tap_text_preset(
             fields["tap_text_preset"], fields.get("tap_text_scale"))
     saved = update_config(**fields)
-    if was_on and not saved.get("show_upcoming_previews", False):
+    if was_on and not upcoming_wanted(saved):
         with JOB_LOCK:
             upcoming_store.clear()
     return saved
