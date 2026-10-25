@@ -92,9 +92,10 @@ def test_no_ready_photos_means_taps_only(venue, serve, page):
     assert not any(e["visiting"] for e in _log(page))
 
 
-def test_photos_are_letterboxed_full_screen_whatever_their_shape(venue, serve, page):
+def test_with_no_mount_and_no_frame_photos_fill_the_screen_whatever_their_shape(venue, serve, page):
     make_photos()
-    album_profile(album_photos_per_visit=3, album_seconds_per_photo=3, album_fade_seconds=0.2)
+    album_profile(album_photos_per_visit=3, album_seconds_per_photo=3, album_fade_seconds=0.2,
+                  album_mount_style="none", album_frame="none")
     _open(page, serve())
     seen = {}
     deadline = time.time() + 40
@@ -102,20 +103,23 @@ def test_photos_are_letterboxed_full_screen_whatever_their_shape(venue, serve, p
         page.wait_for_function("document.getElementById('album').dataset.photo", timeout=30_000)
         info = page.evaluate("""() => {
             const a = document.getElementById('album');
-            const img = Array.from(a.querySelectorAll('.album-photo')).find((i) => i.classList.contains('shown'));
+            const layer = Array.from(a.querySelectorAll('.album-layer')).find((l) => l.classList.contains('shown'));
+            const img = layer && layer.querySelector('.album-photo');
             if (!img || !img.naturalWidth) return null;
             const r = img.getBoundingClientRect();
-            return {id: a.dataset.photo, fit: getComputedStyle(img).objectFit,
-                    w: r.width, h: r.height, x: r.x, y: r.y, nw: img.naturalWidth, nh: img.naturalHeight,
-                    vw: innerWidth, vh: innerHeight};
+            return {id: a.dataset.photo, w: r.width, h: r.height, x: r.x, y: r.y,
+                    nw: img.naturalWidth, nh: img.naturalHeight, vw: innerWidth, vh: innerHeight};
         }""")
         if info:
             seen[info["id"]] = info
         page.wait_for_timeout(300)
     assert len(seen) == 3
     for info in seen.values():
-        assert info["fit"] == "contain"                       # letterboxed, never cropped
-        assert (info["x"], info["y"], info["w"], info["h"]) == (0, 0, info["vw"], info["vh"])
+        # Fitted whole (never cropped), touching two opposite edges, centred.
+        assert info["w"] / info["h"] == pytest.approx(info["nw"] / info["nh"], abs=0.01)
+        assert info["w"] == info["vw"] or info["h"] == info["vh"]
+        assert info["x"] + info["w"] / 2 == pytest.approx(info["vw"] / 2, abs=1)
+        assert info["y"] + info["h"] / 2 == pytest.approx(info["vh"] / 2, abs=1)
         # The Display copy is fitted to 4K, so no photo is left to the browser to upscale.
         assert info["nw"] <= 3840 and info["nh"] <= 2160
         assert info["nw"] == 3840 or info["nh"] == 2160

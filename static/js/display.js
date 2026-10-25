@@ -1174,7 +1174,7 @@
     shownInVisit: 0,
     seq: 0,                // invalidates a pending image load or timer when the visit moves on
     timer: null,
-    layer: 0,              // which of the two <img> layers is up
+    layer: 0,              // which of the two print layers is up
     queue: [],             // Shuffle: ids not yet shown in this pass
     passShown: new Set(),  // Shuffle: ids already shown in this pass
     orderKey: null,        // the order the place below belongs to
@@ -1275,8 +1275,8 @@
     document.body.classList.toggle("album-keep-ticker", cfg.keep_ticker === true);
     albumEl.hidden = false;
     albumEl.dataset.state = "visiting";
-    albumEl.querySelectorAll(".album-photo").forEach((img) => {
-      img.classList.remove("shown"); img.classList.add("instant"); img.removeAttribute("src");
+    albumEl.querySelectorAll(".album-layer").forEach((layer) => {
+      layer.classList.remove("shown"); layer.classList.add("instant"); clearPrint(layer);
     });
     void albumEl.offsetWidth;              // let the hidden -> shown change settle before fading in
     albumEl.classList.add("on");
@@ -1311,12 +1311,12 @@
   }
 
   function drawPhoto(photo) {
-    const layers = albumEl.querySelectorAll(".album-photo");
+    const layers = albumEl.querySelectorAll(".album-layer");
     album.layer = 1 - album.layer;
     const up = layers[album.layer];
     const down = layers[1 - album.layer];
     album.failures = 0;
-    up.src = photo.url;
+    buildPrint(up, photo, choosePrint(album.plan.print));
     // The first photo of a visit appears with the layer's own fade-in; later
     // ones cross-fade layer to layer.
     const first = album.shownInVisit === 0;
@@ -1328,6 +1328,193 @@
     album.shownInVisit++;
     album.timer = setTimeout(showNextPhoto, Math.max(2, Number(album.plan.seconds_per_photo) || 10) * 1000);
   }
+
+  /* ---- The framed print (issue #61) ----
+
+     Each photo is drawn as a framed print, after Samsung's The Frame: the frame
+     sits at the screen's edges, the mount fills the space inside it, and the
+     photo is fitted inside the mount with at least the mount's width all round
+     (a photo whose shape differs from the screen gets wider sides or a deeper
+     top and bottom, as a real mat cut for it would). With no mount the photo
+     fills the frame and the empty edges show a blurred, darkened copy of it.
+
+     Everything is drawn here in CSS (and inline SVG noise for the paper and
+     wood), with no network fetches. Sizes are fractions of the screen's short
+     side, so the print looks the same on a tablet and a 4K TV. "random" picks
+     one of the other choices, per photo, each time it is shown. The lists
+     below are drift-guarded against config_store's MOUNT_STYLES, MOUNT_COLORS
+     and FRAMES. */
+  const MOUNT_STYLES = ["none", "flat", "double", "shadow", "float"];
+  const MOUNT_COLORS = ["photo", "white", "cream", "black", "custom"];
+  const FRAMES = ["none", "thin-black", "thin-white", "oak", "walnut", "gilded", "polaroid"];
+  const MOUNT_HEX = { white: "#f3f2ee", cream: "#ebe3cf", black: "#1c1c1c" };
+  // A copy made before the colour was sampled has none: a neutral card stands in.
+  const MOUNT_FALLBACK = "#d9d3c7";
+  // Mount width by style, as a fraction of the short side (Flat is the spec's ~10 %).
+  const MOUNT_WIDTH = { none: 0, flat: 0.10, double: 0.10, shadow: 0.10, float: 0.12 };
+  const DOUBLE_INNER = 0.014;     // the second mat's reveal inside a Double mount
+  const BEVEL = 0.004;            // the cut mat's white core, around the window
+  // Frame widths: [sides and top, bottom]. Polaroid's bottom edge is the wide one.
+  const FRAME_WIDTH = {
+    none: [0, 0], "thin-black": [0.014, 0.014], "thin-white": [0.014, 0.014],
+    oak: [0.04, 0.04], walnut: [0.04, 0.04], gilded: [0.046, 0.046], polaroid: [0.045, 0.17],
+  };
+
+  function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
+
+  // One photo's resolved choices: never "random", and an unknown name (a newer
+  // server, a hand-edited config) falls back to the default look.
+  function choosePrint(cfg) {
+    const c = cfg || {};
+    const resolve = (value, list, fallback) =>
+      value === "random" ? pick(list) : (list.includes(value) ? value : fallback);
+    return {
+      style: resolve(c.mount_style, MOUNT_STYLES, "flat"),
+      color: resolve(c.mount_color, MOUNT_COLORS, "photo"),
+      frame: resolve(c.frame, FRAMES, "thin-black"),
+      custom: /^#[0-9a-f]{6}$/i.test(c.mount_custom || "") ? c.mount_custom : MOUNT_FALLBACK,
+    };
+  }
+
+  function mountHex(choice, photo) {
+    if (choice.color === "photo") {
+      return /^#[0-9a-f]{6}$/i.test(photo.mount || "") ? photo.mount : MOUNT_FALLBACK;
+    }
+    return choice.color === "custom" ? choice.custom : MOUNT_HEX[choice.color];
+  }
+
+  // Relative luminance, 0-1, from #rrggbb (for the second mat and the bevel).
+  function luminance(hex) {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  }
+
+  // `hex` moved toward black (amount > 0) or white (amount < 0).
+  function shade(hex, amount) {
+    const target = amount > 0 ? 0 : 255;
+    const a = Math.abs(amount);
+    return "#" + [1, 3, 5].map((i) => {
+      const v = parseInt(hex.slice(i, i + 2), 16);
+      return Math.round(v + (target - v) * a).toString(16).padStart(2, "0");
+    }).join("");
+  }
+
+  function box(el, x, y, w, h) {
+    el.style.left = x + "px"; el.style.top = y + "px";
+    el.style.width = w + "px"; el.style.height = h + "px";
+  }
+
+  function el(cls, tag) {
+    const node = document.createElement(tag || "div");
+    node.className = cls;
+    return node;
+  }
+
+  function clearPrint(layer) {
+    layer.textContent = "";
+    layer._print = null;
+    ["style", "color", "frame", "mount"].forEach((k) => layer.removeAttribute("data-" + k));
+  }
+
+  // Build one print into a layer. The layout itself is in layoutPrint, so a
+  // resize can lay the same print out again without choosing anew.
+  function buildPrint(layer, photo, choice) {
+    clearPrint(layer);
+    const mount = choice.style === "none" ? null : mountHex(choice, photo);
+    layer.dataset.style = choice.style;
+    layer.dataset.color = choice.style === "none" ? "none" : choice.color;
+    layer.dataset.frame = choice.frame;
+    if (mount) layer.dataset.mount = mount;
+    const parts = {};
+    if (!mount) {
+      // The blurred fill: the same Display copy (already loaded), so no new fetch.
+      parts.fill = el("print-fill");
+      const fillImg = el("print-fill-img", "img");
+      fillImg.alt = "";
+      fillImg.src = photo.url;
+      parts.fill.appendChild(fillImg);
+      layer.appendChild(parts.fill);
+    } else {
+      parts.mount = el("print-mount");
+      parts.mount.style.backgroundColor = mount;
+      if (choice.style === "shadow") parts.mount.classList.add("print-mount-shadow");
+      layer.appendChild(parts.mount);
+      if (choice.style === "double") {
+        parts.mat = el("print-mat");
+        parts.mat.style.backgroundColor = shade(mount, luminance(mount) > 0.35 ? 0.55 : -0.6);
+        layer.appendChild(parts.mat);
+      }
+    }
+    parts.window = el("print-window print-window-" + choice.style);
+    if (mount) {
+      // The bevel's white core reads on any mount; on a very light mount it
+      // needs a faint grey edge to show at all.
+      parts.window.style.setProperty("--bevel-edge",
+        luminance(mount) > 0.7 ? "rgba(0,0,0,0.22)" : "rgba(0,0,0,0.12)");
+    }
+    const img = el("album-photo", "img");
+    img.alt = "";
+    img.src = photo.url;
+    parts.window.appendChild(img);
+    layer.appendChild(parts.window);
+    if (choice.frame !== "none") {
+      parts.sides = ["top", "right", "bottom", "left"].map((side) => {
+        const s = el(`frame-side frame-${side} frame-${choice.frame}`);
+        layer.appendChild(s);
+        return s;
+      });
+    }
+    layer._print = { photo, choice, parts };
+    layoutPrint(layer);
+  }
+
+  function layoutPrint(layer) {
+    const p = layer._print;
+    if (!p) return;
+    const W = albumEl.clientWidth || window.innerWidth;
+    const H = albumEl.clientHeight || window.innerHeight;
+    const S = Math.min(W, H);
+    const { choice, photo, parts } = p;
+    layer.style.setProperty("--print-s", S + "px");
+    const [fs, fb] = FRAME_WIDTH[choice.frame].map((f) => Math.round(f * S));
+    // The space inside the frame: the mount, or the photo itself with no mount.
+    const ix = fs, iy = fs, iw = Math.max(1, W - 2 * fs), ih = Math.max(1, H - fs - fb);
+    const m = Math.round(MOUNT_WIDTH[choice.style] * S);
+    const inner = choice.style === "double" ? Math.round(DOUBLE_INNER * S) : 0;
+    const bevel = parts.mount ? Math.max(1, Math.round(BEVEL * S)) : 0;
+    // The photo fits inside the mount, at least m (plus the second mat and the
+    // bevel) from its edges, keeping its own shape.
+    const pad = m + inner + bevel;
+    const availW = Math.max(1, iw - 2 * pad), availH = Math.max(1, ih - 2 * pad);
+    const aspect = Number(photo.aspect) > 0 ? Number(photo.aspect) : availW / availH;
+    let pw = availW, ph = availW / aspect;
+    if (ph > availH) { ph = availH; pw = availH * aspect; }
+    pw = Math.round(pw); ph = Math.round(ph);
+    const px = Math.round(ix + (iw - pw) / 2), py = Math.round(iy + (ih - ph) / 2);
+    if (parts.fill) box(parts.fill, ix, iy, iw, ih);
+    if (parts.mount) box(parts.mount, ix, iy, iw, ih);
+    if (parts.mat) box(parts.mat, px - inner - bevel, py - inner - bevel, pw + 2 * (inner + bevel), ph + 2 * (inner + bevel));
+    box(parts.window, px, py, pw, ph);
+    parts.window.style.setProperty("--bevel", bevel + "px");
+    if (parts.sides) {
+      // Four mitred sides, so the wood grain runs along each one.
+      const [top, right, bottom, left] = parts.sides;
+      box(top, 0, 0, W, fs);
+      top.style.clipPath = `polygon(0 0, ${W}px 0, ${W - fs}px ${fs}px, ${fs}px ${fs}px)`;
+      box(bottom, 0, H - fb, W, fb);
+      bottom.style.clipPath = `polygon(${fs}px 0, ${W - fs}px 0, ${W}px ${fb}px, 0 ${fb}px)`;
+      box(left, 0, 0, fs, H);
+      left.style.clipPath = `polygon(0 0, ${fs}px ${fs}px, ${fs}px ${H - fb}px, 0 ${H}px)`;
+      box(right, W - fs, 0, fs, H);
+      right.style.clipPath = `polygon(${fs}px 0, ${fs}px ${H}px, 0 ${H - fb}px, 0 ${fs}px)`;
+    }
+  }
+
+  window.addEventListener("resize", () => {
+    if (!albumEl) return;
+    albumEl.querySelectorAll(".album-layer").forEach(layoutPrint);
+  });
 
   // Enter, Space, a click or a swipe: on to the next photo (or back to the taps
   // after the last one).
@@ -1350,8 +1537,8 @@
     album.hideTimer = setTimeout(() => {
       albumEl.hidden = true;
       albumEl.removeAttribute("data-photo");
-      albumEl.querySelectorAll(".album-photo").forEach((img) => {
-        img.classList.remove("shown"); img.removeAttribute("src");
+      albumEl.querySelectorAll(".album-layer").forEach((layer) => {
+        layer.classList.remove("shown"); clearPrint(layer);
       });
     }, (parseFloat(albumEl.style.getPropertyValue("--album-fade")) || 0) * 1000 + 50);
     // Board updates that arrived during the visit show now that the taps return.

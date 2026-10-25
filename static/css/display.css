@@ -535,9 +535,9 @@ html, body {
    masked the symptom rather than fixing it, so it's been removed.) */
 
 /* ---- Album visit (photo album, ADR-0008) -------------------------------------
-   A full-screen layer over the board. Photos are letterboxed (object-fit:
-   contain) on black; mounts and frames come later. The board underneath keeps
-   its layout, so the taps are exactly where they were when the visit ends. */
+   A full-screen layer over the board. The board underneath keeps its layout, so
+   the taps are exactly where they were when the visit ends. Two print layers
+   cross-fade by opacity; display.js builds one framed print into each. */
 .album {
   position: fixed;
   inset: 0;
@@ -548,17 +548,144 @@ html, body {
   cursor: pointer;
 }
 .album.on { opacity: 1; }
+.album-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity var(--album-fade, 1.5s) ease;
+}
+.album-layer.shown { opacity: 1; }
+.album-layer.instant { transition: none; }
+
+/* ---- The framed print (issue #61) ---------------------------------------------
+   Every part is absolutely placed by display.js (layoutPrint) in px; --print-s is
+   the screen's short side, so shadows and textures scale with the print. The
+   textures are inline SVG noise (data: URIs), never a fetch. */
+.album-layer > * { position: absolute; box-sizing: border-box; }
 .album-photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;        /* the window already has the photo's own shape */
+}
+
+/* No mount: the photo fills the frame, and the edges it leaves show a blurred,
+   darkened copy of it rather than bare bars. */
+.print-fill { overflow: hidden; background: #000; }
+.print-fill-img {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  opacity: 0;
-  transition: opacity var(--album-fade, 1.5s) ease;
+  object-fit: cover;
+  filter: blur(calc(var(--print-s, 1080px) * 0.035)) brightness(0.42) saturate(1.1);
+  transform: scale(1.12);   /* the blur's soft rim stays off screen */
 }
-.album-photo.shown { opacity: 1; }
-.album-photo.instant { transition: none; }
+
+/* The mount: card in its colour, a faint paper grain, and the frame's own
+   shadow falling on it at the edges. */
+.print-mount {
+  box-shadow: inset 0 0 calc(var(--print-s, 1080px) * 0.012) rgba(0, 0, 0, 0.28);
+}
+.print-mount::after,
+.print-mat::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.16;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.48 0 0 0 0 0.45 0 0 0 0.9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E");
+  background-size: 240px 240px;
+}
+/* Shadow box: the print sits deep inside the frame, which throws a heavier
+   shadow on the mount, darker from the light's side (top left). */
+.print-mount-shadow {
+  box-shadow:
+    inset calc(var(--print-s, 1080px) * 0.012) calc(var(--print-s, 1080px) * 0.016) calc(var(--print-s, 1080px) * 0.03) rgba(0, 0, 0, 0.5),
+    inset 0 0 calc(var(--print-s, 1080px) * 0.008) rgba(0, 0, 0, 0.35);
+}
+/* Double: a second mat showing a thin reveal around the window. */
+.print-mat {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+/* The window. A cut mat's bevel shows its white core around the photo, lit
+   from the top left; Float has no bevel, the photo stands off the mount on a
+   soft shadow instead; Shadow box adds a little shadow of its own. */
+.print-window-flat,
+.print-window-double,
+.print-window-shadow {
+  box-shadow:
+    0 0 0 var(--bevel, 2px) #f7f5ef,
+    calc(var(--bevel, 2px) * -0.5) calc(var(--bevel, 2px) * -0.5) 0 var(--bevel, 2px) rgba(255, 255, 255, 0.55),
+    calc(var(--bevel, 2px) * 0.6) calc(var(--bevel, 2px) * 0.6) 0 var(--bevel, 2px) var(--bevel-edge, rgba(0, 0, 0, 0.15)),
+    inset 1px 1px 2px rgba(0, 0, 0, 0.35);
+}
+.print-window-shadow {
+  box-shadow:
+    0 0 0 var(--bevel, 2px) #f7f5ef,
+    calc(var(--print-s, 1080px) * 0.004) calc(var(--print-s, 1080px) * 0.006) calc(var(--print-s, 1080px) * 0.014) rgba(0, 0, 0, 0.45);
+}
+.print-window-float {
+  box-shadow:
+    calc(var(--print-s, 1080px) * 0.006) calc(var(--print-s, 1080px) * 0.01) calc(var(--print-s, 1080px) * 0.03) rgba(0, 0, 0, 0.5),
+    0 0 calc(var(--print-s, 1080px) * 0.004) rgba(0, 0, 0, 0.25);
+}
+
+/* ---- Frames: four mitred sides, each shaded across its moulding (outer edge
+   catching the light, inner edge falling away), the bottom and right a touch
+   darker as the light is from the top left. Wood grain runs along each side. */
+.frame-side { --across: to bottom; --grain: none; --grain-size: 600px 80px; }
+.frame-top    { --across: to bottom; }
+.frame-bottom { --across: to top; }
+.frame-left   { --across: to right; }
+.frame-right  { --across: to left; }
+.frame-side {
+  background-image:
+    linear-gradient(var(--across), rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 35%, rgba(0, 0, 0, 0.32)),
+    var(--grain),
+    linear-gradient(var(--across), var(--mat-a), var(--mat-b) 55%, var(--mat-c));
+  background-size: 100% 100%, var(--grain-size), 100% 100%;
+}
+.frame-bottom::after,
+.frame-right::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.12);
+}
+.frame-thin-black { --mat-a: #2a2a2a; --mat-b: #141414; --mat-c: #0a0a0a; }
+.frame-thin-white { --mat-a: #ffffff; --mat-b: #efeee9; --mat-c: #d9d7d0; }
+.frame-oak        { --mat-a: #c9a06a; --mat-b: #b08350; --mat-c: #7f5a31; }
+.frame-walnut     { --mat-a: #6b4a32; --mat-b: #4f3423; --mat-c: #2e1d13; }
+.frame-gilded     { --mat-a: #f0d98c; --mat-b: #c49a3c; --mat-c: #7d5d1e; }
+.frame-polaroid   { --mat-a: #f6f4ee; --mat-b: #f1eee6; --mat-c: #e6e2d8; }
+.frame-polaroid.frame-side {
+  /* a flat card, not a moulding: barely any shading across it */
+  background-image: var(--grain), linear-gradient(var(--across), var(--mat-a), var(--mat-c));
+  background-size: var(--grain-size), 100% 100%;
+}
+.frame-polaroid.frame-bottom::after,
+.frame-polaroid.frame-right::after { background: rgba(0, 0, 0, 0.03); }
+/* Wood: long streaky noise along the side (horizontal on the top and bottom,
+   vertical on the sides), multiplied over the base. */
+.frame-oak.frame-top, .frame-oak.frame-bottom,
+.frame-walnut.frame-top, .frame-walnut.frame-bottom {
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='80'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.004 0.35' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.25 0 0 0 0 0.15 0 0 0 0 0.08 0 0 0 0.75 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  --grain-size: 600px 80px;
+}
+.frame-oak.frame-left, .frame-oak.frame-right,
+.frame-walnut.frame-left, .frame-walnut.frame-right {
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='600'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.35 0.004' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.25 0 0 0 0 0.15 0 0 0 0 0.08 0 0 0 0.75 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  --grain-size: 80px 600px;
+}
+.frame-walnut { background-blend-mode: normal, multiply, normal; }
+.frame-oak    { background-blend-mode: normal, multiply, normal; }
+.frame-polaroid.frame-side {
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.48 0 0 0 0.12 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E");
+  --grain-size: 240px 240px;
+}
 
 /* During a visit the header, the page dots and (unless kept) the ticker go.
    visibility, not display, so the board's grid does not reflow underneath. */

@@ -33,8 +33,9 @@
        layers alternate so one photo fades into the next. Hidden (and empty)
        outside a visit; a profile with the album off never shows it. -->
   <div id="album" class="album" data-state="idle" hidden aria-hidden="true">
-    <img class="album-photo" alt="">
-    <img class="album-photo" alt="">
+    <!-- Two layers cross-fade; each holds one framed print, built per photo. -->
+    <div class="album-layer"></div>
+    <div class="album-layer"></div>
   </div>
 
   <!-- Shown only if the very first board fetch fails (cold start, no cache) -->

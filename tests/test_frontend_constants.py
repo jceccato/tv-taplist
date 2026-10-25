@@ -441,3 +441,20 @@ def test_display_js_runs_the_album_it_is_told_and_never_reads_album_settings():
         assert raw not in js, f"display.js reads the raw Setting {raw}"
     assert "board.album" in js or "albumUpdate(board.album)" in js
     assert "/photos" not in js and "photo_cache" not in js
+
+
+def test_display_js_draws_exactly_the_print_choices_the_settings_offer():
+    """The framed print (issue #61): display.js draws each choice by name and picks
+    "random" from its own lists, so they must be the settings' choices less "random"."""
+    from app.config_store import FRAMES, MOUNT_COLORS, MOUNT_STYLES
+    js = _display_js()
+    for name, choices in (("MOUNT_STYLES", MOUNT_STYLES), ("MOUNT_COLORS", MOUNT_COLORS),
+                          ("FRAMES", FRAMES)):
+        m = re.search(rf"const {name} = \[([^\]]*)\]", js)
+        assert m, f"{name} not found in display.js"
+        assert re.findall(r'"([^"]+)"', m.group(1)) == [c for c in choices if c != "random"]
+    # Every frame has a material in display.css.
+    css = (_DISPLAY_JS.parent.parent / "css" / "display.css").read_text(encoding="utf-8")
+    for frame in FRAMES:
+        if frame not in ("none", "random"):
+            assert f".frame-{frame}" in css
