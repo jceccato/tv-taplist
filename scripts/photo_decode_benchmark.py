@@ -53,19 +53,22 @@ def main() -> int:
 
     failed = False
     for path in args.files:
-        failed |= not _time(path, pipe, args.runs)
-        if args.develop and path.suffix.lower() in lib.RAW_EXTENSIONS:
+        source = _report_timings(path, pipe, args.runs)
+        failed |= source is None
+        # A RAW that already took the develop path, or could not be read, needs no second pass.
+        if args.develop and source == lib.SOURCE_RAW_PREVIEW:
             preview_min = lib.RAW_PREVIEW_MIN_LONG_SIDE
             lib.RAW_PREVIEW_MIN_LONG_SIDE = sys.maxsize     # no preview is big enough
             try:
-                failed |= not _time(path, pipe, args.runs)
+                failed |= _report_timings(path, pipe, args.runs, "[forced develop] ") is None
             finally:
                 lib.RAW_PREVIEW_MIN_LONG_SIDE = preview_min
     return 1 if failed else 0
 
 
-def _time(path: Path, pipe: lib.Pipeline, runs: int) -> bool:
-    """Print one file's times through the pipeline; False when it cannot be read."""
+def _report_timings(path: Path, pipe: lib.Pipeline, runs: int, label: str = "") -> str | None:
+    """Print one file's times through the pipeline and return the decoder path it
+    took (Decoded.source), or None when it cannot be read."""
     times, out = [], None
     try:
         for _ in range(max(1, runs)):
@@ -73,14 +76,14 @@ def _time(path: Path, pipe: lib.Pipeline, runs: int) -> bool:
             out = lib._render(path, pipe)
             times.append(time.perf_counter() - started)
     except lib.UnreadablePhoto as exc:
-        print(f"{path.name}: UNREADABLE ({exc})")
-        return False
+        print(f"{label}{path.name}: UNREADABLE ({exc})")
+        return None
     mb = path.stat().st_size / 1024 ** 2
-    print(f"{path.name}: {mb:.1f} MB, long side {out.long_side} px, via {out.source}, "
+    print(f"{label}{path.name}: {mb:.1f} MB, long side {out.long_side} px, via {out.source}, "
           f"copy {out.width}x{out.height} ({len(out.display) / 1024 ** 2:.1f} MB)")
     print(f"  best {min(times):.2f} s  median {statistics.median(times):.2f} s  "
           f"runs {', '.join(f'{t:.2f}' for t in times)}")
-    return True
+    return out.source
 
 
 if __name__ == "__main__":
