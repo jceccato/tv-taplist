@@ -235,6 +235,13 @@ _MAX_RECORDED_NAME_LEN = 64   # longest name logged or remembered
 CHOSEN_DEFAULT = "default"    # no profile named
 CHOSEN_URL = "url"            # `?display=<name>` named an existing profile
 CHOSEN_UNKNOWN = "unknown"    # a name was asked for but no such profile exists
+CHOSEN_USER_AGENT = "user-agent"  # no name; the browser's User-Agent matched a profile
+
+# A profile's optional "also use for screens whose User-Agent contains" text.
+# It sits in the profile's dict beside the Customised settings but is not one:
+# it is never merged into the effective settings (see `resolve_effective`).
+PROFILE_UA_KEY = "match_user_agent"
+MAX_PROFILE_UA_LEN = 200
 
 
 def normalize_profile_name(name: Any) -> str | None:
@@ -253,33 +260,80 @@ class Effective(NamedTuple):
     `settings` are the **effective settings** (GLOSSARY.md): the profile's
     Customised settings over the Default profile. `profile` is the name that was
     applied ("default" for the Default profile). `chosen` says how: one of
-    CHOSEN_DEFAULT, CHOSEN_URL or CHOSEN_UNKNOWN.
+    CHOSEN_DEFAULT, CHOSEN_URL, CHOSEN_USER_AGENT or CHOSEN_UNKNOWN.
     """
     settings: dict[str, Any]
     profile: str
     chosen: str
 
 
-def resolve_effective(settings: dict[str, Any], profile_name: str | None) -> Effective:
+def normalize_user_agent_match(text: Any) -> str:
+    """The stored form of a profile's User-Agent text: trimmed, one line, capped.
+
+    Blank (or not a string) means the profile has no User-Agent match.
+    """
+    if not isinstance(text, str):
+        return ""
+    clean = " ".join(text.split())
+    return clean[:MAX_PROFILE_UA_LEN].strip()
+
+
+def profiles_matching_user_agent(settings: dict[str, Any],
+                                 user_agent: str | None) -> list[str]:
+    """Names of the profiles whose User-Agent text the browser's contains.
+
+    Case-insensitive substring, in list order: the first is the one that wins,
+    and more than one is a clash the Admin warns about.
+    """
+    if not user_agent:
+        return []
+    haystack = str(user_agent).lower()
+    out = []
+    for name, values in (settings.get("profiles") or {}).items():
+        needle = normalize_user_agent_match(values.get(PROFILE_UA_KEY)).lower()
+        if needle and needle in haystack:
+            out.append(name)
+    return out
+
+
+def _effective_for(settings: dict[str, Any], name: str, chosen: str) -> Effective:
+    base = {k: v for k, v in settings.items() if k != "profiles"}
+    mine = {k: v for k, v in settings["profiles"][name].items() if k != PROFILE_UA_KEY}
+    return Effective({**base, **mine}, name, chosen)
+
+
+def resolve_effective(settings: dict[str, Any], profile_name: str | None,
+                      user_agent: str | None = None) -> Effective:
     """Pure: resolve the effective settings for one screen.
 
     No I/O. `settings` is the coerced Settings (the Default profile plus the
-    stored `profiles`); `profile_name` is what the screen asked for, or None.
+    stored `profiles`); `profile_name` is what the screen asked for, or None;
+    `user_agent` is the browser's own, used only when no name was asked for.
     A setting the profile does not customise is read from `settings` here, at
     resolution time, so a change to the Default profile reaches every profile
-    that follows it. An unknown (or invalid) name gets the Default profile.
+    that follows it.
+
+    Precedence: `?display=` always wins. A name that is asked for but does not
+    exist gets the Default profile (and is listed as unknown) without consulting
+    the User-Agent, so a typo is never papered over. With no name, the first
+    profile (in list order) whose User-Agent text the browser's contains wins;
+    otherwise the Default profile.
     """
     profiles = settings.get("profiles") or {}
     base = {k: v for k, v in settings.items() if k != "profiles"}
-    if profile_name is None or not str(profile_name).strip():
+    asked = profile_name is not None and str(profile_name).strip() != ""
+    if asked and str(profile_name).strip().lower() == DEFAULT_PROFILE:
+        # Naming the Default profile explicitly is not a typo, and is a choice.
         return Effective(base, DEFAULT_PROFILE, CHOSEN_DEFAULT)
-    if str(profile_name).strip().lower() == DEFAULT_PROFILE:
-        # Naming the Default profile explicitly is not a typo.
-        return Effective(base, DEFAULT_PROFILE, CHOSEN_DEFAULT)
-    name = normalize_profile_name(profile_name)
-    if name is None or name not in profiles:
-        return Effective(base, DEFAULT_PROFILE, CHOSEN_UNKNOWN)
-    return Effective({**base, **profiles[name]}, name, CHOSEN_URL)
+    if asked:
+        name = normalize_profile_name(profile_name)
+        if name is None or name not in profiles:
+            return Effective(base, DEFAULT_PROFILE, CHOSEN_UNKNOWN)
+        return _effective_for(settings, name, CHOSEN_URL)
+    matches = profiles_matching_user_agent(settings, user_agent)
+    if matches:
+        return _effective_for(settings, matches[0], CHOSEN_USER_AGENT)
+    return Effective(base, DEFAULT_PROFILE, CHOSEN_DEFAULT)
 
 
 def upcoming_wanted(settings: dict[str, Any]) -> bool:
@@ -638,6 +692,10 @@ def _coerce_profiles(profiles: Any) -> dict[str, dict[str, Any]]:
                         str(raw_name)[:_MAX_RECORDED_NAME_LEN])
             continue
         out[name] = _coerce_profile(values)
+        ua = normalize_user_agent_match(values.get(PROFILE_UA_KEY)
+                                        if isinstance(values, dict) else None)
+        if ua:
+            out[name][PROFILE_UA_KEY] = ua
     return out
 
 

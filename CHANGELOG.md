@@ -36,6 +36,22 @@ Merged to `main` and shipping in the next release.
   profile name and adds `?display=<name>` to the start URL it writes (or set
   `DISPLAY_PROFILE`); the Android and Pi kiosk guides show the tablet and lounge
   TV example, and note that Android kiosks cannot be told apart by User-Agent.
+- **Display profile editor in the Admin.** Pick, create, rename and delete
+  profiles, and switch each setting between Follow and Customise. Every profile
+  shows its start URL with a Copy button, so you can open the Admin on the
+  screen instead of typing a URL on a TV remote. The Admin lists unknown profile
+  names that screens asked for since the last restart, so a typo in a kiosk URL
+  is visible, and asks before a rename (it breaks any start URL using the old
+  name; those screens show the Default profile).
+- **Pick a profile by User-Agent.** A profile can have an optional "Also use for
+  screens whose User-Agent contains" text (plain, any case), useful for LG webOS,
+  Samsung Tizen and Fire TV browsers, which mark themselves. `?display=` always
+  wins; with several matches the first profile in the list wins and the Admin
+  warns about the clash. Android TV and tablet kiosks send a generic User-Agent
+  and still need the URL.
+- **Recently seen screens.** The Admin lists the screens that loaded the board
+  (User-Agent, the profile each got and how, last seen), so you can copy a token
+  from a real screen. It is kept in memory only and starts empty after a restart.
 
 ---
 

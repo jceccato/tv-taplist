@@ -239,6 +239,10 @@ input[type=color] {
 .profile-url .btn, .profile-actions .btn { padding: 0.3rem 0.8rem; }
 .profile-actions { margin-top: 0.5rem; }
 .profile-actions .btn { flex: 0 0 auto; }
+.profile-ua { margin-top: 0.6rem; }
+.profile-ua input { width: 100%; max-width: 28rem; }
+.seen-screens { list-style: none; padding: 0; margin: 0.6rem 0 0; display: grid; gap: 0.6rem; }
+.seen-screen { border: 1px solid var(--border); border-radius: 10px; padding: 0.5rem 0.8rem; background: var(--panel-2); }
 .unknown-names { margin: 0.3rem 0 0; padding-left: 1.2rem; }
 
 /* A unit's Follow / Customise switch. A followed unit shows the Default

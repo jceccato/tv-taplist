@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -45,7 +46,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict
 
-from . import admin_ops, auth, snapshot, tap_store as taps
+from . import admin_ops, auth, seen_screens, snapshot, tap_store as taps
 from .atomic import JOB_LOCK, atomic_write_bytes, safe_unlink
 from .beer import Beer, TapPresentation
 from .beer_glass import DEFAULT_GLASS, GLASS_TYPES, beer_glass_svg
@@ -60,13 +61,19 @@ from .colors import (
     text_color_for,
 )
 from .config_store import (
+    MAX_PROFILE_UA_LEN,
     MAX_UPCOMING_LABEL_LEN,
     normalize_profile_name,
     SETTINGS_BOUNDS,
     UPCOMING_LABEL_PRESETS,
     apply_settings,
     brewfather_credentials,
+    CHOSEN_DEFAULT,
     CHOSEN_UNKNOWN,
+    CHOSEN_URL,
+    CHOSEN_USER_AGENT,
+    PROFILE_UA_KEY,
+    profiles_matching_user_agent,
     CUSTOMISABLE_UNITS,
     DEFAULT_PROFILE,
     load_config,
@@ -171,14 +178,18 @@ async def display_page(request: Request):
 
 
 @app.get("/api/board")
-async def api_board(display: str | None = None):
+async def api_board(request: Request, display: str | None = None):
     # The server applies the screen's Display profile (ADR-0007): the screen
     # forwards its `?display=` and gets a board that is already resolved. An
-    # unknown name gets the Default profile and is remembered for the Admin.
+    # unknown name gets the Default profile and is remembered for the Admin. A
+    # screen that names nothing may be picked by its User-Agent (ADR-0007), and
+    # every screen is noted in the Admin's recently seen list (memory only).
     # No-store so proxies never serve a stale board to a TV.
-    resolved = resolve_effective(load_config(), display)
+    user_agent = request.headers.get("user-agent")
+    resolved = resolve_effective(load_config(), display, user_agent)
     if resolved.chosen == CHOSEN_UNKNOWN:
         record_unknown_profile(display or "")
+    seen_screens.record_seen_screen(user_agent, resolved.profile, resolved.chosen)
     return JSONResponse(build_board(resolved.settings), headers={"Cache-Control": "no-store"})
 
 
@@ -454,19 +465,69 @@ def _start_url(request: Request, profile: str | None) -> str:
     return base + (f"?display={profile}" if profile else "")
 
 
+# How the Admin words each way a screen's profile was chosen.
+_CHOSEN_LABELS = {
+    CHOSEN_URL: "?display= in its URL",
+    CHOSEN_USER_AGENT: "User-Agent text",
+    CHOSEN_UNKNOWN: "unknown name, so the Default profile",
+    CHOSEN_DEFAULT: "no match, so the Default profile",
+}
+
+
+def _ago(seconds: float) -> str:
+    """A short "how long ago" for the recently seen list."""
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{seconds // 60} min ago"
+    if seconds < 86400:
+        return f"{seconds // 3600} h ago"
+    return f"{seconds // 86400} d ago"
+
+
+def _seen_view(stored: dict) -> tuple[list[dict], list[dict]]:
+    """The recently seen screens, and a warning for each whose User-Agent text clashes.
+
+    A clash is a seen User-Agent that two or more profiles' texts both match.
+    The first listed wins, so the warning says which.
+    """
+    now = time.time()
+    rows, clashes, warned = [], [], set()
+    for seen in seen_screens.seen_screens():
+        matches = profiles_matching_user_agent(stored, seen.user_agent)
+        rows.append({
+            "user_agent": seen.user_agent,
+            "profile": seen.profile,
+            "how": _CHOSEN_LABELS.get(seen.chosen, seen.chosen),
+            "last_seen": _ago(now - seen.last_seen),
+            "last_seen_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(seen.last_seen)),
+        })
+        if len(matches) > 1 and seen.user_agent not in warned:
+            warned.add(seen.user_agent)
+            clashes.append({"user_agent": seen.user_agent, "winner": matches[0],
+                            "others": matches[1:]})
+    return rows, clashes
+
+
 def _profile_view(request: Request, stored: dict, editing: str | None) -> dict:
     """Everything the profile picker, the profile list and the unit switches need."""
     profiles = stored["profiles"]
     defaults = resolve_effective(stored, None).settings
+    seen_rows, ua_clashes = _seen_view(stored)
     return {
         "profile_rows": [
             {
                 "name": name,
                 "url": _start_url(request, name),
                 "customised": [_unit_label(u) for u in admin_ops.customised_units(values)],
+                "match_user_agent": values.get(PROFILE_UA_KEY, ""),
             }
             for name, values in profiles.items()
         ],
+        "seen_screens": seen_rows,
+        "ua_clashes": ua_clashes,
+        "max_user_agent_len": MAX_PROFILE_UA_LEN,
         "default_url": _start_url(request, None),
         "unknown_profile_names": unknown_profile_names(),
         # Units this profile customises, for the switches' starting position.
@@ -806,7 +867,8 @@ async def save_settings(
         stored = _profile_call(
             lambda: admin_ops.save_profile(
                 asked, customise=customise,
-                values={**settings.model_dump(), "theme_custom": theme_custom}))
+                values={**settings.model_dump(), "theme_custom": theme_custom},
+                user_agent=form.get("match_user_agent")))
         log.info("admin saved profile %s (%d key(s))", asked[:32], len(stored))
         return {"ok": True}
 

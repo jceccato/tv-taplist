@@ -200,7 +200,10 @@ tap-side tablet and a lounge TV:
   on the device itself, or send the copied URL to it, so you do not have to
   type it on a TV remote.
 - **Use the URL, not the User-Agent.** The Admin can also match a profile on
-  text in the browser's User-Agent, which works for some smart-TV browsers.
+  text in the browser's User-Agent ("Also use for screens whose User-Agent
+  contains"), which works for some smart-TV browsers. A `?display=` in the URL
+  always wins over it, and the Admin's Recently seen screens list shows what
+  each screen sends.
   Android tablets, Android TV and Screenlite's WebView all send the same
   generic User-Agent, so they cannot be told apart that way. On Android always
   put `?display=` in the Kiosk URL.

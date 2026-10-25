@@ -261,7 +261,8 @@ def delete_profile(name: Any) -> None:
 
 
 def save_profile(name: Any, *, customise: Iterable[str],
-                 values: Mapping[str, Any]) -> dict[str, Any]:
+                 values: Mapping[str, Any],
+                 user_agent: str | None = None) -> dict[str, Any]:
     """Write one profile: exactly the units named in `customise`, from `values`.
 
     `values` is a full Settings submission; only the keys of the customised units
@@ -269,6 +270,9 @@ def save_profile(name: Any, *, customise: Iterable[str],
     dropped - that is what Follow means. Units that are not declared customisable
     are ignored. A named card-size preset owns its scale, as it does in a
     Settings Save. Returns the profile as stored (after clamping).
+
+    `user_agent` is the profile's "also use for screens whose User-Agent
+    contains" text: None leaves the stored text alone, blank clears it.
     """
     wanted = set(customise)
     key = _existing(name, config_store.load_config()["profiles"])
@@ -287,6 +291,11 @@ def save_profile(name: Any, *, customise: Iterable[str],
             mine["tap_text_preset"], mine["tap_text_scale"] = (
                 config_store.resolve_tap_text_preset(
                     mine["tap_text_preset"], mine["tap_text_scale"]))
+        ua_key = config_store.PROFILE_UA_KEY
+        text = (profiles[key].get(ua_key, "") if user_agent is None
+                else config_store.normalize_user_agent_match(user_agent))
+        if text:
+            mine[ua_key] = text
         profiles[key] = mine
         return profiles
 

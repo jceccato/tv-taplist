@@ -57,6 +57,7 @@ app/                FastAPI app + all logic
   theme.py          colour theme presets + resolution (-> CSS variables)
   tap_store.py      Tap files by Slot+Source; Source precedence; md/image pair
   snapshot.py       Snapshot export/import: streamed zip, layout validation, credential gate
+  seen_screens.py   In-memory list of recently seen screens (User-Agent, profile, how chosen); lost on restart
   admin_ops.py      Manual-override domain ops (save/clear) and Display profile ops (create/rename/delete/save) behind the admin write routes
   persistence.py    startup durability checks: is /data mapped, and is it the same /data (DDI)
   archive.py        move retired beers to old_beers/ (md+image as a pair)
@@ -68,7 +69,7 @@ app/                FastAPI app + all logic
   timezone.py       TZ-aware iso_now()
 static/             css/display.css, css/admin.css, js/display.js, js/admin.js, placeholder.svg
 templates/          display.html, admin.html (tabbed), login.html
-tests/              pytest suite (751 tests, 21 files) + conftest.py fixtures
+tests/              pytest suite (772 tests, 22 files) + conftest.py fixtures
 Dockerfile · entrypoint.sh · docker-compose.yml · scripts/docker_test.sh
 scripts/setup.sh (guided installer / .env wizard)
 README.md           root landing page (embeds docs/venue_logo.png + docs/screenshot.png)
@@ -196,6 +197,22 @@ is the Default profile's, for callers with no screen in hand. `GET
 /api/board?display=<name>` resolves and records unknown names in memory
 (`config_store.unknown_profile_names()`, bounded to 50, most recent last, lost on
 restart); `display.js` only forwards its own `?display=` on each poll.
+
+**User-Agent fallback.** A profile may carry `match_user_agent` (a plain,
+case-insensitive substring, trimmed, up to 200 characters) in its `profiles`
+dict. It is stored beside the Customised settings but is not one: `_coerce_profile`
+keeps units only, `_coerce_profiles` adds the text back, and `resolve_effective`
+never merges it into the effective settings. `resolve_effective(settings, name,
+user_agent)`: a name that is asked for always wins (an existing one is `url`;
+a missing one is `unknown` and gets the Default profile **without** trying the
+User-Agent, so a typo stays visible); with no name, the first profile in list
+order whose text the User-Agent contains wins (`user-agent`); else `default`.
+The text is saved by `admin_ops.save_profile(..., user_agent=)` (None keeps it,
+blank clears it) from the editing profile's own card in the Admin. **Recently seen
+screens** live in `app/seen_screens.py`, the single owner of that in-memory list
+(bounded to 50, one entry per User-Agent, profile and how it was chosen; never
+written to Settings or Status). `/api/board` records every request; the Admin lists
+them and warns when a seen User-Agent matches two or more profiles' texts.
 
 **"Show upcoming beers" is customisable per profile, but the cache is shared.**
 `config_store.upcoming_wanted(settings)` is true while the Default profile or
@@ -599,7 +616,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 751 tests, 21 files: colours (incl. the single Colour resolution point -
+- 772 tests, 22 files: colours (incl. the single Colour resolution point -
   swatch-vs-Placeholder agreement, preview-vs-board equivalence, Unknown
   fallbacks, `display_color_to_ebc`), beer-glass, themes, storage, the Tap file
   store (precedence walk, unreadable-file handling, the four on-disk filenames),
@@ -619,7 +636,10 @@ inside it (it would land as a stray file in `/data`).
   cannot drift from the import route),
   **Display profiles** (`test_display_profiles.py`: storage, unit coercion,
   clamping, names, `?display=` through `/api/board`, the unknown-name list,
-  Snapshot round trip, the display.js forwarding guard), **the profile editor**
+  Snapshot round trip, the display.js forwarding guard), **the User-Agent
+  fallback and recently seen screens** (`test_user_agent_profiles.py`: URL beats
+  User-Agent, first match wins, the seen list, the clash warning, and a guard that
+  `scripts/pi-kiosk.sh` and the server share one name pattern), **the profile editor**
   (`test_admin_profiles.py` over HTTP, plus the profile ops in `test_admin_ops.py`),
   Brewfather sync (conflicts, override precedence, token parsing, OG/FG, archive,
   Conditioning and Fermenting status selection, image-client credential isolation

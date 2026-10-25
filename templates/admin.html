@@ -157,6 +157,15 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             <button class="btn" type="button" data-copy="{{ row.url }}">Copy</button>
           </div>
           <p class="hint profile-customised">{% if row.customised %}Customises: {{ row.customised|join(', ') }}.{% else %}Follows the Default profile in everything.{% endif %}</p>
+          {% if editing == row.name %}
+          <div class="profile-ua">
+            <label for="match-user-agent">Also use for screens whose User-Agent contains</label>
+            <input type="text" id="match-user-agent" name="match_user_agent" form="settings-form" value="{{ row.match_user_agent }}" maxlength="{{ max_user_agent_len }}" placeholder="e.g. Web0S" autocomplete="off" spellcheck="false">
+            <p class="hint">Optional, saved with this profile's Save. Case does not matter. A screen with <code>?display=</code> always uses the profile it names; this only picks a profile for a screen that names none. If several profiles match, the first in this list wins.</p>
+          </div>
+          {% elif row.match_user_agent %}
+          <p class="hint profile-ua-set">Also used for screens whose User-Agent contains <code>{{ row.match_user_agent }}</code>.</p>
+          {% endif %}
           <div class="btn-row profile-actions">
             <button class="btn" type="button" data-profile-rename="{{ row.name }}">Rename</button>
             <button class="btn" type="button" data-profile-delete="{{ row.name }}">Delete</button>
@@ -173,6 +182,24 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
       </ul>
       {% else %}
       <p class="hint">None since the last restart.</p>
+      {% endif %}
+
+      <h3>Recently seen screens</h3>
+      {% for clash in ua_clashes %}
+      <div class="alert warn" role="status">Profiles <strong>{{ clash.winner }}</strong>{% for n in clash.others %}, <strong>{{ n }}</strong>{% endfor %} all match the User-Agent <code>{{ clash.user_agent }}</code>. The first in the list, <strong>{{ clash.winner }}</strong>, wins for a screen that has no <code>?display=</code>. Change one profile's text so only one matches.</div>
+      {% endfor %}
+      {% if seen_screens %}
+      <p class="hint">Screens that loaded the board since the last restart, newest first. To pick a profile by User-Agent, copy a distinctive part of a screen's User-Agent into that profile's text above. Kept in memory only.</p>
+      <ul class="seen-screens">
+        {% for s in seen_screens %}
+        <li class="seen-screen">
+          <div class="profile-url"><code>{{ s.user_agent }}</code>{% if s.user_agent != '(none sent)' %}<button class="btn" type="button" data-copy="{{ s.user_agent }}">Copy</button>{% endif %}</div>
+          <p class="hint">Got <strong>{{ s.profile }}</strong> ({{ s.how }}). Last seen <span title="{{ s.last_seen_at }}">{{ s.last_seen }}</span>.</p>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="hint">No screen has loaded the board since the last restart.</p>
       {% endif %}
     </section>
 

@@ -108,6 +108,24 @@ The Raspberry Pi installer asks for the profile name and writes the URL for you;
 the Android guide shows where to put it. Profile names are lowercase letters,
 digits and hyphens, up to 32 characters.
 
+In the Admin each profile shows its start URL with a **Copy** button, so you can
+open the Admin on the device (or send the URL to it) instead of typing on a TV
+remote. A screen that asks for a name the Admin does not know shows the Default
+profile, and the Admin lists that name under **Unknown profile names** until the
+next restart, so a typo is easy to spot. Renaming a profile breaks any start URL
+that used the old name (those screens show the Default profile), so the Admin
+asks before it renames.
+
+Some smart-TV browsers (LG webOS, Samsung Tizen, Fire TV) mark themselves, so a
+profile can also be picked without a URL parameter: in the profile editor, fill
+in **Also use for screens whose User-Agent contains** (plain text, any case).
+`?display=` always wins over it, and when several profiles match, the first one
+in the list is used (the Admin warns about the clash). Android TV and tablet
+kiosks send a generic User-Agent, so they still need the URL. The Admin's
+**Recently seen screens** list shows each screen's User-Agent, the profile it
+got and how, so you can copy a token from a real screen. It is kept in memory
+and starts empty after a restart.
+
 ---
 
 ## How it works

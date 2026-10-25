@@ -22,7 +22,7 @@ os.environ.setdefault("DEMO_MODE", "false")
 import pytest  # noqa: E402
 import yaml  # noqa: E402
 
-from app import auth, config_store, paths  # noqa: E402
+from app import auth, config_store, paths, seen_screens  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -44,6 +44,7 @@ def clean_state():
     config_store.save_config(dict(config_store.DEFAULT_CONFIG))
     auth._failed.clear()
     config_store.clear_unknown_profile_names()
+    seen_screens.clear_seen_screens()
     yield
 
 
