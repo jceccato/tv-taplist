@@ -262,6 +262,12 @@ def _hash_file(path: Path) -> str:
 
 
 def scan(settle_seconds: float = SETTLE_SECONDS) -> ScanResult:
+    """Reconcile the index with the disk, serialised with moves, renames and removals."""
+    with _STORE_LOCK:
+        return _scan(settle_seconds)
+
+
+def _scan(settle_seconds: float) -> ScanResult:
     """Reconcile the index with what is on disk (hand-made changes included).
 
     Only a file whose size or mtime changed is re-hashed. A file that vanished
@@ -1010,8 +1016,8 @@ def rename_album(old: str, new: str) -> str:
     if old == UNSORTED:
         raise AlbumRejected(f"“{UNSORTED}” cannot be renamed.")
     clean = _valid_album_name(new)
-    src = _album_dir(old)
     with _STORE_LOCK:
+        src = _album_dir(old)
         if any(a.casefold() == clean.casefold() and a != old for a in list_albums()):
             raise AlbumExists(f"There is already an album called “{clean}”.")
         if clean == old:
@@ -1166,6 +1172,8 @@ def list_removed() -> list[RemovedPhoto]:
     """The Removed view's photos, newest removal first."""
     out = []
     for token, m in _removed_metas().items():
+        if not (paths.PHOTOS_REMOVED_DIR / f"{token}{m['ext']}").is_file():
+            continue          # deleted by hand: simply gone
         cid = m.get("copy_id")
         out.append(RemovedPhoto(
             token, str(m.get("album") or UNSORTED), str(m.get("name") or token),
@@ -1200,6 +1208,7 @@ def restore_removed(removed_ids: Iterable[str]) -> int:
                     album = _valid_album_name(album)
                 except AlbumRejected:
                     album = UNSORTED           # a hand-edited record: never leave the library
+            album = next((a for a in list_albums() if a.casefold() == album.casefold()), album)
             folder = paths.PHOTOS_DIR if album == UNSORTED else paths.PHOTOS_DIR / album
             folder.mkdir(parents=True, exist_ok=True)
             stem, ext = _clean_name(str(meta.get("name") or token))

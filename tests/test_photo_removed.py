@@ -422,3 +422,23 @@ def test_removed_photos_never_reach_the_board():
     assert c.get(f"/img/photo/{gone.filename}").status_code == 404
     lib.remove_photos([p.photo_id for p in lib.ready_photos()])
     assert "/img/photo/" not in board_filenames()
+
+
+def test_a_removed_photo_deleted_from_disk_by_hand_leaves_the_bin_view():
+    build("a.jpg")
+    lib.remove_photos(ids("Unsorted", "a.jpg"))
+    next(paths.PHOTOS_REMOVED_DIR.glob("*.jpg")).unlink()
+    assert lib.list_removed() == []
+
+
+def test_restore_joins_an_album_whose_folder_differs_only_in_case():
+    build("a.jpg")
+    lib.remove_photos(ids("Unsorted", "a.jpg"))
+    record = next(paths.PHOTOS_REMOVED_DIR.glob("*.json"))
+    meta = json.loads(record.read_text())
+    meta["album"] = "BEACH"
+    record.write_text(json.dumps(meta))
+    lib.create_album("beach")
+    lib.restore_removed([record.stem])
+    assert (paths.PHOTOS_DIR / "beach" / "a.jpg").is_file()
+    assert lib.list_albums() == ["beach"]

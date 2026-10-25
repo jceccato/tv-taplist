@@ -70,7 +70,7 @@ app/                FastAPI app + all logic
   timezone.py       TZ-aware iso_now()
 static/             css/display.css, css/admin.css, js/display.js, js/admin.js, placeholder.svg
 templates/          display.html, admin.html (tabbed), login.html
-tests/              pytest suite (935 tests, 29 files) + conftest.py fixtures; tests/browser = Playwright page tests
+tests/              pytest suite (937 tests, 29 files) + conftest.py fixtures; tests/browser = Playwright page tests
 Dockerfile · entrypoint.sh · docker-compose.yml · scripts/docker_test.sh
 scripts/setup.sh (guided installer / .env wizard)
 README.md           root landing page (embeds docs/venue_logo.png + docs/screenshot.png)
@@ -758,7 +758,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 935 tests, 29 files (the fourteen page tests skip without a browser):
+- 937 tests, 29 files (the fourteen page tests skip without a browser):
   **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
   the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a
   Display P3 profile - upright, sRGB, 4K fit up and down, WebP q99, no metadata in

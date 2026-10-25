@@ -93,7 +93,7 @@ def run_cleanup() -> dict[str, Any]:
         purged_photos = 0
         try:
             purged_photos = photo_library.purge_removed(
-                int(cfg.get("photo_removed_retention_days", 30)))
+                int(cfg["photo_removed_retention_days"]))
         except OSError as exc:        # independent of the archive: neither's trouble stops the other
             log.error("cleanup could not purge Removed photos: %s", exc)
 
