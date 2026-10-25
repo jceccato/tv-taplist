@@ -57,7 +57,7 @@ app/                FastAPI app + all logic
   theme.py          colour theme presets + resolution (-> CSS variables)
   tap_store.py      Tap files by Slot+Source; Source precedence; md/image pair
   snapshot.py       Snapshot export/import: streamed zip, layout validation, credential gate
-  admin_ops.py      Manual-override domain ops (save/clear) behind the admin write routes
+  admin_ops.py      Manual-override domain ops (save/clear) and Display profile ops (create/rename/delete/save) behind the admin write routes
   persistence.py    startup durability checks: is /data mapped, and is it the same /data (DDI)
   archive.py        move retired beers to old_beers/ (md+image as a pair)
   cleanup.py        daily age/size archive pruning (03:30 local)
@@ -68,7 +68,7 @@ app/                FastAPI app + all logic
   timezone.py       TZ-aware iso_now()
 static/             css/display.css, css/admin.css, js/display.js, js/admin.js, placeholder.svg
 templates/          display.html, admin.html (tabbed), login.html
-tests/              pytest suite (701 tests, 20 files) + conftest.py fixtures
+tests/              pytest suite (750 tests, 21 files) + conftest.py fixtures
 Dockerfile · entrypoint.sh · docker-compose.yml · scripts/docker_test.sh
 scripts/setup.sh (guided installer / .env wizard)
 README.md           root landing page (embeds docs/venue_logo.png + docs/screenshot.png)
@@ -434,7 +434,8 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
 
 ## Routes (`app/main.py`)
 `/` display · `/admin` (+ `/admin/login`,`/admin/logout`) · `GET /api/board`
-· `GET /api/preview-color` · `POST /admin/settings` · `POST /admin/override/{tap}`
+· `GET /api/preview-color` · `POST /admin/settings` · `POST /admin/profiles`,`/{name}/rename`,`/{name}/delete`
+· `POST /admin/override/{tap}`
 · `POST /admin/venue-logo` · `POST /admin/sync` · `GET /admin/snapshot`
 · `POST /admin/snapshot/stage`,`/discard`,`/import` · `/img/beer-glass`,
 `/img/placeholder`,`/img/venue-logo`,`/img/<file>` · `GET /healthz`.
@@ -466,6 +467,18 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
   **The typed form parameters are load-bearing** - `admin.js` posts checkboxes as
   the strings `"true"`/`"false"` and `bool("false")` is True, so raw form strings
   handed to the store would save every unchecked box as checked.
+- **The profile editor** is the same form. `GET /admin?profile=<name>` renders the
+  Settings and Theme tabs for that profile (unknown name: Default); every
+  customisable unit sits in a `unit(...)` wrapper in `admin.html` with a
+  `customise_<unit>` checkbox, and a test fails if a unit in
+  `CUSTOMISABLE_UNITS` has no wrapper or no label in `PROFILE_UNIT_LABELS`.
+  `POST /admin/settings` with a `profile` field calls `admin_ops.save_profile`
+  (only customised units are stored; Follow drops the value; the Default profile
+  and venue-wide settings cannot be written this way) through `apply_settings`,
+  so the upcoming cache is cleared the same way. Global-only blocks stay in the
+  markup with `hidden` (the required form fields still post) and the Manual
+  overrides and Snapshot tabs are not rendered. `admin.js` keeps what was typed
+  while a unit is on Follow. Start URLs are built from the request's own host.
 - **`POST /admin/override/{tap}`** vets the upload, then calls
   `admin_ops.save_override` / `clear_override`, which own the JOB_LOCK section.
 
@@ -586,7 +599,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 701 tests, 20 files: colours (incl. the single Colour resolution point -
+- 750 tests, 21 files: colours (incl. the single Colour resolution point -
   swatch-vs-Placeholder agreement, preview-vs-board equivalence, Unknown
   fallbacks, `display_color_to_ebc`), beer-glass, themes, storage, the Tap file
   store (precedence walk, unreadable-file handling, the four on-disk filenames),
@@ -606,7 +619,8 @@ inside it (it would land as a stray file in `/data`).
   cannot drift from the import route),
   **Display profiles** (`test_display_profiles.py`: storage, unit coercion,
   clamping, names, `?display=` through `/api/board`, the unknown-name list,
-  Snapshot round trip, the display.js forwarding guard),
+  Snapshot round trip, the display.js forwarding guard), **the profile editor**
+  (`test_admin_profiles.py` over HTTP, plus the profile ops in `test_admin_ops.py`),
   Brewfather sync (conflicts, override precedence, token parsing, OG/FG, archive,
   Conditioning and Fermenting status selection, image-client credential isolation
   at both the factories and the download call site), **the admin domain ops**

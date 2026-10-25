@@ -21,7 +21,6 @@ from typing import Any
 
 from . import config_store
 from . import tap_store as taps
-from . import upcoming_store
 from .archive import archive_tap
 from .atomic import JOB_LOCK
 from .beer import Beer, TapPresentation
@@ -195,20 +194,14 @@ def _existing(raw: Any, profiles: Mapping[str, Any]) -> str:
 def _write_profiles(change) -> dict[str, Any]:
     """Apply `change(profiles)` to a copy of the stored profiles and save it.
 
-    Returns the Settings as saved. If the change leaves no profile (and not the
-    Default) wanting Upcoming Beers where one did, the upcoming cache is cleared
-    here, at the write, exactly as a Settings Save does (ADR-0006).
+    Returns the Settings as saved. The write goes through `apply_settings`,
+    which clears the upcoming cache when the change leaves no profile (and not
+    the Default) wanting Upcoming Beers (ADR-0006).
     """
     with _PROFILES_LOCK:
-        before = config_store.load_config()
-        profiles = {name: dict(values) for name, values in before["profiles"].items()}
-        profiles = change(profiles)
-        saved = config_store.update_config(profiles=profiles)
-    if (config_store.upcoming_wanted(before)
-            and not config_store.upcoming_wanted(saved)):
-        with JOB_LOCK:
-            upcoming_store.clear()
-    return saved
+        profiles = {name: dict(values)
+                    for name, values in config_store.load_config()["profiles"].items()}
+        return config_store.apply_settings(profiles=change(profiles))
 
 
 def customised_units(values: Mapping[str, Any]) -> list[str]:

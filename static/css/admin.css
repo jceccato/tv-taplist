@@ -224,3 +224,30 @@ input[type=color] {
 }
 .login-card h1 { margin-bottom: 0.3rem; }
 .login-card .btn { width: 100%; text-align: center; }
+
+/* ---- Display profiles ---- */
+[hidden] { display: none !important; }
+.profile-picker { display: flex; align-items: center; gap: 0.8rem; }
+.profile-picker label { margin: 0; }
+.profile-picker select { max-width: 18rem; }
+.profile-new { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.6rem; }
+.profile-new .btn { margin-top: 0; }
+.profile-list { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: 0.8rem; }
+.profile-item { border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 0.9rem; background: var(--panel-2); }
+.profile-url { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.3rem; }
+.profile-url code { word-break: break-all; }
+.profile-url .btn, .profile-actions .btn { padding: 0.3rem 0.8rem; }
+.profile-actions { margin-top: 0.5rem; }
+.profile-actions .btn { flex: 0 0 auto; }
+.unknown-names { margin: 0.3rem 0 0; padding-left: 1.2rem; }
+
+/* A unit's Follow / Customise switch. A followed unit shows the Default
+   profile's value greyed out (its controls are disabled by the page script). */
+.unit { margin: 0; }
+.unit-switch { margin-top: 0.8rem; font-size: 0.85rem; }
+.unit-switch .unit-state { display: none; }
+.unit.following .unit-switch .unit-state { display: inline; }
+.unit.following > :not(.unit-switch):not(.unit-customise) { opacity: 0.55; }
+.unit-row { display: contents; }
+.stat-grid.with-switch { grid-template-columns: 1fr auto auto auto; max-width: 460px; }
+.unit-row.following > :not(.unit-customise) { opacity: 0.55; }

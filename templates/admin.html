@@ -6,6 +6,31 @@
 {% macro bounds_for(field) -%}
 min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ bounds[field].max }}"{% endif %}
 {%- endmacro -%}
+{#- Display profiles (ADR-0007). While a profile other than Default is being
+    edited (`editing`), every customisable unit gets a Follow / Customise switch
+    named customise_<unit>. A followed unit shows the Default profile's current
+    value, greyed out; the page script disables its controls and keeps what was
+    typed so flipping back before Save restores it. On the Default profile these
+    macros add nothing but a plain wrapper, so one template serves both. The unit
+    names are config_store.CUSTOMISABLE_UNITS - a test fails if one has no
+    wrapper here. -#}
+{% macro unit_switch(name) -%}
+{% if editing %}<label class="checkbox unit-switch"><input type="checkbox" class="unit-customise" name="customise_{{ name }}" {{ 'checked' if name in customised_units else '' }}> Customise <span class="muted unit-state">(following the Default profile)</span></label>{% endif %}
+{%- endmacro %}
+{% macro unit(name) -%}
+<div class="unit{{ ' following' if editing and name not in customised_units else '' }}" data-unit="{{ name }}">
+  {{ unit_switch(name) }}
+  {{ caller() }}
+</div>
+{%- endmacro %}
+{% macro stat_row(name, label, show, hide) -%}
+<div class="unit unit-row{{ ' following' if editing and name not in customised_units else '' }}" data-unit="{{ name }}">
+  <span class="stat-grid-name">{{ label }}</span>
+  <input type="checkbox" name="{{ show }}" {{ 'checked' if cfg[show] else '' }}>
+  <input type="checkbox" name="{{ hide }}" {{ 'checked' if cfg[hide] else '' }}>
+  {% if editing %}<input type="checkbox" class="unit-customise" name="customise_{{ name }}" aria-label="Customise {{ label }}" {{ 'checked' if name in customised_units else '' }}>{% endif %}
+</div>
+{%- endmacro %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,7 +40,7 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
   <link rel="icon" href="/static/placeholder.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/css/admin.css?v={{ asset_v }}">
 </head>
-<body>
+<body data-profile="{{ editing or '' }}">
   <header class="topbar">
     <h1>Tap List Admin</h1>
     <div class="topbar-actions">
@@ -95,12 +120,76 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
       </div>
     </section>
 
+    <!-- ===== Display profiles ===== -->
+    <section class="card-panel" id="profiles-panel">
+      <h2>Display profiles</h2>
+      <div class="profile-picker">
+        <label for="profile-picker">Editing</label>
+        <select id="profile-picker">
+          <option value="" {{ 'selected' if not editing else '' }}>Default</option>
+          {% for row in profile_rows %}
+          <option value="{{ row.name }}" {{ 'selected' if editing == row.name else '' }}>{{ row.name }}</option>
+          {% endfor %}
+          <option value="__new">+ New profile</option>
+        </select>
+      </div>
+      <form id="profile-new-form" class="profile-new" hidden>
+        <input type="text" id="profile-new-name" maxlength="32" placeholder="lounge-tv" autocomplete="off" spellcheck="false" aria-label="New profile name">
+        <button class="btn primary" type="submit">Create profile</button>
+        <button class="btn" type="button" id="profile-new-cancel">Cancel</button>
+      </form>
+      <p class="hint">A screen picks its profile with <code>?display=&lt;name&gt;</code> on its start URL. The Default profile is the Settings as they were; every other profile follows it and differs only in the settings switched to Customise. Names are lowercase letters, digits and hyphens, up to 32.</p>
+
+      <ul class="profile-list">
+        <li class="profile-item" data-profile-row="default">
+          <div class="profile-head"><strong>Default</strong>{% if not editing %} <span class="muted">(editing)</span>{% endif %}</div>
+          <div class="profile-url">
+            <code>{{ default_url }}</code>
+            <button class="btn" type="button" data-copy="{{ default_url }}">Copy</button>
+          </div>
+          <p class="hint">Used by a screen with no <code>?display=</code>, or with a name that does not exist.</p>
+        </li>
+        {% for row in profile_rows %}
+        <li class="profile-item" data-profile-row="{{ row.name }}">
+          <div class="profile-head"><strong>{{ row.name }}</strong>{% if editing == row.name %} <span class="muted">(editing)</span>{% endif %}</div>
+          <div class="profile-url">
+            <code>{{ row.url }}</code>
+            <button class="btn" type="button" data-copy="{{ row.url }}">Copy</button>
+          </div>
+          <p class="hint profile-customised">{% if row.customised %}Customises: {{ row.customised|join(', ') }}.{% else %}Follows the Default profile in everything.{% endif %}</p>
+          <div class="btn-row profile-actions">
+            <button class="btn" type="button" data-profile-rename="{{ row.name }}">Rename</button>
+            <button class="btn" type="button" data-profile-delete="{{ row.name }}">Delete</button>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+
+      <h3>Unknown profile names</h3>
+      {% if unknown_profile_names %}
+      <p class="hint">Screens asked for these since the last restart and got the Default profile. A typo in a kiosk URL shows up here.</p>
+      <ul class="unknown-names">
+        {% for name in unknown_profile_names %}<li><code>{{ name }}</code></li>{% endfor %}
+      </ul>
+      {% else %}
+      <p class="hint">None since the last restart.</p>
+      {% endif %}
+    </section>
+
+    {% if editing %}
+    <div class="alert warn" role="status" id="global-note">
+      <strong>Editing the {{ editing }} profile.</strong> The Brewfather connection, sync scope, tap count, archiving, colour unit, venue logo image, Manual overrides and Snapshot apply to every screen, so they are hidden here. Edit them on the Default profile.
+    </div>
+    {% endif %}
+
     <!-- ===== Tab navigation ===== -->
     <nav class="tabs" role="tablist">
       <button class="tab active" type="button" data-tab="settings" role="tab">Settings</button>
       <button class="tab" type="button" data-tab="theme" role="tab">Theme</button>
+      {% if not editing %}
       <button class="tab" type="button" data-tab="overrides" role="tab">Manual overrides</button>
       <button class="tab" type="button" data-tab="snapshot" role="tab">Snapshot</button>
+      {% endif %}
     </nav>
 
     <!-- ===== Settings tab ===== -->
@@ -108,7 +197,8 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
       <section class="card-panel">
         <h2>Settings</h2>
         <form id="settings-form">
-          <fieldset>
+          {% if editing %}<input type="hidden" name="profile" value="{{ editing }}">{% endif %}
+          <fieldset {{ 'hidden' if editing else '' }} data-global-only>
             <legend>Brewfather</legend>
             <label for="bf_user">User ID</label>
             {% if bf.user_from_env %}
@@ -138,30 +228,43 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             </label>
             <p class="hint">Also show beers still in Fermenting (primary fermentation). Each extra status is another sweep of the Brewfather API, and a batch still needs a <code>tap:</code> note to appear.</p>
 
+          </fieldset>
+
+          <fieldset>
+            <legend>Upcoming beers</legend>
+            {% call unit('show_upcoming_previews') %}
             <label class="checkbox">
               <input type="checkbox" name="show_upcoming_previews" {{ 'checked' if cfg.show_upcoming_previews else '' }}>
               Show upcoming beer previews
             </label>
-            <p class="hint"><strong>Turning this off deletes the cached upcoming beers in <code>/data/upcoming/</code></strong> - it is the only setting that deletes files.</p>
+            <p class="hint"><strong>Turning this off in every profile deletes the cached upcoming beers in <code>/data/upcoming/</code></strong> - it is the only setting that deletes files. They keep being worked out while the Default profile or any profile has it on.</p>
+            {% endcall %}
 
+            {% call unit('max_upcoming_previews') %}
             <label for="max_upcoming_previews">Max upcoming previews shown</label>
             <input id="max_upcoming_previews" name="max_upcoming_previews" type="number" {{ bounds_for('max_upcoming_previews') }} step="1" value="{{ cfg.max_upcoming_previews }}">
             <p class="hint">Resolved at display time - changing this takes effect on the next poll, no sync needed.</p>
+            {% endcall %}
 
             <hr class="panel-sep">
             <h3>Scheduling</h3>
+            {% call unit('upcoming_interval_seconds') %}
             <label for="upcoming_interval_seconds">Upcoming beers appear every (seconds)</label>
             <input id="upcoming_interval_seconds" name="upcoming_interval_seconds" type="number" {{ bounds_for('upcoming_interval_seconds') }} step="1" value="{{ cfg.upcoming_interval_seconds }}">
             <p class="hint">One cadence drives every upcoming animation. How long a teaser stays on screen is derived from this, not a separate setting.</p>
+            {% endcall %}
 
+            {% call unit('upcoming_rotate_occupied') %}
             <label class="checkbox">
               <input type="checkbox" name="upcoming_rotate_occupied" {{ 'checked' if cfg.upcoming_rotate_occupied else '' }}>
               Allow a pouring beer to be cross-faded out
             </label>
             <p class="hint">Off keeps every occupied tap showing its current beer at all times - a teaser bound to it simply does not get a turn.</p>
+            {% endcall %}
 
             <hr class="panel-sep">
             <h3>Teaser card words</h3>
+            {% call unit('upcoming_label') %}
             <label for="upcoming_label_preset">Teaser label</label>
             <select id="upcoming_label_preset">
               {% for preset in upcoming_label_presets %}
@@ -176,50 +279,65 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             <span class="hint" id="upcoming_label_count" {{ '' if cfg.upcoming_label not in upcoming_label_presets else 'hidden' }}></span>
             <input type="hidden" id="upcoming_label" name="upcoming_label" value="{{ cfg.upcoming_label }}">
             <p class="hint">Ribbon text on a teaser card. It is a single unwrapped line and does not wrap, so a longer custom label is truncated at {{ upcoming_label_max }} characters rather than rejected.</p>
+            {% endcall %}
 
+            {% call unit('show_upcoming_status') %}
             <label class="checkbox">
               <input type="checkbox" name="show_upcoming_status" {{ 'checked' if cfg.show_upcoming_status else '' }}>
               Show the batch status ("Ready", "Conditioning"...) under a teaser's head
             </label>
+            {% endcall %}
 
+            {% call unit('show_upcoming_subtitle') %}
             <label class="checkbox">
               <input type="checkbox" name="show_upcoming_subtitle" {{ 'checked' if cfg.show_upcoming_subtitle else '' }}>
               Show "&lt;label&gt; on tap N" under a bound teaser's head
             </label>
             <p class="hint">An unbound teaser always shows a subtitle ("no tap assigned yet") whatever this says - it has no tap number anywhere else on the card.</p>
+            {% endcall %}
 
+            {% call unit('show_upcoming_abv') %}
             <label class="checkbox">
               <input type="checkbox" name="show_upcoming_abv" {{ 'checked' if cfg.show_upcoming_abv else '' }}>
               Show ABV on a teaser
             </label>
             <p class="hint">Off hides ABV on every teaser regardless of the Stats &amp; Colour toggle below. When shown, it is always marked with a "~" - even a measured reading on an unfinished beer is an estimate.</p>
+            {% endcall %}
 
             <hr class="panel-sep">
             <h3>Surfaces</h3>
             <p class="hint">The baseline cross-fade cannot reach an unbound teaser, or an occupied-slot teaser once "Allow a pouring beer to be cross-faded out" is off. Those are the overflow; a surface is where they can live.</p>
 
+            {% call unit('show_upcoming_deck_page') %}
             <label class="checkbox">
               <input type="checkbox" name="show_upcoming_deck_page" {{ 'checked' if cfg.show_upcoming_deck_page else '' }}>
               Add an on-deck carousel page
             </label>
             <p class="hint">A dedicated page joining the carousel, carrying whatever this scope resolves to. It rotates like any other page - same timing, its own dot - and is not shown at all when there is nothing to carry.</p>
+            {% endcall %}
 
+            {% call unit('show_upcoming_panel') %}
             <label class="checkbox">
               <input type="checkbox" name="show_upcoming_panel" {{ 'checked' if cfg.show_upcoming_panel else '' }}>
               Add a half-board panel
             </label>
             <p class="hint">A panel spanning the full width across the bottom half of the board, carrying whatever this scope resolves to. Reads as an interruption (lighter ground, dashed border, drop shadow) rather than as board furniture. Not shown at all when there is nothing to carry.</p>
+            {% endcall %}
 
+            {% call unit('upcoming_panel_multiple') %}
             <label for="upcoming_panel_multiple">Half-board panel every (x the cadence above)</label>
             <input id="upcoming_panel_multiple" name="upcoming_panel_multiple" type="number" {{ bounds_for('upcoming_panel_multiple') }} step="1" value="{{ cfg.upcoming_panel_multiple }}">
             <p class="hint">A panel turn takes a tick the cross-fade would otherwise use, so a low multiple means the pouring-tap teasers spend more of their turns waiting behind the panel. With the on-deck page also enabled, the panel skips any turn that would land on top of it - the page already shows everything the panel would.</p>
+            {% endcall %}
 
+            {% call unit('upcoming_surface_scope') %}
             <label for="upcoming_surface_scope">Surface carries</label>
             <select id="upcoming_surface_scope" name="upcoming_surface_scope">
               <option value="overflow" {{ 'selected' if cfg.upcoming_surface_scope == 'overflow' else '' }}>Overflow only</option>
               <option value="all" {{ 'selected' if cfg.upcoming_surface_scope == 'all' else '' }}>All upcoming</option>
             </select>
             <p class="hint">"Overflow only" never shows a beer twice at once. "All upcoming" includes a teaser already pinned permanently to a Vacant Slot, so a dedicated surface is genuinely complete - the same beer may then appear in two places, at different moments, which is expected.</p>
+            {% endcall %}
 
             <hr class="panel-sep">
             <h3>What's actually resolved</h3>
@@ -261,19 +379,26 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
 
           <fieldset>
             <legend>Taps &amp; Display</legend>
-            <label for="num_taps">Number of taps</label>
-            <input id="num_taps" name="num_taps" type="number" {{ bounds_for('num_taps') }} step="1" value="{{ cfg.num_taps }}" required>
+            <div {{ 'hidden' if editing else '' }} data-global-only>
+              <label for="num_taps">Number of taps</label>
+              <input id="num_taps" name="num_taps" type="number" {{ bounds_for('num_taps') }} step="1" value="{{ cfg.num_taps }}" required>
+            </div>
 
+            {% call unit('hide_vacant_taps') %}
             <label class="checkbox">
               <input type="checkbox" name="hide_vacant_taps" {{ 'checked' if cfg.hide_vacant_taps else '' }}>
               Hide vacant taps (reflow grid to fill the screen)
             </label>
+            {% endcall %}
 
+            {% call unit('announcement_text') %}
             <label for="announcement">Announcement text (bottom ticker)</label>
             <textarea id="announcement" name="announcement_text" rows="2">{{ cfg.announcement_text }}</textarea>
+            {% endcall %}
 
             <hr class="panel-sep">
             <h3>Card sizing</h3>
+            {% call unit('tap_photo_size') %}
             <label for="tap_photo_preset">Photo preset</label>
             <select id="tap_photo_preset" name="tap_photo_preset">
               <option value="tiny" {{ 'selected' if cfg.tap_photo_preset == 'tiny' else '' }}>Tiny</option>
@@ -283,6 +408,15 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
               <option value="custom" {{ 'selected' if cfg.tap_photo_preset == 'custom' else '' }}>Custom</option>
             </select>
 
+            <label for="tap_image_scale">Photo scale <span class="range-val" data-range-val-for="tap_image_scale">{{ '%.2f'|format(cfg.tap_image_scale) }}</span></label>
+            <div class="slider-row">
+              <input type="range" id="tap_image_scale" name="tap_image_scale"
+                     {{ bounds_for('tap_image_scale') }} step="0.05"
+                     value="{{ cfg.tap_image_scale }}">
+            </div>
+            {% endcall %}
+
+            {% call unit('tap_text_size') %}
             <label for="tap_text_preset">Text preset</label>
             <select id="tap_text_preset" name="tap_text_preset">
               <option value="small" {{ 'selected' if cfg.tap_text_preset == 'small' else '' }}>Small</option>
@@ -291,82 +425,70 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
               <option value="custom" {{ 'selected' if cfg.tap_text_preset == 'custom' else '' }}>Custom</option>
             </select>
 
-            <label for="tap_image_scale">Photo scale <span class="range-val" data-range-val-for="tap_image_scale">{{ '%.2f'|format(cfg.tap_image_scale) }}</span></label>
-            <div class="slider-row">
-              <input type="range" id="tap_image_scale" name="tap_image_scale"
-                     {{ bounds_for('tap_image_scale') }} step="0.05"
-                     value="{{ cfg.tap_image_scale }}">
-            </div>
-
             <label for="tap_text_scale">Text scale <span class="range-val" data-range-val-for="tap_text_scale">{{ '%.2f'|format(cfg.tap_text_scale) }}</span></label>
             <div class="slider-row">
               <input type="range" id="tap_text_scale" name="tap_text_scale"
                      {{ bounds_for('tap_text_scale') }} step="0.05"
                      value="{{ cfg.tap_text_scale }}">
             </div>
+            {% endcall %}
             <p class="hint">Scales the beer photo and the card text on the display, for screens the defaults do not suit. The two are independent: picking a preset sets its own slider, and moving a slider switches that preset to Custom. Photo scale only shrinks - the photo already fills the space the card text leaves it, so there is nothing above Default to give it. A larger text preset takes room from the photo, by design. Card padding and the colour swatch are unaffected, and the text keeps its pixel floor, so no scale can make the board illegible.</p>
           </fieldset>
 
           <fieldset>
             <legend>Stats &amp; Colour</legend>
-            <label for="color_unit">Colour unit</label>
-            <select id="color_unit" name="color_unit">
-              <option value="ebc" {{ 'selected' if cfg.color_unit != 'srm' else '' }}>EBC</option>
-              <option value="srm" {{ 'selected' if cfg.color_unit == 'srm' else '' }}>SRM</option>
-            </select>
+            <div {{ 'hidden' if editing else '' }} data-global-only>
+              <label for="color_unit">Colour unit</label>
+              <select id="color_unit" name="color_unit">
+                <option value="ebc" {{ 'selected' if cfg.color_unit != 'srm' else '' }}>EBC</option>
+                <option value="srm" {{ 'selected' if cfg.color_unit == 'srm' else '' }}>SRM</option>
+              </select>
+            </div>
 
-            <div class="stat-grid" role="group" aria-label="Stat visibility">
-              <span></span><span class="stat-grid-head">Show</span><span class="stat-grid-head">Hide when empty</span>
-              <span class="stat-grid-name">ABV</span>
-              <input type="checkbox" name="show_abv" {{ 'checked' if cfg.show_abv else '' }}>
-              <input type="checkbox" name="hide_abv_when_empty" {{ 'checked' if cfg.hide_abv_when_empty else '' }}>
-              <span class="stat-grid-name">IBU</span>
-              <input type="checkbox" name="show_ibu" {{ 'checked' if cfg.show_ibu else '' }}>
-              <input type="checkbox" name="hide_ibu_when_empty" {{ 'checked' if cfg.hide_ibu_when_empty else '' }}>
-              <span class="stat-grid-name">OG</span>
-              <input type="checkbox" name="show_og" {{ 'checked' if cfg.show_og else '' }}>
-              <input type="checkbox" name="hide_og_when_empty" {{ 'checked' if cfg.hide_og_when_empty else '' }}>
-              <span class="stat-grid-name">FG</span>
-              <input type="checkbox" name="show_fg" {{ 'checked' if cfg.show_fg else '' }}>
-              <input type="checkbox" name="hide_fg_when_empty" {{ 'checked' if cfg.hide_fg_when_empty else '' }}>
-              <span class="stat-grid-name">Colour</span>
-              <input type="checkbox" name="show_color" {{ 'checked' if cfg.show_color else '' }}>
-              <input type="checkbox" name="hide_color_when_empty" {{ 'checked' if cfg.hide_color_when_empty else '' }}>
+            <div class="stat-grid{{ ' with-switch' if editing else '' }}" role="group" aria-label="Stat visibility">
+              <span></span><span class="stat-grid-head">Show</span><span class="stat-grid-head">Hide when empty</span>{% if editing %}<span class="stat-grid-head">Customise</span>{% endif %}
+              {{ stat_row('stat_abv', 'ABV', 'show_abv', 'hide_abv_when_empty') }}
+              {{ stat_row('stat_ibu', 'IBU', 'show_ibu', 'hide_ibu_when_empty') }}
+              {{ stat_row('stat_og', 'OG', 'show_og', 'hide_og_when_empty') }}
+              {{ stat_row('stat_fg', 'FG', 'show_fg', 'hide_fg_when_empty') }}
+              {{ stat_row('stat_color', 'Colour', 'show_color', 'hide_color_when_empty') }}
             </div>
             <p class="hint">Untick “Show” to hide a stat on every card; “Hide when empty” drops it only for beers that are missing that value. OG and FG can also be forced on/off per tap on the Manual overrides tab.</p>
 
+            {% call unit('show_source_badge') %}
             <label class="checkbox">
               <input type="checkbox" name="show_source_badge" {{ 'checked' if cfg.show_source_badge else '' }}>
               Show the “Custom” / “BF” source badge on each card
             </label>
+            {% endcall %}
 
+            {% call unit('show_conditioning_status') %}
             <label class="checkbox">
               <input type="checkbox" name="show_conditioning_status" {{ 'checked' if cfg.show_conditioning_status else '' }}>
               Mark a pouring beer that is still conditioning
             </label>
             <p class="hint">Adds a &ldquo;Conditioning&rdquo; line to a tap card whose Brewfather batch is not finished yet - and &ldquo;Fermenting&rdquo;, if you include fermenting batches and one is pouring. A finished beer is never marked: a beer that is pouring is self-evidently pouring. A manually entered tap has no batch behind it, so it is never marked either. Independent of the teaser card's status line, which is its own setting.</p>
+            {% endcall %}
           </fieldset>
 
           <fieldset>
             <legend>Pagination</legend>
+            {% call unit('pagination') %}
             <label class="checkbox">
               <input type="checkbox" name="paginate" {{ 'checked' if cfg.paginate else '' }}>
               Paginate the board (fixed number of taps per page)
             </label>
-            <div class="field-row">
-              <div class="field">
-                <label for="page_size">Taps per page</label>
-                <input id="page_size" name="page_size" type="number" {{ bounds_for('page_size') }} step="1" value="{{ cfg.page_size }}">
-              </div>
-              <div class="field">
-                <label for="rotation_seconds">Page rotation (seconds)</label>
-                <input id="rotation_seconds" name="rotation_seconds" type="number" {{ bounds_for('rotation_seconds') }} step="1" value="{{ cfg.rotation_seconds }}">
-              </div>
-            </div>
+            <label for="page_size">Taps per page</label>
+            <input id="page_size" name="page_size" type="number" {{ bounds_for('page_size') }} step="1" value="{{ cfg.page_size }}">
+            {% endcall %}
+            {% call unit('rotation_seconds') %}
+            <label for="rotation_seconds">Page rotation (seconds)</label>
+            <input id="rotation_seconds" name="rotation_seconds" type="number" {{ bounds_for('rotation_seconds') }} step="1" value="{{ cfg.rotation_seconds }}">
+            {% endcall %}
             <p class="hint">When off, the board fills each page with up to 8 taps. Rotation also applies without pagination when there is more than one page. On the display you can click a page dot or press Enter/Space to change pages.</p>
           </fieldset>
 
-          <fieldset>
+          <fieldset {{ 'hidden' if editing else '' }} data-global-only>
             <legend>Archive cleanup</legend>
             <label for="max_age">Max archive age (days)</label>
             <input id="max_age" name="max_archive_age_days" type="number" {{ bounds_for('max_archive_age_days') }} step="1" value="{{ cfg.max_archive_age_days }}" required>
@@ -384,6 +506,7 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
            with the rest of the settings; the image upload is its own form. -->
       <section class="card-panel">
         <h2>Venue logo</h2>
+        {% call unit('venue_logo_height_vh') %}
         <label for="logo_h">Logo height (% of screen height)</label>
         <div class="slider-row">
           <input type="range" id="logo_h_range" {{ bounds_for('venue_logo_height_vh') }} step="1" value="{{ cfg.venue_logo_height_vh }}">
@@ -391,7 +514,9 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
           <span class="muted">%</span>
         </div>
         <p class="hint">0 hides the logo. Max {{ bounds.venue_logo_height_vh.max }}% (a third of the screen). Saved with the settings.</p>
+        {% endcall %}
 
+        <div {{ 'hidden' if editing else '' }} data-global-only>
         <hr class="panel-sep">
         <h3>Venue logo image</h3>
         {% if venue_logo_url %}
@@ -406,6 +531,7 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             <button class="btn" type="button" id="remove-logo">Remove logo</button>
           </div>
         </form>
+        </div>
       </section>
     </div>
 
@@ -415,6 +541,7 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
         <h2>Theme</h2>
         <p class="hint">Theme and glassware are saved with the settings.</p>
 
+        {% call unit('theme') %}
         <label for="theme">Colour theme</label>
         <select id="theme" name="theme" form="settings-form">
           {% for key, spec in themes.items() %}
@@ -422,14 +549,6 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
           {% endfor %}
         </select>
         <p class="hint" id="theme-hint"></p>
-
-        <label for="glass_type">Default glassware (no-photo placeholder)</label>
-        <select id="glass_type" name="glass_type" form="settings-form">
-          {% for key, label in glass_types %}
-            <option value="{{ key }}" {{ 'selected' if cfg.glass_type == key else '' }}>{{ label }}</option>
-          {% endfor %}
-        </select>
-        <p class="hint">Used for beers with no photo. Individual beers can override the glass on the Manual overrides tab or via a <code>glass:</code> Brewfather note.</p>
 
         <fieldset id="custom-theme">
           <legend>Custom colours</legend>
@@ -447,12 +566,24 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             {% endfor %}
           </div>
         </fieldset>
+        {% endcall %}
+
+        {% call unit('glass_type') %}
+        <label for="glass_type">Default glassware (no-photo placeholder)</label>
+        <select id="glass_type" name="glass_type" form="settings-form">
+          {% for key, label in glass_types %}
+            <option value="{{ key }}" {{ 'selected' if cfg.glass_type == key else '' }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <p class="hint">Used for beers with no photo. Individual beers can override the glass on the Manual overrides tab or via a <code>glass:</code> Brewfather note.</p>
+        {% endcall %}
 
         <button class="btn primary" type="submit" form="settings-form">Save settings</button>
       </section>
     </div>
 
     <!-- ===== Manual overrides tab ===== -->
+    {% if not editing %}
     <div class="tab-panel" id="tab-overrides" role="tabpanel" hidden>
       <section class="card-panel">
         <h2>Manual overrides</h2>
@@ -622,8 +753,12 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
         </div>
       </section>
     </div>
+    {% endif %}
   </main>
 
+  {% if editing %}
+  <script type="application/json" id="profile-defaults">{{ profile_defaults|tojson }}</script>
+  {% endif %}
   <script src="/static/js/admin.js?v={{ asset_v }}" defer></script>
 </body>
 </html>

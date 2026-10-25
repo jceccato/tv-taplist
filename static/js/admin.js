@@ -155,7 +155,7 @@
     const preset = document.getElementById("upcoming_label_preset");
     const custom = document.getElementById("upcoming_label_custom");
     const count = document.getElementById("upcoming_label_count");
-    if (!hidden || !preset || !custom || !count) return;
+    if (!hidden || !preset || !custom || !count) return null;
     const max = Number(custom.maxLength) > 0 ? Number(custom.maxLength) : 32;
 
     function showCustom(show) {
@@ -175,12 +175,23 @@
       hidden.value = custom.value.slice(0, max);
       syncCount();
     });
+
+    // Redraw the visible controls from the hidden value, for when a profile's
+    // Follow / Customise switch sets the value from outside.
+    return function syncFromValue() {
+      const known = Array.from(preset.options).some(
+        (o) => o.value !== "__custom" && o.value === hidden.value);
+      preset.value = known ? hidden.value : "__custom";
+      custom.value = known ? "" : hidden.value;
+      showCustom(!known);
+      syncCount();
+    };
   }
 
   // ---- settings form ----
   const settingsForm = document.getElementById("settings-form");
   if (settingsForm) {
-    setupUpcomingLabel(settingsForm);
+    const syncUpcomingLabel = setupUpcomingLabel(settingsForm);
 
     // Keep the logo-height slider and number input in sync.
     const hRange = document.getElementById("logo_h_range");
@@ -191,6 +202,67 @@
     }
 
     setupCardSizing(settingsForm);
+
+    // ---- Display profile: Follow / Customise per unit ----
+    // Only present while a profile other than Default is being edited. A unit
+    // set to Follow shows the Default profile's value with its controls
+    // disabled. Flipping to Follow keeps what was typed, so flipping back before
+    // Save restores it; Customise otherwise starts from the value on show (the
+    // Default profile's, for a unit that was followed).
+    const defaultsEl = document.getElementById("profile-defaults");
+    if (defaultsEl) {
+      const defaults = JSON.parse(defaultsEl.textContent);
+      const defaultFor = (name) => {
+        if (name in defaults) return defaults[name];
+        if (name.startsWith("theme_") && defaults.theme_custom) return defaults.theme_custom[name.slice(6)];
+        return undefined;
+      };
+      const refreshDerived = () => {
+        document.querySelectorAll("[data-range-val-for]").forEach((out) => {
+          const r = document.getElementById(out.dataset.rangeValFor);
+          if (r) out.textContent = Number(r.value).toFixed(2);
+        });
+        document.querySelectorAll(".color-field").forEach((f) => {
+          const sw = f.querySelector('input[type="color"]');
+          const tx = f.querySelector("[data-hex-text]");
+          if (sw && tx) tx.value = sw.value;
+        });
+        if (syncUpcomingLabel) syncUpcomingLabel();
+        const theme = document.getElementById("theme");
+        if (theme) theme.dispatchEvent(new Event("change"));
+      };
+      document.querySelectorAll(".unit[data-unit]").forEach((unit) => {
+        const sw = unit.querySelector(".unit-customise");
+        if (!sw) return;
+        const controls = () => Array.from(unit.querySelectorAll("input, select, textarea"))
+          .filter((el) => el !== sw);
+        const isBox = (el) => el.type === "checkbox" || el.type === "radio";
+        let typed = null;
+        const render = () => {
+          unit.classList.toggle("following", !sw.checked);
+          controls().forEach((el) => { el.disabled = !sw.checked; });
+        };
+        sw.addEventListener("change", () => {
+          if (!sw.checked) {
+            typed = controls().map((el) => (isBox(el) ? el.checked : el.value));
+            controls().forEach((el) => {
+              const v = el.name ? defaultFor(el.name) : undefined;
+              if (v === undefined) return;
+              if (isBox(el)) el.checked = !!v; else el.value = String(v);
+            });
+          } else if (typed) {
+            const saved = typed;
+            controls().forEach((el, i) => {
+              if (isBox(el)) el.checked = saved[i]; else el.value = saved[i];
+            });
+            typed = null;
+          }
+          refreshDerived();
+          render();
+        });
+        render();
+      });
+    }
 
     settingsForm.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -209,6 +281,92 @@
       } catch (err) {
         showToast("Save failed: " + err.message, "err");
       }
+    });
+  }
+
+  // ---- Display profiles: picker, create, rename, delete, copy ----
+  const picker = document.getElementById("profile-picker");
+  if (picker) {
+    const newForm = document.getElementById("profile-new-form");
+    const newName = document.getElementById("profile-new-name");
+    const current = document.body.dataset.profile || "";
+    const goto = (name) => {
+      location.href = "/admin" + (name ? "?profile=" + encodeURIComponent(name) : "");
+    };
+    picker.addEventListener("change", () => {
+      if (picker.value === "__new") {
+        newForm.hidden = false;
+        newName.focus();
+        return;
+      }
+      goto(picker.value);
+    });
+    document.getElementById("profile-new-cancel").addEventListener("click", () => {
+      newForm.hidden = true;
+      picker.value = current;
+    });
+    newForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData();
+      fd.set("name", newName.value);
+      try {
+        const res = await postForm("/admin/profiles", fd);
+        goto(res.name);
+      } catch (err) {
+        showToast("Could not create the profile: " + err.message, "err");
+      }
+    });
+    document.querySelectorAll("[data-profile-rename]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const old = btn.dataset.profileRename;
+        const next = window.prompt("New name for " + old + ":", old);
+        if (next === null || next.trim() === "" || next.trim().toLowerCase() === old) return;
+        if (!window.confirm("Renaming breaks any start URL that uses " + old + ". Those screens "
+          + "will show the Default profile until their URL is changed to the new name. Rename anyway?")) return;
+        const fd = new FormData();
+        fd.set("new_name", next);
+        try {
+          const res = await postForm("/admin/profiles/" + encodeURIComponent(old) + "/rename", fd);
+          goto(current === old ? res.name : current);
+        } catch (err) {
+          showToast("Rename failed: " + err.message, "err");
+        }
+      });
+    });
+    document.querySelectorAll("[data-profile-delete]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const name = btn.dataset.profileDelete;
+        if (!window.confirm("Delete the " + name + " profile? Screens using it will show the Default profile.")) return;
+        try {
+          await postForm("/admin/profiles/" + encodeURIComponent(name) + "/delete", new FormData());
+          goto(current === name ? "" : current);
+        } catch (err) {
+          showToast("Delete failed: " + err.message, "err");
+        }
+      });
+    });
+    document.querySelectorAll("[data-copy]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const text = btn.dataset.copy;
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+          } else {
+            // Plain http on a LAN is not a secure context: fall back to a
+            // temporary text box and the old copy command.
+            const box = document.createElement("textarea");
+            box.value = text;
+            document.body.appendChild(box);
+            box.select();
+            const ok = document.execCommand("copy");
+            box.remove();
+            if (!ok) throw new Error("copy refused");
+          }
+          showToast("Copied " + text, "ok");
+        } catch (err) {
+          showToast("Could not copy; select the address and copy it by hand.", "warn");
+        }
+      });
     });
   }
 

@@ -16,7 +16,9 @@ Admin (session-protected):
   POST /admin/login     -> authenticate (rate-limited)
   POST /admin/logout    -> clear session
   GET  /admin           -> admin dashboard
-  POST /admin/settings  -> save settings
+  POST /admin/settings  -> save settings (the Default profile, or one Display profile)
+  POST /admin/profiles  -> create a Display profile
+  POST /admin/profiles/{name}/rename, /delete
   POST /admin/override/{tap} -> save / clear a manual override (+ image upload)
   POST /admin/sync      -> trigger a sync now
   GET  /admin/snapshot  -> stream a Snapshot of the data directory as a zip
@@ -59,15 +61,18 @@ from .colors import (
 )
 from .config_store import (
     MAX_UPCOMING_LABEL_LEN,
+    normalize_profile_name,
     SETTINGS_BOUNDS,
     UPCOMING_LABEL_PRESETS,
     apply_settings,
     brewfather_credentials,
     CHOSEN_UNKNOWN,
-    effective_settings,
+    CUSTOMISABLE_UNITS,
+    DEFAULT_PROFILE,
     load_config,
     record_unknown_profile,
     resolve_effective,
+    unknown_profile_names,
     update_config,
 )
 from .theme import DEFAULT_THEME, THEME_FIELD_LABELS, THEME_KEYS, THEMES
@@ -399,18 +404,105 @@ def _asset_version(*rels: str) -> str:
     return str(int(latest))
 
 
+# What the profile editor calls each customisable unit, for the "Customised
+# settings" list. Keyed by the unit names in `config_store.CUSTOMISABLE_UNITS`;
+# a unit without an entry here is listed by its own name rather than hidden, and
+# the admin tests fail until it has one.
+PROFILE_UNIT_LABELS = {
+    "theme": "Theme and colours",
+    "pagination": "Pagination and page size",
+    "tap_photo_size": "Photo size",
+    "tap_text_size": "Text size",
+    "stat_abv": "ABV stat",
+    "stat_ibu": "IBU stat",
+    "stat_color": "Colour stat",
+    "stat_og": "OG stat",
+    "stat_fg": "FG stat",
+    "rotation_seconds": "Page rotation time",
+    "hide_vacant_taps": "Hide vacant taps",
+    "announcement_text": "Announcement text",
+    "glass_type": "Default glassware",
+    "venue_logo_height_vh": "Venue logo height",
+    "show_source_badge": "Source badge",
+    "show_conditioning_status": "Conditioning marker",
+    "show_upcoming_previews": "Show upcoming beers",
+    "max_upcoming_previews": "Max upcoming previews",
+    "upcoming_label": "Teaser label",
+    "show_upcoming_status": "Teaser status line",
+    "show_upcoming_subtitle": "Teaser subtitle",
+    "show_upcoming_abv": "Teaser ABV",
+    "upcoming_interval_seconds": "Upcoming interval",
+    "upcoming_rotate_occupied": "Cross-fade pouring beers",
+    "show_upcoming_deck_page": "On-deck page",
+    "show_upcoming_panel": "Half-board panel",
+    "upcoming_panel_multiple": "Half-board panel frequency",
+    "upcoming_surface_scope": "Surface scope",
+}
+
+
+def _unit_label(unit: str) -> str:
+    return PROFILE_UNIT_LABELS.get(unit) or unit.replace("_", " ").capitalize()
+
+
+def _start_url(request: Request, profile: str | None) -> str:
+    """The URL a kiosk opens for a profile, from the request's own host.
+
+    Never hard-coded: the operator reaches the Admin by the address the screens
+    will use, so whatever name or port that is gets copied into the kiosk.
+    """
+    base = f"{request.url.scheme}://{request.url.netloc}/"
+    return base + (f"?display={profile}" if profile else "")
+
+
+def _profile_view(request: Request, stored: dict, editing: str | None) -> dict:
+    """Everything the profile picker, the profile list and the unit switches need."""
+    profiles = stored["profiles"]
+    defaults = resolve_effective(stored, None).settings
+    return {
+        "profile_rows": [
+            {
+                "name": name,
+                "url": _start_url(request, name),
+                "customised": [_unit_label(u) for u in admin_ops.customised_units(values)],
+            }
+            for name, values in profiles.items()
+        ],
+        "default_url": _start_url(request, None),
+        "unknown_profile_names": unknown_profile_names(),
+        # Units this profile customises, for the switches' starting position.
+        "customised_units": (set(admin_ops.customised_units(profiles[editing]))
+                             if editing else set()),
+        # The Default profile's current value for every customisable key: what a
+        # unit shows when it is set to Follow, and what Customise starts from.
+        "profile_defaults": ({key: defaults[key]
+                              for keys in CUSTOMISABLE_UNITS.values() for key in keys}
+                             if editing else {}),
+    }
+
+
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_page(request: Request):
+async def admin_page(request: Request, profile: str | None = None):
     if not auth.has_valid_session(request):
         return RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
 
-    cfg = load_config()
+    stored = load_config()
+    # Which Display profile the Settings and Theme tabs are showing. An unknown
+    # name (a stale link after a delete) shows the Default profile.
+    editing = normalize_profile_name(profile)
+    if editing not in stored["profiles"]:
+        editing = None
+    # What the form shows: the profile's effective settings, so a followed
+    # setting displays the Default profile's current value (greyed by the page).
+    cfg = resolve_effective(stored, editing).settings
     rows = _build_admin_tap_rows(cfg)
     return templates.TemplateResponse(
         "admin.html",
         {
             "request": request,
             "cfg": cfg,
+            "editing": editing,
+            "units": list(CUSTOMISABLE_UNITS),
+            **_profile_view(request, stored, editing),
             # Status is a separate file and a separate template variable, so a
             # template can never reach a sync timestamp through `cfg`.
             "status": load_status(),
@@ -442,7 +534,7 @@ async def admin_page(request: Request):
             # itself uses rather than a second implementation. An operator who
             # enables a surface and sees no change needs a reason, not a
             # second guess.
-            "upcoming_summary": resolve_upcoming_summary(effective_settings()),
+            "upcoming_summary": resolve_upcoming_summary(cfg),
             # Which Brewfather fetch-scope toggles are off, named for the
             # admin's hint (issue #42): show_upcoming_previews deliberately
             # does not widen the fetch (CLAUDE.md/GLOSSARY.md), so a Batch
@@ -673,8 +765,9 @@ SETTINGS_NOT_ON_THE_FORM = frozenset({
     # off the form - a field here that the form never posts would take the
     # model's default on every Save and quietly switch the check back on.
     "update_check_enabled",
-    # Display profiles are edited by their own Admin editor (a later ticket), not
-    # by the Settings form; a field here would reset them on every Save.
+    # Display profiles are edited by their own Admin editor (the profile picker
+    # and its routes), not by the Settings form; a field here would reset them on
+    # every Save.
     "profiles",
 })
 
@@ -703,11 +796,54 @@ async def save_settings(
     form = await request.form()
     theme_custom = {key: form.get(f"theme_{key}") for key in THEME_KEYS}
 
+    asked = str(form.get("profile") or "").strip().lower()
+    if asked and asked != DEFAULT_PROFILE:
+        # Editing a Display profile: one Save writes only that profile, and only
+        # the units its switches say are customised (ADR-0007). Everything else
+        # on the form is dropped, so the Default profile cannot change from here.
+        customise = {unit for unit in CUSTOMISABLE_UNITS
+                     if form.get(f"customise_{unit}") == "true"}
+        stored = _profile_call(
+            lambda: admin_ops.save_profile(
+                asked, customise=customise,
+                values={**settings.model_dump(), "theme_custom": theme_custom}))
+        log.info("admin saved profile %s (%d key(s))", asked[:32], len(stored))
+        return {"ok": True}
+
     saved = apply_settings(**settings.model_dump(), theme_custom=theme_custom)
     # Log what was *saved*, not what was posted: the two differ whenever a bound
     # clamped, and the log is the only trace of that an operator can consult.
     log.info("admin saved settings (num_taps=%d color_unit=%s)",
              saved["num_taps"], saved["color_unit"])
+    return {"ok": True}
+
+
+
+# ---- admin: Display profiles ---------------------------------------------
+
+def _profile_call(operation, *args):
+    """Run a profile operation, turning a refusal into the 422 the Admin shows."""
+    try:
+        return operation(*args)
+    except admin_ops.ProfileRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/admin/profiles")
+async def create_profile(name: Annotated[str, Form()], _: None = Depends(auth.require_admin)):
+    return {"ok": True, "name": _profile_call(admin_ops.create_profile, name)}
+
+
+@app.post("/admin/profiles/{name}/rename")
+async def rename_profile(name: str, new_name: Annotated[str, Form()],
+                         _: None = Depends(auth.require_admin)):
+    """Rename a profile. No redirect is kept: the old name becomes unknown."""
+    return {"ok": True, "name": _profile_call(admin_ops.rename_profile, name, new_name)}
+
+
+@app.post("/admin/profiles/{name}/delete")
+async def delete_profile(name: str, _: None = Depends(auth.require_admin)):
+    _profile_call(admin_ops.delete_profile, name)
     return {"ok": True}
 
 
