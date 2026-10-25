@@ -18,6 +18,7 @@ A tour of what the app does and why. For getting it running, see
 - [Pagination & the carousel](#pagination--the-carousel)
 - [Scrolling text, ticker & venue logo](#scrolling-text-ticker--venue-logo)
 - [Manual overrides](#manual-overrides)
+- [Photos, and my old TV shows them blank](#photos-and-my-old-tv-shows-them-blank)
 - [Archiving & cleanup](#archiving--cleanup)
 - [Where is my data?](#where-is-my-data)
 - [Snapshots: getting your board off the box and back on](#snapshots-getting-your-board-off-the-box-and-back-on)
@@ -508,6 +509,30 @@ If a batch is waiting under an override, the tap's row in `/admin` names it, so
 you can see what unticking will reveal before you click. Don't delete the
 "extra" file by hand: you lose the instant switch-back, and the tap goes vacant
 until the next sync rebuilds it.
+
+---
+
+## Photos, and my old TV shows them blank
+
+Screens are never sent your original photos. Each photo is turned into a
+**Display copy**: upright, converted to ordinary sRGB colour, fitted to 4K and
+stripped of all metadata (so a phone's GPS location never leaves the box). By
+default that copy is WebP.
+
+An older TV or its built-in browser may not be able to show WebP: the photos
+appear blank, broken, or the page skips them. Use **compatibility mode**: on the
+Admin's **Photos** tab, under **Display copies**, set **Format** to **JPEG** and
+Save. Every photo is rebuilt as a plain JPEG in the background, one at a time.
+The screens keep showing the old copy of each photo until its new one is ready,
+so nothing goes blank while it works (a few hundred photos take a while on a
+Raspberry Pi). JPEG copies get the same orientation, colour and fit as WebP
+ones; a PNG with transparency is put on a black background, because JPEG has
+no transparency.
+
+The same panel has a **Size** setting: 4K (default) or **1080p**, for a TV that
+is only 1080p or too slow to scale 4K images. Format and size are the same for
+every screen and profile, because there is one set of copies. Your originals
+are never touched, so you can switch back and forth.
 
 ---
 

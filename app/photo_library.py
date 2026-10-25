@@ -5,7 +5,8 @@ originals; loose files at the top level form the Album "Unsorted", and folders
 inside an Album's folder count as part of that Album (ADR-0008). A screen is
 never sent an original. It is sent a **Display copy**: upright, converted to
 sRGB, fitted to the target box up or down with Lanczos, encoded as WebP at
-quality 99 and stripped of every byte of metadata (GPS above all). Copies and
+quality 99 (or, in compatibility mode, as baseline JPEG for old TVs) and
+stripped of every byte of metadata (GPS above all). Copies and
 thumbnails live in `/data/photo_cache/` and are disposable: deleting that
 directory costs only reprocessing time, which is the same lifecycle test as
 ADR-0002 and ADR-0006.
@@ -24,7 +25,8 @@ Two rules are load-bearing:
 * **A stale copy keeps being served until its replacement is written.** A copy
   is keyed by the original's content hash together with the pipeline settings
   (format, size, quality). When either changes the new copy is built in the
-  background and the old one stays in the list until then.
+  background and the old one stays in the list until then. Each copy records its
+  own file extension, because the old copy of a format change has the old one.
 
 The cache index (`index.json`) records, for each original, its size, mtime and
 content hash (so a minute-by-minute scan only re-hashes what changed), its date
@@ -48,7 +50,7 @@ import warnings
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, BinaryIO, Iterable
+from typing import Any, BinaryIO, Iterable, NamedTuple
 
 from PIL import Image, ImageCms, ImageOps
 
@@ -66,8 +68,21 @@ _ACCEPTED_FORMATS = ("JPEG", "PNG", "WEBP")
 
 UNSORTED = "Unsorted"
 
-# The target box a Display copy is fitted into, up or down. 4K by default.
+# The target box a Display copy is fitted into, up or down. 4K by default;
+# the "size" setting (global, Photos tab) can choose 1080p instead.
 TARGET_SIZE = (3840, 2160)
+TARGET_SIZE_1080P = (1920, 1080)
+FORMAT_WEBP = "webp"
+FORMAT_JPEG = "jpeg"       # compatibility mode, for TVs whose browser cannot show WebP
+FORMATS = (FORMAT_WEBP, FORMAT_JPEG)
+SIZE_4K = "4k"
+SIZE_1080P = "1080p"
+SIZES = (SIZE_4K, SIZE_1080P)
+# Baseline (not progressive) JPEG, no chroma subsampling: the safest thing for an
+# old TV browser, and 95 is visually indistinguishable on photographs.
+JPEG_QUALITY = 95
+# What a transparent PNG is flattened onto for JPEG, which has no alpha.
+JPEG_BACKGROUND = (0, 0, 0)
 # WebP quality 99 was measured over 24 photos fitted to 4K: it was the quality
 # nearest 40 % of the lossless size for most of them (ADR-0008).
 WEBP_QUALITY = 99
@@ -108,13 +123,76 @@ STALE_STAGING_SECONDS = 3600.0
 _MAX_STEM_LEN = 120
 
 
+class Pipeline(NamedTuple):
+    """The global settings a Display copy is built with, read once per photo."""
+    format: str
+    box: tuple[int, int]
+
+    @property
+    def extension(self) -> str:
+        return ".jpg" if self.format == FORMAT_JPEG else ".webp"
+
+    @property
+    def key(self) -> str:
+        """What a copy is built with: a copy with another key is stale."""
+        quality = JPEG_QUALITY if self.format == FORMAT_JPEG else WEBP_QUALITY
+        return f"{self.format}-q{quality}-{self.box[0]}x{self.box[1]}-p{_PIPELINE_VERSION}"
+
+
+# Every extension a Display copy can have. A copy keeps the one it was built
+# with, so a format change leaves the old copies findable (and removable).
+_COPY_EXTENSIONS = (".webp", ".jpg")
+
+_pipeline_cache: tuple[Any, Pipeline] | None = None
+
+
+def invalidate_pipeline() -> None:
+    """Forget the cached format and size; the config store calls this on every save."""
+    global _pipeline_cache
+    _pipeline_cache = None
+
+
+def pipeline() -> Pipeline:
+    """The current format and size settings.
+
+    Read from the config (lazily, since the config store imports this module),
+    and cached against the config file's stamp so the per-photo loops do not
+    re-read it. A save invalidates it explicitly as well.
+    """
+    global _pipeline_cache
+    from . import config_store
+    try:
+        st = config_store.CONFIG_PATH.stat()
+        stamp: Any = (str(config_store.CONFIG_PATH), st.st_mtime_ns, st.st_size)
+    except OSError:
+        stamp = None
+    cached = _pipeline_cache
+    if cached is not None and stamp is not None and cached[0] == stamp:
+        return cached[1]
+    cfg = config_store.load_config()
+    fmt = cfg.get("photo_format")
+    size = cfg.get("photo_size")
+    result = Pipeline(fmt if fmt in FORMATS else FORMAT_WEBP,
+                      TARGET_SIZE_1080P if size == SIZE_1080P else TARGET_SIZE)
+    _pipeline_cache = (stamp, result) if stamp is not None else None
+    return result
+
+
 def settings_key() -> str:
     """What a Display copy is built with: a copy with another key is stale."""
-    return f"webp-q{WEBP_QUALITY}-{TARGET_SIZE[0]}x{TARGET_SIZE[1]}-p{_PIPELINE_VERSION}"
+    return pipeline().key
 
 
-def _copy_extension() -> str:
-    return ".webp"
+def _copy_extension(copy: dict[str, Any] | None = None) -> str:
+    """A copy's own file extension; with no copy, the one a new copy would get.
+
+    Copies written before the format setting existed have no recorded
+    extension and are WebP.
+    """
+    if copy is None:
+        return pipeline().extension
+    ext = copy.get("ext")
+    return ext if ext in _COPY_EXTENSIONS else ".webp"
 
 
 # ---- state ------------------------------------------------------------------------
@@ -428,7 +506,17 @@ def _fit(width: int, height: int, box: tuple[int, int]) -> tuple[int, int]:
     return max(1, round(width * scale)), max(1, round(height * scale))
 
 
-def _render(path: Path) -> tuple[bytes, bytes, int, int, str | None]:
+def _flatten(im: Image.Image) -> Image.Image:
+    """An opaque RGB image: JPEG has no alpha, so transparency goes onto a plain background."""
+    if im.mode == "RGB":
+        return im
+    flat = Image.new("RGB", im.size, JPEG_BACKGROUND)
+    flat.paste(im, mask=im.getchannel("A") if "A" in im.getbands() else None)
+    flat.info = {}
+    return flat
+
+
+def _render(path: Path, pipe: Pipeline) -> tuple[bytes, bytes, int, int, str | None]:
     """Decode one original and return (display copy, thumbnail, width, height, date taken).
 
     Raises UnreadablePhoto with an operator-readable reason for anything that
@@ -449,7 +537,7 @@ def _render(path: Path) -> tuple[bytes, bytes, int, int, str | None]:
                 if im.format == "JPEG":
                     # Decode large JPEGs at reduced scale: draft() only ever picks a
                     # size at least as big as asked for, so quality is unaffected.
-                    fw, fh = _fit(w, h, TARGET_SIZE)
+                    fw, fh = _fit(w, h, pipe.box)
                     if fw < w:
                         im.draft("RGB", (fh, fw) if orientation in (5, 6, 7, 8) else (fw, fh))
                 im.load()
@@ -462,12 +550,16 @@ def _render(path: Path) -> tuple[bytes, bytes, int, int, str | None]:
         raise UnreadablePhoto(f"cannot be read as an image ({str(exc)[:_ERROR_TEXT_LEN]})") from exc
 
     width, height = im.size
-    target = _fit(width, height, TARGET_SIZE)
+    target = _fit(width, height, pipe.box)
     if target != (width, height):
         im = im.resize(target, Image.Resampling.LANCZOS)
     im.info = {}          # nothing carried over: no EXIF, no GPS, no profile, no XMP
     buf = io.BytesIO()
-    im.save(buf, "WEBP", quality=WEBP_QUALITY, method=4)
+    if pipe.format == FORMAT_JPEG:
+        _flatten(im).save(buf, "JPEG", quality=JPEG_QUALITY, subsampling=0,
+                          optimize=True, progressive=False)
+    else:
+        im.save(buf, "WEBP", quality=WEBP_QUALITY, method=4)
     thumb = im.copy()
     thumb.thumbnail((THUMB_SIZE, THUMB_SIZE), Image.Resampling.LANCZOS)
     thumb.info = {}
@@ -476,32 +568,33 @@ def _render(path: Path) -> tuple[bytes, bytes, int, int, str | None]:
     return buf.getvalue(), tbuf.getvalue(), target[0], target[1], taken
 
 
-def _copy_id(content_hash: str) -> str:
-    return hashlib.sha256(f"{content_hash}|{settings_key()}".encode()).hexdigest()[:32]
+def _copy_id(content_hash: str, key: str) -> str:
+    return hashlib.sha256(f"{content_hash}|{key}".encode()).hexdigest()[:32]
 
 
 def _copy_file_exists(entry: dict[str, Any]) -> bool:
     copy = entry.get("copy")
     return isinstance(copy, dict) and (
-        _display_dir() / f"{copy.get('id')}{_copy_extension()}").is_file()
+        _display_dir() / f"{copy.get('id')}{_copy_extension(copy)}").is_file()
 
 
-def _is_pending(entry: dict[str, Any]) -> bool:
+def _is_pending(entry: dict[str, Any], key: str | None = None) -> bool:
+    key = key or settings_key()
     err = entry.get("error")
-    if isinstance(err, dict) and err.get("settings") == settings_key():
+    if isinstance(err, dict) and err.get("settings") == key:
         return False        # failed with these settings; retried when the file or the settings change
     copy = entry.get("copy")
-    if not isinstance(copy, dict) or copy.get("settings") != settings_key() \
+    if not isinstance(copy, dict) or copy.get("settings") != key \
             or copy.get("src") != entry.get("hash"):
         return True     # no copy, built with other settings, or of an older version of the file
     return not _copy_file_exists(entry)
 
 
-def _next_pending() -> tuple[str, dict[str, Any]] | None:
+def _next_pending(key: str) -> tuple[str, dict[str, Any]] | None:
     with _LOCK:
         for rel in sorted(_load_index(), key=str.casefold):
             entry = _load_index()[rel]
-            if _is_pending(entry):
+            if _is_pending(entry, key):
                 return rel, dict(entry)
     return None
 
@@ -513,27 +606,28 @@ def process_next() -> bool:
     once, which is what keeps the screens smooth on a Raspberry Pi.
     """
     with _PROCESS_LOCK:
-        picked = _next_pending()
+        pipe = pipeline()        # one reading for the whole photo, even if the setting changes meanwhile
+        picked = _next_pending(pipe.key)
         if picked is None:
             return False
         rel, snapshot = picked
         path = paths.PHOTOS_DIR / rel
         try:
-            display, thumb, width, height, taken = _render(path)
+            display, thumb, width, height, taken = _render(path, pipe)
         except UnreadablePhoto as exc:
-            _record_failure(rel, snapshot, str(exc))
+            _record_failure(rel, snapshot, str(exc), pipe.key)
             return True
         except OSError as exc:       # the file vanished or became unreadable mid-run
-            _record_failure(rel, snapshot, f"cannot be read ({str(exc)[:_ERROR_TEXT_LEN]})")
+            _record_failure(rel, snapshot, f"cannot be read ({str(exc)[:_ERROR_TEXT_LEN]})", pipe.key)
             return True
 
-        copy_id = _copy_id(snapshot["hash"])
+        copy_id = _copy_id(snapshot["hash"], pipe.key)
         try:
-            atomic_write_bytes(_display_dir() / f"{copy_id}{_copy_extension()}", display)
+            atomic_write_bytes(_display_dir() / f"{copy_id}{pipe.extension}", display)
             atomic_write_bytes(_thumb_dir() / f"{copy_id}.webp", thumb)
         except OSError as exc:
             # Recorded, or this photo stays first in line and is retried forever.
-            _record_failure(rel, snapshot, f"copy could not be written ({str(exc)[:_ERROR_TEXT_LEN]})")
+            _record_failure(rel, snapshot, f"copy could not be written ({str(exc)[:_ERROR_TEXT_LEN]})", pipe.key)
             return True
         with _LOCK:
             entry = _load_index().get(rel)
@@ -542,7 +636,7 @@ def process_next() -> bool:
             if entry is None or entry.get("hash") != snapshot["hash"]:
                 return True
             old = entry.get("copy")
-            entry["copy"] = {"id": copy_id, "settings": settings_key(),
+            entry["copy"] = {"id": copy_id, "settings": pipe.key, "ext": pipe.extension,
                              "src": snapshot["hash"], "w": width, "h": height}
             entry["error"] = None
             entry["taken"] = taken
@@ -557,11 +651,11 @@ def _mtime_seconds(entry: dict[str, Any]) -> float:
     return float(entry.get("mtime_ns", 0)) / 1e9
 
 
-def _record_failure(rel: str, snapshot: dict[str, Any], reason: str) -> None:
+def _record_failure(rel: str, snapshot: dict[str, Any], reason: str, key: str) -> None:
     with _LOCK:
         entry = _load_index().get(rel)
         if entry is not None and entry.get("hash") == snapshot["hash"]:
-            entry["error"] = {"reason": reason, "settings": settings_key()}
+            entry["error"] = {"reason": reason, "settings": key}
             _save_index()
     log.warning("photo %s cannot be shown: %s", rel, reason)
 
@@ -635,11 +729,12 @@ def ready_photos(albums: Iterable[str] | None = None,
         cid = copy.get("id")
         if not isinstance(cid, str) or not _COPY_ID_RE.match(cid):
             continue
-        if not (_display_dir() / f"{cid}{_copy_extension()}").is_file():
+        ext = _copy_extension(copy)
+        if not (_display_dir() / f"{cid}{ext}").is_file():
             continue
         w, h = copy.get("w") or 1, copy.get("h") or 1
         out.append(ReadyPhoto(
-            photo_id=hashlib.sha256(rel.encode()).hexdigest()[:16], copy_id=cid, filename=f"{cid}{_copy_extension()}", album=_album_of(rel),
+            photo_id=hashlib.sha256(rel.encode()).hexdigest()[:16], copy_id=cid, filename=f"{cid}{ext}", album=_album_of(rel),
             name=_name_of(rel), aspect=round(w / h, 4), taken=e.get("taken"),
             date=float(e.get("date") or 0.0)))
     if order == ORDER_DATE:
@@ -652,9 +747,9 @@ def ready_photos(albums: Iterable[str] | None = None,
 def copy_file(filename: str) -> Path | None:
     """The Display copy for a public filename, or None (unknown, malformed, or traversal)."""
     stem, dot, ext = str(filename).rpartition(".")
-    if not dot or f".{ext}" != _copy_extension() or not _COPY_ID_RE.match(stem):
+    if not dot or f".{ext}" not in _COPY_EXTENSIONS or not _COPY_ID_RE.match(stem):
         return None
-    path = _display_dir() / f"{stem}{_copy_extension()}"
+    path = _display_dir() / f"{stem}.{ext}"
     return path if path.is_file() else None
 
 
@@ -991,7 +1086,9 @@ def _valid_album_name(raw: Any) -> str:
 def _drop_copy_files_if_unused(copy_id: str) -> None:
     """Delete a copy's Display copy and thumbnail once no photo, removed or not, needs them."""
     if copy_id not in _referenced_ids():
-        safe_unlink(_display_dir() / f"{copy_id}{_copy_extension()}")
+        # Whichever format it was built in: the setting may have changed since.
+        for ext in _COPY_EXTENSIONS:
+            safe_unlink(_display_dir() / f"{copy_id}{ext}")
     if copy_id not in _referenced_ids(thumbs=True):
         safe_unlink(_thumb_dir() / f"{copy_id}.webp")
 

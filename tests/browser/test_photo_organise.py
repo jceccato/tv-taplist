@@ -150,3 +150,18 @@ def test_the_retention_days_save_from_the_removed_panel(serve, page):
     assert config_store.load_config()["photo_removed_retention_days"] == 9
     page.reload()
     assert json.loads(page.eval_on_selector("#retention-days", "e => JSON.stringify(e.value)")) == "9"
+
+
+def test_the_display_copies_panel_saves_format_and_size_and_survives_a_reload(serve, page):
+    _photos()
+    _open(page, serve)
+    page.select_option("#photo-format", "jpeg")
+    page.select_option("#photo-size", "1080p")
+    page.click("#copies-form button")
+    page.wait_for_function("document.getElementById('toast').textContent.includes('JPEG')")
+    cfg = config_store.load_config()
+    assert (cfg["photo_format"], cfg["photo_size"]) == ("jpeg", "1080p")
+    page.reload()
+    page.click('.tab[data-tab="photos"]')
+    assert page.input_value("#photo-format") == "jpeg"
+    assert page.input_value("#photo-size") == "1080p"

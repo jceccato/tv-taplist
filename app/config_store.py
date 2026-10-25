@@ -26,7 +26,10 @@ from . import upcoming_store
 from .atomic import JOB_LOCK, atomic_write_text
 from .beer_glass import DEFAULT_GLASS, normalize_glass
 from .paths import CONFIG_PATH, ensure_dirs
-from .photo_library import ORDER_SHUFFLE, ORDERS as ALBUM_ORDERS
+from .photo_library import (
+    FORMAT_WEBP, FORMATS as PHOTO_FORMATS, ORDER_SHUFFLE, ORDERS as ALBUM_ORDERS,
+    SIZE_4K, SIZES as PHOTO_SIZES, invalidate_pipeline as _invalidate_photo_pipeline,
+)
 from .theme import DEFAULT_THEME, coerce_custom_theme, normalize_theme_name
 
 log = logging.getLogger("taplist.config")
@@ -111,6 +114,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # (ADR-0008). Global: there is one bin. Set on the Photos tab, not the
     # Settings form.
     "photo_removed_retention_days": 30,
+    # How Display copies are built (ADR-0008). Global: one cache serves every
+    # screen. "webp" or "jpeg" (compatibility mode, for TVs that cannot show
+    # WebP); "4k" or "1080p". Set on the Photos tab with their own route, not
+    # the Settings form. Changing either rebuilds every copy in the background.
+    "photo_format": FORMAT_WEBP,
+    "photo_size": SIZE_4K,
     # Display options.
     "color_unit": "ebc",            # "ebc" or "srm" - colour stat display unit
     "show_abv": True,               # global show/hide for each stat
@@ -201,6 +210,8 @@ NEVER_CUSTOMISABLE: frozenset[str] = frozenset({
     "max_archive_age_days",
     "max_archive_storage_mb",
     "photo_removed_retention_days",
+    "photo_format",
+    "photo_size",
     "venue_logo",
     "color_unit",
     "update_check_enabled",
@@ -607,6 +618,11 @@ def _preset_for_scale(presets: dict[str, float], scale: float) -> str:
     return "custom"
 
 
+def _coerce_choice(value: Any, allowed: tuple[str, ...], default: str) -> str:
+    text = str(value).strip().lower() if isinstance(value, str) else ""
+    return text if text in allowed else default
+
+
 def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     """Merge persisted config over defaults and coerce types defensively."""
     merged = dict(DEFAULT_CONFIG)
@@ -627,6 +643,8 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
         lo, hi = SETTINGS_BOUNDS[key]
         merged[key] = _coerce_int(merged[key], lo, hi, DEFAULT_CONFIG[key])
 
+    merged["photo_format"] = _coerce_choice(merged["photo_format"], PHOTO_FORMATS, FORMAT_WEBP)
+    merged["photo_size"] = _coerce_choice(merged["photo_size"], PHOTO_SIZES, SIZE_4K)
     merged["hide_vacant_taps"] = bool(merged["hide_vacant_taps"])
     merged["announcement_text"] = str(merged["announcement_text"] or "")
     # Credentials are stripped here rather than at the Admin route: a key pasted
@@ -915,6 +933,7 @@ def save_config(cfg: dict[str, Any]) -> None:
     ensure_dirs()
     clean = _coerce(cfg)
     atomic_write_text(CONFIG_PATH, json.dumps(clean, indent=2, ensure_ascii=False))
+    _invalidate_photo_pipeline()
 
 
 def update_config(**changes: Any) -> dict[str, Any]:

@@ -70,7 +70,7 @@ app/                FastAPI app + all logic
   timezone.py       TZ-aware iso_now()
 static/             css/display.css, css/admin.css, js/display.js, js/admin.js, placeholder.svg
 templates/          display.html, admin.html (tabbed), login.html
-tests/              pytest suite (937 tests, 29 files) + conftest.py fixtures; tests/browser = Playwright page tests
+tests/              pytest suite (956 tests, 30 files) + conftest.py fixtures; tests/browser = Playwright page tests
 Dockerfile · entrypoint.sh · docker-compose.yml · scripts/docker_test.sh
 scripts/setup.sh (guided installer / .env wizard)
 README.md           root landing page (embeds docs/venue_logo.png + docs/screenshot.png)
@@ -255,9 +255,9 @@ ticked list with nothing ticked".
   operations: `list_albums`, `scan`, `begin_upload`/`Upload.commit`, `kick_processing`, `photos_in`, `thumb_file`, `process_next`/`process_pending`,
   `ready_photos(albums, order)`, `copy_file(filename)`, `status`.
 - **Originals are never served or referenced.** The board carries only
-  `/img/photo/<copy id>.webp`; the copy id is an opaque hash of the original's
+  `/img/photo/<copy id>.webp` (`.jpg` in compatibility mode); the copy id is an opaque hash of the original's
   content and the pipeline settings, so a changed copy has a new URL and the route
-  can cache for a day. `copy_file` accepts only `<32 hex>.webp`, so traversal and
+  can cache for a day. `copy_file` accepts only `<32 hex>.webp` or `.jpg`, so traversal and
   original names are plain 404s (not the Placeholder: an unready photo must not be
   drawn as one).
 - **A photo shows only once its copy file exists.** `ready_photos` stats the copy,
@@ -265,6 +265,21 @@ ticked list with nothing ticked".
   they are rebuilt. A stale copy (other settings, or an older version of the file)
   stays listed until its replacement is written (`copy.settings`/`copy.src` in the
   index); a replaced copy's files are removed at once, orphans after 10 minutes.
+- **Format and size (issue #60).** Two global, never-customisable settings, `photo_format`
+  (`webp` default / `jpeg`, compatibility mode for TVs that cannot show WebP) and `photo_size`
+  (`4k` default / `1080p`), set from the Photos tab's Display copies panel by
+  `POST /admin/photos/pipeline` (not the Settings form, so a Save cannot reset them; it
+  refuses other values with 422 and kicks the rebuild). `pipeline()` reads them from the
+  config (lazily: config_store imports this module; cached against the config file's stamp,
+  and `save_config` invalidates it) and `settings_key()` includes both, so a change marks
+  every copy stale and the normal one-at-a-time machinery rebuilds them while the old
+  copies keep being served. **Each index copy records its own `ext`** (`.webp`, or `.jpg`;
+  a record without one is WebP), because during a change the old copies have the old
+  extension: listing, serving (`copy_file` takes either extension) and removal
+  (`_drop_copy_files_if_unused` unlinks the id under both) never assume the current
+  format's. A pipeline is read once per photo, so a setting changed mid-render only makes
+  that copy stale. JPEG is baseline, 95, no chroma subsampling, no metadata; transparency is
+  flattened onto black. Thumbnails stay WebP (admin only).
 - **Scan and pickup.** A scheduler job (`photo_scan`, every minute and once at
   start-up, `max_instances=1`) runs `scan()` then `process_pending()`; the loop
   re-scans every minute while it works, so a long batch never starves hand-made
@@ -758,12 +773,14 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 937 tests, 29 files (the fourteen page tests skip without a browser):
+- 956 tests, 30 files (the fifteen page tests skip without a browser):
   **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
   the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a
   Display P3 profile - upright, sRGB, 4K fit up and down, WebP q99, no metadata in
   the copy or the thumbnail - plus stale copies, failures, the cache being deleted,
-  and the guard that nothing else builds a photo path), **organising photos** (`test_photo_removed.py`: album create/rename/delete, profile
+  and the guard that nothing else builds a photo path), **compatibility mode** (`test_photo_compat.py`: JPEG and 1080p
+  copies - format, dimensions, no metadata - rebuilt in the background with the old copy served, and removal during and
+  after a format change), **organising photos** (`test_photo_removed.py`: album create/rename/delete, profile
   ticks following a rename, move, remove, restore, delete forever, the nightly purge,
   login on every route), **the album on the board and
   in the Admin** (`test_album_board.py`: payload only with the album on, order,

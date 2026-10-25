@@ -14,7 +14,7 @@ import time
 import pytest
 from PIL import Image
 
-from app import paths, photo_library as lib
+from app import config_store, paths, photo_library as lib
 
 from photo_fixtures import (
     backdate, exif_bytes, halves, p3_profile, riff_chunks, write_image,
@@ -305,11 +305,11 @@ def test_the_album_filter_is_by_album_name():
 
 # ---- stale copies, failures, serving ------------------------------------------------------------
 
-def test_a_stale_copy_keeps_being_served_until_its_replacement_is_ready(monkeypatch):
+def test_a_stale_copy_keeps_being_served_until_its_replacement_is_ready():
     build(("one.jpg", halves((800, 600))))
     old, copy = only_copy()
     assert copy.size == (2880, 2160)
-    monkeypatch.setattr(lib, "TARGET_SIZE", (1920, 1080))     # a settings change
+    config_store.update_config(photo_size="1080p")             # a settings change
     assert lib.status().pending == 1                          # every copy is now stale
     still = lib.ready_photos()
     assert [p.copy_id for p in still] == [old.copy_id]        # the old copy still shows

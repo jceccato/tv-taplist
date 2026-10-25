@@ -15,6 +15,7 @@ Public display:
   POST /admin/photos/move, /remove -> move or remove a selection of photos (admin)
   GET  /admin/photos/removed; POST /removed/restore, /removed/delete, /removed/empty -> the Removed bin (admin)
   POST /admin/photos/retention -> days before Removed photos are purged (admin)
+  POST /admin/photos/pipeline  -> Display copy format (webp/jpeg) and size (4k/1080p) (admin)
   GET  /img/photo/{filename} -> a photo's Display copy from the photo cache (never an original)
   GET  /img/placeholder -> fallback image
   GET  /healthz         -> lightweight healthcheck
@@ -896,6 +897,10 @@ SETTINGS_NOT_ON_THE_FORM = frozenset({
     # Set from the Photos tab (its own route), beside the Removed bin it governs.
     # A field on this model would take its default on every Settings Save.
     "photo_removed_retention_days",
+    # Set from the Photos tab (its own route), beside the Display copies they
+    # govern, for the same reason.
+    "photo_format",
+    "photo_size",
     # Written by the venue-logo upload route, not typed by anyone.
     "venue_logo",
     # No control on the Settings tab: an air-gapped deploy turns the update
@@ -1040,6 +1045,8 @@ async def photos_status(album: str = photo_library.UNSORTED,
         "total": st.total, "ready": st.ready, "pending": st.pending, "failed": st.failed,
         "removed": len(photo_library.list_removed()),
         "retention_days": load_config()["photo_removed_retention_days"],
+        "format": load_config()["photo_format"],
+        "size": load_config()["photo_size"],
         "albums": albums,
         "album": album,
         "photos": [{"id": r.photo_id, "name": r.name, "state": r.state, "reason": r.reason,
@@ -1122,6 +1129,31 @@ async def set_removed_retention(photo_removed_retention_days: Annotated[int, For
     """Days a removed photo waits before the daily cleanup purges it (clamped by the store)."""
     saved = update_config(photo_removed_retention_days=photo_removed_retention_days)
     return {"ok": True, "days": saved["photo_removed_retention_days"]}
+
+
+@app.post("/admin/photos/pipeline")
+async def set_photo_pipeline(photo_format: Annotated[str | None, Form()] = None,
+                             photo_size: Annotated[str | None, Form()] = None,
+                             _: None = Depends(auth.require_admin)):
+    """Set how Display copies are built: the format and/or the size (global, ADR-0008).
+
+    Either change makes every copy stale; the library rebuilds them one at a
+    time in the background while the old copies keep showing. A value that is
+    not one of the choices is refused, not quietly replaced.
+    """
+    changes: dict[str, str] = {}
+    for key, value, allowed in (("photo_format", photo_format, photo_library.FORMATS),
+                                ("photo_size", photo_size, photo_library.SIZES)):
+        if value is None:
+            continue
+        if value not in allowed:
+            raise HTTPException(status_code=422,
+                                detail=f"{key} must be one of: {', '.join(allowed)}.")
+        changes[key] = value
+    saved = update_config(**changes) if changes else load_config()
+    if changes:
+        photo_library.kick_processing()
+    return {"ok": True, "format": saved["photo_format"], "size": saved["photo_size"]}
 
 
 @app.get("/admin/photos/thumb/{filename}")

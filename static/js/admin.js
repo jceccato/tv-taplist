@@ -1104,6 +1104,17 @@
         removedPicked.clear();
       }, "Empty failed");
     });
+    document.getElementById("copies-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        const res = await postForm("/admin/photos/pipeline", new FormData(e.target));
+        document.getElementById("photo-format").value = res.format;
+        document.getElementById("photo-size").value = res.size;
+        showToast("Saved. Photos are being rebuilt as " + (res.format === "jpeg" ? "JPEG" : "WebP")
+          + " at " + (res.size === "1080p" ? "1080p" : "4K") + "; screens keep the old copies until then.");
+        refreshPhotos();
+      } catch (err) { showToast("Could not save: " + err.message, "err"); }
+    });
     document.getElementById("retention-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       try {

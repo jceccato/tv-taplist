@@ -558,6 +558,7 @@ def test_the_never_customisable_settings_are_the_venue_wide_ones():
     assert config_store.NEVER_CUSTOMISABLE == {
         "brewfather_user_id", "brewfather_api_key", "include_conditioning",
         "include_fermenting", "num_taps", "max_archive_age_days",
-        "max_archive_storage_mb", "photo_removed_retention_days", "venue_logo",
+        "max_archive_storage_mb", "photo_removed_retention_days", "photo_format",
+        "photo_size", "venue_logo",
         "color_unit", "update_check_enabled", "profiles",
     }

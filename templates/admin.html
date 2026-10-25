@@ -826,6 +826,26 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
         <p id="photos-empty" class="muted" hidden>No photos in this album yet.</p>
       </section>
 
+      <!-- Display copies (issue #60): global, so they live here with their own
+           route, not on the Settings form, where a Save would reset them. -->
+      <section class="card-panel" id="copies-panel">
+        <h2>Display copies</h2>
+        <p class="hint">Screens are sent a processed copy of each photo. If an old TV shows blank or broken photos, choose JPEG (compatibility mode). Choose 1080p for a weak or slow screen. A change rebuilds every copy in the background, one at a time; screens keep showing the old copy of each photo until its new one is ready. Both are the same for all screens and profiles.</p>
+        <form id="copies-form" class="inline-form">
+          <label for="photo-format">Format</label>
+          <select id="photo-format" name="photo_format">
+            <option value="webp" {{ 'selected' if cfg.photo_format == 'webp' else '' }}>WebP (default)</option>
+            <option value="jpeg" {{ 'selected' if cfg.photo_format == 'jpeg' else '' }}>JPEG (compatibility mode)</option>
+          </select>
+          <label for="photo-size">Size</label>
+          <select id="photo-size" name="photo_size">
+            <option value="4k" {{ 'selected' if cfg.photo_size == '4k' else '' }}>4K (default)</option>
+            <option value="1080p" {{ 'selected' if cfg.photo_size == '1080p' else '' }}>1080p</option>
+          </select>
+          <button type="submit" class="btn">Save</button>
+        </form>
+      </section>
+
       <!-- Removed (issue #58): photos wait here, with their album remembered,
            until restored, deleted for good, or purged by the nightly cleanup. -->
       <section class="card-panel" id="removed-panel">
