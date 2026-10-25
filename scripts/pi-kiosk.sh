@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TV Tap List - Raspberry Pi Kiosk Setup.                Version: 1.1.0
+# TV Tap List - Raspberry Pi Kiosk Setup.                Version: 1.2.0
 #
 # Configures a Raspberry Pi OS Desktop installation to boot directly into a
 # full-screen Chromium pointing at the locally hosted TV Tap List container
@@ -12,6 +12,7 @@
 # Usage:
 #   bash scripts/pi-kiosk.sh                    # default: escapable fullscreen
 #   KIOSK_MODE=true bash scripts/pi-kiosk.sh    # locked-down kiosk for bars
+#   DISPLAY_PROFILE=lounge-tv bash scripts/pi-kiosk.sh   # skip the profile prompt
 #
 # Or one-liner from a fresh Pi:
 #   bash <(curl -fsSL https://raw.githubusercontent.com/jceccato/tv-taplist/main/scripts/pi-kiosk.sh)
@@ -187,6 +188,49 @@ detect_compositor() {
   echo "labwc"
 }
 
+# --- Display profile ---------------------------------------------------------
+# A Display profile is a named set of screen settings made in the Admin. The
+# kiosk picks one by adding ?display=<name> to its start URL. Names are
+# lowercase letters, digits and hyphens, 1-32 characters, matched regardless of
+# case, so anything typed is lowercased before it is checked. Blank means the
+# Default profile and adds nothing to the URL.
+normalize_profile() {
+  local name
+  name="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$name" =~ ^[a-z0-9-]{1,32}$ ]]; then
+    printf '%s' "$name"
+    return 0
+  fi
+  return 1
+}
+
+# Sets DISPLAY_PROFILE (possibly empty). Honours a DISPLAY_PROFILE already in
+# the environment (checked, never prompted for), otherwise asks.
+choose_profile() {
+  local reply norm
+  if [ -n "${DISPLAY_PROFILE:-}" ]; then
+    norm="$(normalize_profile "$DISPLAY_PROFILE")" \
+      || die "DISPLAY_PROFILE must be 1-32 characters: letters, digits and hyphens."
+    DISPLAY_PROFILE="$norm"
+    info "Display profile: $DISPLAY_PROFILE"
+    return
+  fi
+  while true; do
+    read -r -p "Display profile name (optional, blank for the Default profile): " reply || reply=""
+    if [ -z "$reply" ]; then
+      DISPLAY_PROFILE=""
+      info "Display profile: none (the Default profile)"
+      return
+    fi
+    if norm="$(normalize_profile "$reply")"; then
+      DISPLAY_PROFILE="$norm"
+      info "Display profile: $DISPLAY_PROFILE"
+      return
+    fi
+    warn "Use 1-32 characters: lowercase letters, digits and hyphens."
+  done
+}
+
 # --- create the kiosk launch script ------------------------------------------
 write_kiosk_script() {
   local script_path="$HOME/.config/tv-taplist-kiosk.sh"
@@ -194,6 +238,12 @@ write_kiosk_script() {
   local wait_secs="${WAIT_SECS:-120}"
   local poll_secs="${POLL_SECS:-2}"
   local kiosk_mode="${KIOSK_MODE:-false}"
+  # The page Chromium opens: the base URL, plus ?display=<name> when a Display
+  # profile was chosen. The health check below keeps using the bare base URL.
+  local start_url="${display_url%/}/"
+  if [ -n "${DISPLAY_PROFILE:-}" ]; then
+    start_url="${start_url}?display=${DISPLAY_PROFILE}"
+  fi
 
   # Build the Chromium flags based on mode.
   # Default: fullscreen but escapable (F11 / ESC work).
@@ -218,6 +268,7 @@ write_kiosk_script() {
 
   info "Writing kiosk launch script to $script_path ..."
   info "  Mode: $mode_label"
+  info "  Start URL: $start_url"
 
   mkdir -p "$(dirname "$script_path")"
 
@@ -229,6 +280,7 @@ write_kiosk_script() {
 # in full-screen mode.
 
 DISPLAY_URL="$display_url"
+START_URL="$start_url"
 WAIT_SECS=$wait_secs
 POLL_SECS=$poll_secs
 MODE="$kiosk_mode"
@@ -261,7 +313,7 @@ exec chromium-browser \\
   --disable-features=TranslateUI \\
   --disable-pinch \\
   --overscroll-history-navigation=0 \\
-  "\$DISPLAY_URL"
+  "\$START_URL"
 KIOSKEOF
 
   chmod +x "$script_path"
@@ -508,7 +560,7 @@ print_summary() {
   bold "When ready, reboot:  sudo reboot"
   echo
   info "After reboot the Pi will auto-login, start the desktop, and launch"
-  info "Chromium in full-screen pointing at http://localhost:8080."
+  info "Chromium in full-screen pointing at the board${DISPLAY_PROFILE:+ (Display profile: $DISPLAY_PROFILE)}."
   info "To exit, press $exit_hint."
   echo
 }
@@ -531,6 +583,7 @@ main() {
   compositor="$(detect_compositor)"
   info "Detected compositor: $(bold "$compositor")"
 
+  choose_profile
   write_kiosk_script
   configure_autostart "$compositor"
   disable_power_management

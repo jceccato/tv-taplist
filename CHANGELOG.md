@@ -24,6 +24,19 @@ Versions follow [Semver](https://semver.org/). Dates are the release date.
 
 Merged to `main` and shipping in the next release.
 
+### Added
+
+- **Display profiles.** Screens can now show the board with their own settings.
+  Make a profile for each kind of screen in the Admin and point the screen at it
+  with `?display=<name>` on its kiosk start URL. Your existing settings become
+  the Default profile; any other profile follows it except for the settings you
+  switch to Customise, and a screen with no `?display=`, or an unknown name,
+  shows the Default profile, so existing screens are unchanged. The Raspberry Pi
+  kiosk installer (`scripts/pi-kiosk.sh`, now 1.2.0) asks for an optional
+  profile name and adds `?display=<name>` to the start URL it writes (or set
+  `DISPLAY_PROFILE`); the Android and Pi kiosk guides show the tablet and lounge
+  TV example, and note that Android kiosks cannot be told apart by User-Agent.
+
 ---
 
 ## v1.4.2 - 2026-10-22

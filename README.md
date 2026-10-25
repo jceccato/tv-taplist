@@ -93,6 +93,21 @@ browser and keeps it there. Two supported paths:
 Both set up a kiosk that launches the board on boot and stays full-screen with
 no user interaction.
 
+### Different screens, different settings (Display profiles)
+
+One box can run screens that behave differently: say a tap-side tablet that
+shows only what is on tap, and a lounge TV that pages differently or wears its
+own theme. Make a **Display profile** for each kind of screen in the Admin, then
+point each screen at its own by adding `?display=<name>` to its kiosk start URL,
+for example `http://<container-ip>:8080/?display=lounge-tv`.
+
+Your existing settings become the **Default profile**. Every other profile
+follows it and differs only in the settings you switch to **Customise**, so a
+screen with no `?display=` (or an unknown name) looks exactly as it always did.
+The Raspberry Pi installer asks for the profile name and writes the URL for you;
+the Android guide shows where to put it. Profile names are lowercase letters,
+digits and hyphens, up to 32 characters.
+
 ---
 
 ## How it works

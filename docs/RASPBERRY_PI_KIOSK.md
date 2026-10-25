@@ -197,6 +197,35 @@ This enables true locked kiosk mode: Chromium has no window decorations, no UI,
 and can only be exited with **Alt+F4** on an attached keyboard (or by killing
 the process over SSH).
 
+### Choosing a Display profile
+
+Different screens can show the board differently (for example a tap-side tablet
+that shows only what is on tap, and a lounge TV that shows photos). Each kind
+of screen is a **Display profile**, made in the Admin, and a screen picks its
+profile with `?display=<name>` on its start URL.
+
+The script asks for this during setup:
+
+```
+Display profile name (optional, blank for the Default profile):
+```
+
+- Type the profile's name, for example `lounge-tv`, and the launch script opens
+  `http://localhost:8080/?display=lounge-tv`.
+- Press Enter to leave it blank. The URL carries no `?display=`, and the
+  screen shows the Default profile, exactly as before profiles existed.
+- Names are lowercase letters, digits and hyphens, up to 32 characters. The
+  script lowercases what you type and asks again if the name is not valid.
+- To skip the question (for an unattended run), set the name up front:
+  `DISPLAY_PROFILE=lounge-tv bash scripts/pi-kiosk.sh`.
+
+The profile does not have to exist yet. A screen asking for a name the Admin
+does not know shows the Default profile, and the Admin lists the unknown name
+so a typo is easy to spot. Changing a profile's settings reaches the screen on
+its next refresh, with no kiosk restart. Only the *name* is fixed in the start
+URL: if you rename a profile in the Admin, re-run this script (or edit the URL,
+see below) to match.
+
 When the script finishes, it prints a summary and a reminder to **reboot**:
 
 ```bash
@@ -240,7 +269,7 @@ system.
 | Component | What it changes |
 |-----------|----------------|
 | **Chromium** | Installed via `apt` if not already present. Falls back to `chromium` if `chromium-browser` is not available (Bullseye). |
-| **Launch script** | Written to `~/.config/tv-taplist-kiosk.sh`. Polls `http://localhost:8080/healthz` for up to 2 minutes, then launches Chromium with `--start-fullscreen` (default) or `--kiosk` (if `KIOSK_MODE=true`). |
+| **Launch script** | Written to `~/.config/tv-taplist-kiosk.sh`. Polls `http://localhost:8080/healthz` for up to 2 minutes, then launches Chromium with `--start-fullscreen` (default) or `--kiosk` (if `KIOSK_MODE=true`), opening the board at `/` or at `/?display=<name>` if you chose a Display profile. |
 | **Autostart (labwc)** | Adds the launch script to `~/.config/labwc/autostart` (a shell script sourced at login). |
 | **Autostart (wayfire)** | Adds the launch script to the `[autostart]` section of `~/.config/wayfire.ini`. |
 | **Autostart (LXDE)** | Seeds `~/.config/lxsession/<profile>/autostart` from the global one, then appends the launch script. Preserves existing entries (panel, desktop, screensaver). |
@@ -303,6 +332,14 @@ the top. Or re-run the script with the environment variable set:
 ```bash
 DISPLAY_URL=http://192.168.1.50:8080 bash scripts/pi-kiosk.sh
 ```
+
+### I want to change or remove the Display profile
+
+Re-run the script and answer the profile question again (it asks before
+overwriting the launch script). Or edit `~/.config/tv-taplist-kiosk.sh` and
+change the `START_URL` variable, for example
+`START_URL="http://localhost:8080/?display=tablet"`. Leave off the
+`?display=...` part to use the Default profile.
 
 ### I switched from wayfire to labwc (or vice versa)
 
