@@ -213,7 +213,7 @@ Display profile name (optional, blank for the Default profile):
 - Type the profile's name, for example `lounge-tv`, and the launch script opens
   `http://localhost:8080/?display=lounge-tv`.
 - Press Enter to leave it blank. The URL carries no `?display=`, and the
-  screen shows the Default profile, exactly as before profiles existed.
+  screen shows the Default profile. (Typing `default` means the same.)
 - Names are lowercase letters, digits and hyphens, up to 32 characters. The
   script lowercases what you type and asks again if the name is not valid.
 - To skip the question (for an unattended run), set the name up front:
@@ -335,8 +335,8 @@ DISPLAY_URL=http://192.168.1.50:8080 bash scripts/pi-kiosk.sh
 
 ### I want to change or remove the Display profile
 
-Re-run the script and answer the profile question again (it asks before
-overwriting the launch script). Or edit `~/.config/tv-taplist-kiosk.sh` and
+Re-run the script, answer yes to overwriting the launch script, and answer
+the profile question. Or edit `~/.config/tv-taplist-kiosk.sh` and
 change the `START_URL` variable, for example
 `START_URL="http://localhost:8080/?display=tablet"`. Leave off the
 `?display=...` part to use the Default profile.

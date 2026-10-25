@@ -103,7 +103,7 @@ for example `http://<container-ip>:8080/?display=lounge-tv`.
 
 Your existing settings become the **Default profile**. Every other profile
 follows it and differs only in the settings you switch to **Customise**, so a
-screen with no `?display=` (or an unknown name) looks exactly as it always did.
+screen with no `?display=` (or an unknown name) shows the Default profile.
 The Raspberry Pi installer asks for the profile name and writes the URL for you;
 the Android guide shows where to put it. Profile names are lowercase letters,
 digits and hyphens, up to 32 characters.

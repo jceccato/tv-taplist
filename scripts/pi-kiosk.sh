@@ -193,11 +193,13 @@ detect_compositor() {
 # kiosk picks one by adding ?display=<name> to its start URL. Names are
 # lowercase letters, digits and hyphens, 1-32 characters, matched regardless of
 # case, so anything typed is lowercased before it is checked. Blank means the
-# Default profile and adds nothing to the URL.
+# Default profile and adds nothing to the URL ("default" means the same).
 normalize_profile() {
   local name
-  name="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  name="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
   if [[ "$name" =~ ^[a-z0-9-]{1,32}$ ]]; then
+    # "default" is reserved for the Default profile, which is no ?display= at all.
+    [ "$name" = "default" ] && name=""
     printf '%s' "$name"
     return 0
   fi
@@ -212,7 +214,7 @@ choose_profile() {
     norm="$(normalize_profile "$DISPLAY_PROFILE")" \
       || die "DISPLAY_PROFILE must be 1-32 characters: letters, digits and hyphens."
     DISPLAY_PROFILE="$norm"
-    info "Display profile: $DISPLAY_PROFILE"
+    info "Display profile: ${DISPLAY_PROFILE:-none (the Default profile)}"
     return
   fi
   while true; do
@@ -224,7 +226,7 @@ choose_profile() {
     fi
     if norm="$(normalize_profile "$reply")"; then
       DISPLAY_PROFILE="$norm"
-      info "Display profile: $DISPLAY_PROFILE"
+      info "Display profile: ${DISPLAY_PROFILE:-none (the Default profile)}"
       return
     fi
     warn "Use 1-32 characters: lowercase letters, digits and hyphens."
@@ -238,13 +240,6 @@ write_kiosk_script() {
   local wait_secs="${WAIT_SECS:-120}"
   local poll_secs="${POLL_SECS:-2}"
   local kiosk_mode="${KIOSK_MODE:-false}"
-  # The page Chromium opens: the base URL, plus ?display=<name> when a Display
-  # profile was chosen. The health check below keeps using the bare base URL.
-  local start_url="${display_url%/}/"
-  if [ -n "${DISPLAY_PROFILE:-}" ]; then
-    start_url="${start_url}?display=${DISPLAY_PROFILE}"
-  fi
-
   # Build the Chromium flags based on mode.
   # Default: fullscreen but escapable (F11 / ESC work).
   # KIOSK_MODE=true: locked-down kiosk (no UI, Alt+F4 only).
@@ -264,6 +259,17 @@ write_kiosk_script() {
       ok "Kept existing kiosk script."
       return
     fi
+  fi
+
+  # Ask only now: if the operator kept the existing script, nothing here
+  # would be applied, so the profile question would be wasted.
+  choose_profile
+
+  # The page Chromium opens: the base URL, plus ?display=<name> when a Display
+  # profile was chosen. The health check below keeps using the bare base URL.
+  local start_url="${display_url%/}/"
+  if [ -n "${DISPLAY_PROFILE:-}" ]; then
+    start_url="${start_url}?display=${DISPLAY_PROFILE}"
   fi
 
   info "Writing kiosk launch script to $script_path ..."
@@ -583,7 +589,6 @@ main() {
   compositor="$(detect_compositor)"
   info "Detected compositor: $(bold "$compositor")"
 
-  choose_profile
   write_kiosk_script
   configure_autostart "$compositor"
   disable_power_management
