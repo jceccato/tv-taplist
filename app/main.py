@@ -48,6 +48,7 @@ from fastapi.responses import (
     RedirectResponse,
     StreamingResponse,
 )
+from fastapi.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -1002,10 +1003,10 @@ async def upload_photo(
     except ValueError:
         declared = None
     try:
-        with photo_library.begin_upload(declared) as upload:
+        with photo_library.begin_upload(declared, album) as upload:
             async for chunk in request.stream():
-                upload.write(chunk)
-            result = upload.commit(name, album)
+                await run_in_threadpool(upload.write, chunk)
+            result = await run_in_threadpool(upload.commit, name, album)
     except photo_library.UploadRejected as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except OSError as exc:

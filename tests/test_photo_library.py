@@ -535,18 +535,20 @@ def test_uploads_default_to_unsorted_the_loose_files():
     assert lib.list_albums() == ["Unsorted"]
 
 
-def test_an_exact_duplicate_by_content_is_skipped_even_under_another_name_or_album():
+def test_an_exact_duplicate_by_content_is_skipped_within_an_album_even_under_another_name():
     (paths.PHOTOS_DIR / "Events").mkdir()
     _upload(_jpeg(), "first.jpg", "Events")
-    r = _upload(_jpeg(), "renamed.jpg")
+    r = _upload(_jpeg(), "renamed.jpg", "Events")
     assert (r.outcome, r.album, r.name) == ("duplicate", "Events", "first.jpg")
-    assert not (paths.PHOTOS_DIR / "renamed.jpg").exists()
+    assert not (paths.PHOTOS_DIR / "Events" / "renamed.jpg").exists()
     assert _staged() == []
+    # Another album may hold the same photo.
+    assert _upload(_jpeg(), "renamed.jpg").outcome == "stored"
 
 
 def test_a_duplicate_of_a_photo_dropped_in_by_hand_is_caught_too():
     write_image(paths.PHOTOS_DIR / "hand.jpg", Image.new("RGB", (300, 200), (1, 2, 3)))
-    backdate(paths.PHOTOS_DIR / "hand.jpg", 60)
+    # Dropped in a moment ago: too fresh for the scan to have hashed it yet.
     same = (paths.PHOTOS_DIR / "hand.jpg").read_bytes()
     assert _upload(same, "again.jpg").outcome == "duplicate"
 
@@ -586,6 +588,8 @@ def test_only_photo_formats_are_taken_and_nothing_is_left_staged():
 
 
 def test_an_unknown_album_is_refused_and_never_created():
+    with pytest.raises(lib.UnknownAlbum):
+        lib.begin_upload(10, "Nope")                     # refused before any byte is sent
     with pytest.raises(lib.UnknownAlbum):
         _upload(_jpeg(), "a.jpg", "../elsewhere")
     with pytest.raises(lib.UnknownAlbum):

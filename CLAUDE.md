@@ -250,7 +250,7 @@ ticked list with nothing ticked".
 - **One module owns `/data/photos/` and `/data/photo_cache/`.** Nothing else in
   `app/` builds a path under either (a guard test walks the AST for
   `PHOTOS_DIR`/`PHOTO_CACHE_DIR`, as the Tap store's filenames are guarded). Its
-  operations: `list_albums`, `scan`, `process_next`/`process_pending`,
+  operations: `list_albums`, `scan`, `begin_upload`/`Upload.commit`, `kick_processing`, `photos_in`, `thumb_file`, `process_next`/`process_pending`,
   `ready_photos(albums, order)`, `copy_file(filename)`, `status`.
 - **Originals are never served or referenced.** The board carries only
   `/img/photo/<copy id>.webp`; the copy id is an opaque hash of the original's
@@ -293,8 +293,8 @@ ticked list with nothing ticked".
   staged file on every exit path (stale ones are swept by the scan). `commit()` files it
   into an existing album (Unsorted = top level): a client name is reduced to a plain
   file name, a clash gets ` (2)` before the extension (case-blind), and a file whose
-  **content** is already anywhere in the library is skipped with a note naming the
-  existing copy. The new file is indexed with its hash at once, so duplicates are caught
+  **content** is already in the same album is skipped with a note naming the
+  existing copy (the same photo may be uploaded into another album). The new file is indexed with its hash at once, so duplicates are caught
   before any scan settles, then `kick_processing()` starts the one-at-a-time pipeline
   in a background thread. The Photos tab polls `GET /admin/photos/status` (counts,
   albums, one album's photos with ready/waiting/failed + reason) and shows thumbnails

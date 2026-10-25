@@ -722,7 +722,7 @@ class StoredUpload:
     """What happened to one uploaded file.
 
     `outcome` is `stored` (filed under `name` in `album`) or `duplicate` (its
-    content is already in the library as `album`/`name`; nothing was added).
+    content is already in that album as `album`/`name`; nothing was added).
     """
     outcome: str
     album: str
@@ -801,12 +801,12 @@ class Upload:
         if self.size == 0:
             raise UploadRejected("The file is empty.")
         folder = _album_dir(album)
-        scan()      # so a photo dropped in by hand a moment ago counts for the duplicate check
+        scan(settle_seconds=0)      # so a photo dropped in by hand a moment ago counts for the duplicate check
         digest = self._hash.hexdigest()
         with _STORE_LOCK, _LOCK:
             idx = _load_index()
             for rel, e in idx.items():
-                if e.get("hash") == digest:
+                if e.get("hash") == digest and _album_of(rel) == album:
                     return StoredUpload("duplicate", _album_of(rel), _name_of(rel))
             taken = {n.casefold() for n in os.listdir(folder)}
             name, n = f"{stem}{ext}", 1
@@ -832,14 +832,18 @@ def _too_large_message() -> str:
 _STORE_LOCK = threading.Lock()
 
 
-def begin_upload(declared_size: int | None = None) -> Upload:
+def begin_upload(declared_size: int | None = None, album: str = UNSORTED) -> Upload:
     """Start receiving one photo, or raise UploadRejected before reading any of it.
+
+    The album is checked here too, so a file for an album that does not exist is
+    refused before it is sent.
 
     `declared_size` is the client's Content-Length, when it sent one: a file that
     announces itself as too big is refused without a byte being staged.
     """
     if declared_size is not None and declared_size > MAX_UPLOAD_BYTES:
         raise UploadTooLarge(_too_large_message())
+    _album_dir(album)
     free = _free_bytes()
     if free < MIN_FREE_BYTES:
         raise LowDiskSpace(
