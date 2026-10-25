@@ -330,8 +330,8 @@ def run_sync() -> dict[str, Any]:
     """Execute one full sync. Returns a small status dict. Never raises."""
     ensure_dirs()
     cfg = load_config()
-    show_upcoming = upcoming_wanted(cfg)
-    if not show_upcoming:
+    cache_upcoming = upcoming_wanted(cfg)
+    if not cache_upcoming:
         # Gate convergence (docs/adr/0006): a hand-edited config.json that
         # turns the feature off must reach an honest /data even without a
         # fresh Settings save. This is deliberately NOT a fallback for
@@ -431,8 +431,8 @@ def run_sync() -> dict[str, Any]:
                 # answer. The pre-lock value still decides the convergence
                 # clear above and nothing else.
                 teased = 0
-                show_upcoming = upcoming_wanted(load_config())
-                if show_upcoming:
+                cache_upcoming = upcoming_wanted(load_config())
+                if cache_upcoming:
                     manual_slots = taps.occupied_slots(taps.Source.MANUAL)
                     occupied = mapping.resolve_occupancy(batches, manual_slots=manual_slots)
                     upcoming_entries = mapping.upcoming_beers(batches, occupied)

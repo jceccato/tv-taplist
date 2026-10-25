@@ -201,7 +201,7 @@ restart); `display.js` only forwards its own `?display=` on each poll.
 `config_store.upcoming_wanted(settings)` is true while the Default profile or
 any profile has `show_upcoming_previews` on; the sync's gate and convergence
 clear and `apply_settings`' clear all ask it, so `/data/upcoming/` is cleared
-only when no profile wants it (ADR-0006). Whether a screen shows them is the
+only when no profile wants it (ADR-0006, ADR-0007). Whether a screen shows them is the
 board's per-profile answer from its own effective settings. A profile that
 turns the switch on or off needs no sync change.
 

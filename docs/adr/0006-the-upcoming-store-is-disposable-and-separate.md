@@ -191,3 +191,10 @@ beer that left the board would have to sort real history from projections.
   that syncs, and unexpirable on one that does not.
 - **Archive an Upcoming Beer when it stops qualifying.** Rejected: it fills
   `old_beers/` with beers that never poured.
+
+## Amendment (display profiles, issue #53)
+
+"While `show_upcoming_previews` is on" now means while the Default profile or any
+Display profile has it on (`config_store.upcoming_wanted`, ADR-0007). The
+directory is cleared only when none does, on both paths above. Whether a screen
+shows Upcoming Beers is its own profile's answer at board time.
