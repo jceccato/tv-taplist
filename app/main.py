@@ -797,7 +797,7 @@ async def save_settings(
     theme_custom = {key: form.get(f"theme_{key}") for key in THEME_KEYS}
 
     asked = str(form.get("profile") or "").strip().lower()
-    if asked and asked != DEFAULT_PROFILE:
+    if asked and asked != DEFAULT_PROFILE:   # a bad name is refused by save_profile
         # Editing a Display profile: one Save writes only that profile, and only
         # the units its switches say are customised (ADR-0007). Everything else
         # on the form is dropped, so the Default profile cannot change from here.

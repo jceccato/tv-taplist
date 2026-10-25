@@ -271,9 +271,10 @@ def save_profile(name: Any, *, customise: Iterable[str],
     Settings Save. Returns the profile as stored (after clamping).
     """
     wanted = set(customise)
+    key = _existing(name, config_store.load_config()["profiles"])
 
     def save(profiles):
-        key = _existing(name, profiles)
+        _existing(key, profiles)
         mine: dict[str, Any] = {}
         for unit, keys in config_store.CUSTOMISABLE_UNITS.items():
             if unit in wanted and all(k in values for k in keys):
@@ -290,7 +291,7 @@ def save_profile(name: Any, *, customise: Iterable[str],
         return profiles
 
     saved = _write_profiles(save)
-    stored = saved["profiles"][config_store.normalize_profile_name(name)]
+    stored = saved["profiles"][key]
     log.info("profile saved: %s (%d customised unit(s))",
-             config_store.normalize_profile_name(name), len(customised_units(stored)))
+             key, len(customised_units(stored)))
     return stored

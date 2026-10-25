@@ -15,7 +15,7 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
     names are config_store.CUSTOMISABLE_UNITS - a test fails if one has no
     wrapper here. -#}
 {% macro unit_switch(name) -%}
-{% if editing %}<label class="checkbox unit-switch"><input type="checkbox" class="unit-customise" name="customise_{{ name }}" {{ 'checked' if name in customised_units else '' }}> Customise <span class="muted unit-state">(following the Default profile)</span></label>{% endif %}
+{% if editing %}<label class="checkbox unit-switch"><input type="checkbox" class="unit-customise" name="customise_{{ name }}" form="settings-form" {{ 'checked' if name in customised_units else '' }}> Customise <span class="muted unit-state">(following the Default profile)</span></label>{% endif %}
 {%- endmacro %}
 {% macro unit(name) -%}
 <div class="unit{{ ' following' if editing and name not in customised_units else '' }}" data-unit="{{ name }}">

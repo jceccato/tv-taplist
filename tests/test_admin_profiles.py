@@ -197,9 +197,9 @@ def test_a_profile_page_shows_the_defaults_greyed_value_and_the_switches():
     html = _admin().get("/admin?profile=tv").text
     # Customised: its own value, switch on. Followed: the Default's value, switch off.
     assert re.search(r'name="rotation_seconds"[^>]*value="9"', html)
-    assert re.search(r'name="customise_rotation_seconds" checked', html)
+    assert re.search(r'name="customise_rotation_seconds" form="settings-form" checked', html)
     assert "Default words" in html
-    assert re.search(r'name="customise_announcement_text" >', html)
+    assert re.search(r'name="customise_announcement_text" form="settings-form" >', html)
     assert 'name="profile" value="tv"' in html
     # Editing state is clear, and the defaults travel with the page.
     assert "Editing the tv profile" in html
@@ -246,3 +246,18 @@ def test_an_unknown_profile_page_shows_the_default():
 def test_the_upcoming_warning_says_the_cache_is_cleared_only_when_no_profile_wants_it():
     html = _admin().get("/admin").text
     assert "in every profile deletes" in html
+
+
+def test_every_customise_switch_belongs_to_the_settings_form():
+    """The Theme, glassware and logo-height switches sit outside the <form>.
+
+    A switch outside it, without a `form=` attribute, is never posted, so those
+    units could never be customised.
+    """
+    admin_ops.create_profile("tv")
+    html = _admin().get("/admin?profile=tv").text
+    form_start = html.index('<form id="settings-form">')
+    form_end = html.index("</form>", form_start)
+    for tag in re.finditer(r'<input[^>]*name="customise_[^"]+"[^>]*>', html):
+        inside = form_start < tag.start() < form_end
+        assert inside or 'form="settings-form"' in tag.group(0), tag.group(0)

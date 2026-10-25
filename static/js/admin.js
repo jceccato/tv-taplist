@@ -227,6 +227,9 @@
           const tx = f.querySelector("[data-hex-text]");
           if (sw && tx) tx.value = sw.value;
         });
+        const logoNum = document.getElementById("logo_h");
+        const logoRange = document.getElementById("logo_h_range");
+        if (logoNum && logoRange) logoRange.value = logoNum.value;
         if (syncUpcomingLabel) syncUpcomingLabel();
         const theme = document.getElementById("theme");
         if (theme) theme.dispatchEvent(new Event("change"));
