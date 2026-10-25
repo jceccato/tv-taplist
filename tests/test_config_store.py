@@ -522,3 +522,57 @@ def test_show_conditioning_status_absent_from_stored_config_reads_the_default():
     # DEFAULT_CONFIG must fall back to the schema default rather than raising.
     merged = config_store._coerce({"num_taps": 4})
     assert merged["show_conditioning_status"] is False
+
+
+# ---- Display profiles: the customisable declaration (ADR-0007) -------------
+
+def test_every_setting_is_customisable_or_never_customisable():
+    """A new Setting must be classified: customisable or never, not neither.
+
+    Fails when a key is added to DEFAULT_CONFIG alone, so nobody can ship a
+    Setting whose per-profile behaviour was never decided.
+    """
+    schema = set(config_store.DEFAULT_CONFIG)
+    customisable = set(config_store.CUSTOMISABLE_KEYS)
+    never = set(config_store.NEVER_CUSTOMISABLE)
+    assert customisable | never == schema
+    assert not (customisable & never)
+
+
+def test_each_customisable_key_is_in_exactly_one_unit():
+    keys = [k for unit in config_store.CUSTOMISABLE_UNITS.values() for k in unit]
+    assert len(keys) == len(set(keys))
+
+
+def test_one_unit_groups_are_declared_together():
+    units = config_store.CUSTOMISABLE_UNITS
+    assert units["theme"] == ("theme", "theme_custom")
+    assert units["pagination"] == ("paginate", "page_size")
+    assert units["tap_photo_size"] == ("tap_photo_preset", "tap_image_scale")
+    assert units["tap_text_size"] == ("tap_text_preset", "tap_text_scale")
+    for stat in ("abv", "ibu", "color", "og", "fg"):
+        assert units[f"stat_{stat}"] == (f"show_{stat}", f"hide_{stat}_when_empty")
+
+
+def test_the_never_customisable_settings_are_the_venue_wide_ones():
+    assert config_store.NEVER_CUSTOMISABLE == {
+        "brewfather_user_id", "brewfather_api_key", "include_conditioning",
+        "include_fermenting", "num_taps", "max_archive_age_days",
+        "max_archive_storage_mb", "venue_logo", "color_unit",
+        "update_check_enabled",
+    }
+
+
+def test_board_takes_its_settings_from_the_effective_input(write_tap):
+    """build_board resolves from what it is handed, not from config.json."""
+    from app.board import build_board
+    config_store.update_config(num_taps=2, rotation_seconds=30)
+    fed = {**config_store.effective_settings(), "rotation_seconds": 77}
+    assert build_board(fed)["rotation_seconds"] == 77
+    assert build_board()["rotation_seconds"] == 30
+
+
+def test_board_module_does_not_read_settings_directly():
+    import inspect
+    from app import board
+    assert "load_config" not in inspect.getsource(board)

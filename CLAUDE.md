@@ -48,7 +48,7 @@ app/                FastAPI app + all logic
   main.py           routes (display, admin, API, image serving, auth)
   config_store.py   config.json load/save/coerce; DEFAULT_CONFIG is the schema
   status_store.py   status.json: disposable runtime Status + the one-time migration
-  board.py          builds the /api/board payload; owns Tap, Colour and Visibility resolution
+  board.py          builds the /api/board payload from one effective-settings input (never reads Settings itself); owns Tap, Colour and Visibility resolution
   brewfather.py     Brewfather fetch + sync job (Fetch only; no pure mapping logic)
   mapping.py        Batch -> Beer: note tokens, field extractors, Slot conflicts (PURE)
   beer.py           the Beer type + TapPresentation/SourceRevision; coerces, never rejects
@@ -169,6 +169,18 @@ Settings: whether to check is operator intent, what the check found is Status.
 `include_conditioning` and `include_fermenting` (both bool, default False)
 independently widen the sync from Completed-only to also pull Conditioning and/or
 Fermenting Batches.
+
+**What a Display profile may customise (ADR-0007) is declared once**, in
+`config_store.py`: `NEVER_CUSTOMISABLE` (Brewfather credentials, sync scope,
+`num_taps`, archiving, `venue_logo`, `color_unit`, `update_check_enabled`) and
+`CUSTOMISABLE_UNITS` (unit name mapped to the keys customised together: Theme with
+`theme_custom`; `paginate` with `page_size`; each size preset with its scale;
+each stat's `show_*` with its `hide_*_when_empty`; every other customisable
+setting is a unit of one). `CUSTOMISABLE_KEYS` is derived from the units. A
+guard test fails if a `DEFAULT_CONFIG` key is in neither list, so a new Setting
+must be classified when it is added. Nothing builds profile storage yet.
+**`effective_settings()`** is the one place the board's settings input is chosen;
+today it returns the Settings (the Default profile) unchanged.
 
 ---
 
@@ -404,7 +416,10 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
 · `POST /admin/snapshot/stage`,`/discard`,`/import` · `/img/beer-glass`,
 `/img/placeholder`,`/img/venue-logo`,`/img/<file>` · `GET /healthz`.
 
-- **`GET /api/board`** (public) carries **resolved answers, not inputs**: six
+- **`GET /api/board`** (public) resolves from **effective settings** passed to
+  `build_board(effective)` (the route passes `config_store.effective_settings()`);
+  `board.py` does not import or call `load_config`, and a test pins that.
+  It carries **resolved answers, not inputs**: six
   Visibility booleans per Tap (`abv_visible`, `ibu_visible`, `ebc_visible`,
   `og_visible`, `fg_visible`, `swatch_visible`) and a resolved Colour
   (`color_hex`/`text_color`, **null when Unknown**, absent on Vacant). The ten

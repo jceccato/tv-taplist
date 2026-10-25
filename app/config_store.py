@@ -153,6 +153,77 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "update_check_enabled": True,     # operator can disable for air-gapped deploys
 }
 
+# ---- Display profiles: what can be customised (ADR-0007) ---------------------
+#
+# The ONE declaration of which Settings a Display profile may customise. The
+# board resolution, the admin form, the save path and the guard tests all read
+# it; nothing else lists these keys.
+#
+# NEVER_CUSTOMISABLE are venue-wide: they change what the sync fetches or
+# stores, or are one venue's one fact (credentials, tap count, the logo image,
+# the colour unit). Every other key in DEFAULT_CONFIG is customisable, either
+# alone or as part of a one-unit group in CUSTOMISABLE_UNITS.
+NEVER_CUSTOMISABLE: frozenset[str] = frozenset({
+    "brewfather_user_id",
+    "brewfather_api_key",
+    "include_conditioning",
+    "include_fermenting",
+    "num_taps",
+    "max_archive_age_days",
+    "max_archive_storage_mb",
+    "venue_logo",
+    "color_unit",
+    "update_check_enabled",
+})
+
+# Each customisable unit: unit name mapped to the keys customised (or followed) together,
+# so a profile can never hold half a Theme. A setting with no partner is a unit
+# of one. Insertion order is the order the admin will list them.
+CUSTOMISABLE_UNITS: dict[str, tuple[str, ...]] = {
+    "theme": ("theme", "theme_custom"),
+    "pagination": ("paginate", "page_size"),
+    "tap_photo_size": ("tap_photo_preset", "tap_image_scale"),
+    "tap_text_size": ("tap_text_preset", "tap_text_scale"),
+    "stat_abv": ("show_abv", "hide_abv_when_empty"),
+    "stat_ibu": ("show_ibu", "hide_ibu_when_empty"),
+    "stat_color": ("show_color", "hide_color_when_empty"),
+    "stat_og": ("show_og", "hide_og_when_empty"),
+    "stat_fg": ("show_fg", "hide_fg_when_empty"),
+    "rotation_seconds": ("rotation_seconds",),
+    "hide_vacant_taps": ("hide_vacant_taps",),
+    "announcement_text": ("announcement_text",),
+    "glass_type": ("glass_type",),
+    "venue_logo_height_vh": ("venue_logo_height_vh",),
+    "show_source_badge": ("show_source_badge",),
+    "show_conditioning_status": ("show_conditioning_status",),
+    "show_upcoming_previews": ("show_upcoming_previews",),
+    "max_upcoming_previews": ("max_upcoming_previews",),
+    "upcoming_label": ("upcoming_label",),
+    "show_upcoming_status": ("show_upcoming_status",),
+    "show_upcoming_subtitle": ("show_upcoming_subtitle",),
+    "show_upcoming_abv": ("show_upcoming_abv",),
+    "upcoming_interval_seconds": ("upcoming_interval_seconds",),
+    "upcoming_rotate_occupied": ("upcoming_rotate_occupied",),
+    "show_upcoming_deck_page": ("show_upcoming_deck_page",),
+    "show_upcoming_panel": ("show_upcoming_panel",),
+    "upcoming_panel_multiple": ("upcoming_panel_multiple",),
+    "upcoming_surface_scope": ("upcoming_surface_scope",),
+}
+
+CUSTOMISABLE_KEYS: frozenset[str] = frozenset(
+    key for keys in CUSTOMISABLE_UNITS.values() for key in keys)
+
+
+def effective_settings() -> dict[str, Any]:
+    """The Settings the board is resolved from: the **effective settings**.
+
+    Today that is exactly the Settings (the Default profile). It is the one
+    place the board's input is chosen, so a later ticket can resolve a Display
+    profile over the Default profile here without the board changing.
+    """
+    return load_config()
+
+
 # Upper bound on the tap count. Well above any real venue; guards /api/board and
 # the admin's per-tap rows from an accidental or pasted absurd value that would
 # balloon every board build (each tap does per-slot filesystem probing).

@@ -38,7 +38,7 @@ from typing import Any
 from .beer import Beer, TapPresentation
 from .beer_glass import DEFAULT_GLASS, normalize_glass
 from .colors import ResolvedColor, resolve_color
-from .config_store import DEFAULT_CONFIG, load_config
+from .config_store import DEFAULT_CONFIG, effective_settings
 from .mapping import status_rank_for_label
 from .paths import venue_logo_path
 from .tap_store import resolve as resolve_tap_file
@@ -315,13 +315,14 @@ def resolve_tap(tap: int, default_glass: str = DEFAULT_GLASS,
                 cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     """Resolve a single tap to a display dict.
 
-    `cfg` is the Settings the Visibility toggles come from; it is loaded here
-    when omitted so a caller resolving one Slot in isolation still gets the same
-    answers the board would give. `build_board` passes its own copy so a full
-    board reads config once rather than once per Slot.
+    `cfg` is the effective settings the Visibility toggles come from; they are
+    fetched from `effective_settings()` when omitted so a caller resolving one
+    Slot in isolation still gets the same answers the board would give.
+    `build_board` passes its own copy so a full board resolves them once rather
+    than once per Slot.
     """
     if cfg is None:
-        cfg = load_config()
+        cfg = effective_settings()
 
     # Source precedence (Manual beats Brewfather beats Vacant) belongs to the
     # store; the board only asks for a Slot and is told which Source won.
@@ -569,9 +570,15 @@ def resolve_upcoming(entry: UpcomingEntry, cfg: dict[str, Any],
     }
 
 
-def build_board() -> dict[str, Any]:
-    """Build the full board payload consumed by the TV display."""
-    cfg = load_config()
+def build_board(effective: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Build the full board payload consumed by the TV display.
+
+    `effective` is the one settings input: the effective settings the board is
+    resolved from (`config_store.effective_settings()` when omitted). Nothing
+    below reads Settings any other way, so a Display profile's settings can be
+    fed in here without the resolution changing.
+    """
+    cfg = effective if effective is not None else effective_settings()
     num_taps = int(cfg.get("num_taps", 0) or 0)
     hide_vacant = bool(cfg.get("hide_vacant_taps", False))
     default_glass = cfg.get("glass_type", DEFAULT_GLASS)

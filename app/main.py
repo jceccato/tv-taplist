@@ -63,6 +63,7 @@ from .config_store import (
     UPCOMING_LABEL_PRESETS,
     apply_settings,
     brewfather_credentials,
+    effective_settings,
     load_config,
     update_config,
 )
@@ -164,7 +165,7 @@ async def display_page(request: Request):
 @app.get("/api/board")
 async def api_board():
     # No-store so proxies never serve a stale board to a TV.
-    return JSONResponse(build_board(), headers={"Cache-Control": "no-store"})
+    return JSONResponse(build_board(effective_settings()), headers={"Cache-Control": "no-store"})
 
 
 def _optional_number(value: str) -> float | None:
