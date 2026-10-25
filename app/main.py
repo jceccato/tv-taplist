@@ -470,7 +470,7 @@ _CHOSEN_LABELS = {
     CHOSEN_URL: "?display= in its URL",
     CHOSEN_USER_AGENT: "User-Agent text",
     CHOSEN_UNKNOWN: "unknown name, so the Default profile",
-    CHOSEN_DEFAULT: "no match, so the Default profile",
+    CHOSEN_DEFAULT: "no name and no User-Agent match, or the Default named",
 }
 
 
@@ -526,6 +526,7 @@ def _profile_view(request: Request, stored: dict, editing: str | None) -> dict:
             for name, values in profiles.items()
         ],
         "seen_screens": seen_rows,
+        "no_user_agent": seen_screens.NO_USER_AGENT,
         "ua_clashes": ua_clashes,
         "max_user_agent_len": MAX_PROFILE_UA_LEN,
         "default_url": _start_url(request, None),

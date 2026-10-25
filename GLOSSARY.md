@@ -174,14 +174,15 @@ _Avoid_: config (in prose), options, preferences
 
 **Display profile**:
 A named set of differences from the Default profile for one kind of screen,
-chosen by the name in that screen's start URL. Each setting it does not
+chosen by the name in that screen's start URL, or failing that by text in
+its browser's User-Agent. Each setting it does not
 customise follows the Default profile. Part of Settings, since the operator
 authors it.
 _Avoid_: screen config, display settings, mode, "display" alone (that is the TV page)
 
 **Default profile**:
 The Display profile every other profile follows, and the one a screen gets when
-it names no profile or one that does not exist. Cannot be deleted or renamed.
+it names no profile (and no User-Agent text matches) or one that does not exist. Cannot be deleted or renamed.
 _Avoid_: global profile, main profile, base
 
 **Customised setting**:

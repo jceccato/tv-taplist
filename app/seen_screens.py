@@ -14,6 +14,7 @@ from typing import NamedTuple
 
 MAX_SEEN_SCREENS = 50
 _MAX_USER_AGENT_LEN = 300     # longest User-Agent remembered
+NO_USER_AGENT = "(none sent)"  # stands in for a request with no User-Agent header
 
 
 class SeenScreen(NamedTuple):
@@ -34,7 +35,7 @@ def record_seen_screen(user_agent: str | None, profile: str, chosen: str,
     One entry per (User-Agent, profile, how), so a screen whose assignment changes
     shows both the old and the new outcome; the one seen again moves to most recent.
     """
-    ua = " ".join(str(user_agent or "").split())[:_MAX_USER_AGENT_LEN] or "(none sent)"
+    ua = " ".join(str(user_agent or "").split())[:_MAX_USER_AGENT_LEN] or NO_USER_AGENT
     key = (ua, profile, chosen)
     with _lock:
         _seen.pop(key, None)

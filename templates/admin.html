@@ -186,14 +186,14 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
 
       <h3>Recently seen screens</h3>
       {% for clash in ua_clashes %}
-      <div class="alert warn" role="status">Profiles <strong>{{ clash.winner }}</strong>{% for n in clash.others %}, <strong>{{ n }}</strong>{% endfor %} all match the User-Agent <code>{{ clash.user_agent }}</code>. The first in the list, <strong>{{ clash.winner }}</strong>, wins for a screen that has no <code>?display=</code>. Change one profile's text so only one matches.</div>
+      <div class="alert warn" role="status">Profiles <strong>{{ clash.winner }}</strong>{% for n in clash.others %}, <strong>{{ n }}</strong>{% endfor %} each match the User-Agent <code>{{ clash.user_agent }}</code>. The first in the list, <strong>{{ clash.winner }}</strong>, wins for a screen that has no <code>?display=</code>. Change one profile's text so only one matches.</div>
       {% endfor %}
       {% if seen_screens %}
       <p class="hint">Screens that loaded the board since the last restart, newest first. To pick a profile by User-Agent, copy a distinctive part of a screen's User-Agent into that profile's text above. Kept in memory only.</p>
       <ul class="seen-screens">
         {% for s in seen_screens %}
         <li class="seen-screen">
-          <div class="profile-url"><code>{{ s.user_agent }}</code>{% if s.user_agent != '(none sent)' %}<button class="btn" type="button" data-copy="{{ s.user_agent }}">Copy</button>{% endif %}</div>
+          <div class="profile-url"><code>{{ s.user_agent }}</code>{% if s.user_agent != no_user_agent %}<button class="btn" type="button" data-copy="{{ s.user_agent }}">Copy</button>{% endif %}</div>
           <p class="hint">Got <strong>{{ s.profile }}</strong> ({{ s.how }}). Last seen <span title="{{ s.last_seen_at }}">{{ s.last_seen }}</span>.</p>
         </li>
         {% endfor %}

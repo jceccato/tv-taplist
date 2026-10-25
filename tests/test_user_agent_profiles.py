@@ -194,14 +194,14 @@ def test_the_admin_warns_when_two_profiles_match_a_seen_screen():
                "third": {PROFILE_UA_KEY: "Tizen"}})
     _rotation(ua=LG)
     html = _admin().get("/admin").text
-    assert "all match the User-Agent" in html
+    assert "each match the User-Agent" in html
     assert "The first in the list, <strong>first</strong>, wins" in html
 
 
 def test_no_warning_when_only_one_profile_matches():
     _profiles({"first": {PROFILE_UA_KEY: "SmartTV"}, "second": {PROFILE_UA_KEY: "Tizen"}})
     _rotation(ua=LG)
-    assert "all match the User-Agent" not in _admin().get("/admin").text
+    assert "each match the User-Agent" not in _admin().get("/admin").text
 
 
 def test_seen_screens_are_never_written_to_disk():
