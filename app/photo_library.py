@@ -35,6 +35,7 @@ or missing index just means everything is re-hashed and rebuilt.
 """
 from __future__ import annotations
 
+import colorsys
 import hashlib
 import io
 import json
@@ -116,8 +117,18 @@ JPEG_BACKGROUND = (0, 0, 0)
 WEBP_QUALITY = 99
 THUMB_SIZE = 480
 THUMB_QUALITY = 80
-# Bump when the pipeline changes what a copy looks like, so every copy rebuilds.
-_PIPELINE_VERSION = 1
+# Bump when the pipeline changes what a copy looks like, or what is recorded with
+# it, so every copy rebuilds. 2: the "From photo" mount colour (issue #61).
+_PIPELINE_VERSION = 2
+
+# The "From photo" mount colour (issue #61): sampled from the outer band of the
+# Display copy, this fraction of each side deep, then muted, so a mount suits the
+# photo without competing with it. Lightness is held inside a band so a black or
+# a white edge still gives a mount that reads as card, not as a hole or a glare.
+MOUNT_EDGE_FRACTION = 0.08
+MOUNT_MAX_SATURATION = 0.22
+MOUNT_SATURATION_SCALE = 0.45
+MOUNT_LIGHTNESS = (0.18, 0.84)
 
 # Pillow's decompression-bomb guard, set explicitly. A bomb warning (Pillow
 # warns between this and twice this, then raises) is promoted to an error while
@@ -568,6 +579,7 @@ class Rendered(NamedTuple):
     taken: str | None        # ISO date taken, when the metadata had one
     long_side: int           # the original's long side in pixels (for the low-resolution note)
     source: str              # what was decoded (Decoded.source)
+    mount: str               # the "From photo" mount colour, #rrggbb
 
 
 # LibRaw's `flip` as the EXIF orientation that means the same turn.
@@ -704,7 +716,29 @@ def _render(path: Path, pipe: Pipeline) -> Rendered:
     tbuf = io.BytesIO()
     thumb.save(tbuf, "WEBP", quality=THUMB_QUALITY, method=4)
     return Rendered(buf.getvalue(), tbuf.getvalue(), target[0], target[1], decoded.taken,
-                    decoded.long_side, decoded.source)
+                    decoded.long_side, decoded.source, _mount_colour(im))
+
+
+def _mount_colour(im: Image.Image) -> str:
+    """A muted colour from a photo's edges, as #rrggbb: the "From photo" mount.
+
+    The mean of the outer band (MOUNT_EDGE_FRACTION of each side), taken on a
+    small copy so it costs nothing beside the encode, then desaturated and held
+    inside MOUNT_LIGHTNESS. The page only paints it.
+    """
+    small = im.convert("RGB")
+    small.thumbnail((96, 96), Image.Resampling.BOX)
+    w, h = small.size
+    band = max(1, round(min(w, h) * MOUNT_EDGE_FRACTION))
+    mask = Image.new("L", (w, h), 255)
+    if w > 2 * band and h > 2 * band:
+        mask.paste(0, (band, band, w - band, h - band))
+    r, g, b = (sum(v * c for v, c in enumerate(ch)) / max(1, sum(ch))
+               for ch in (small.getchannel(i).histogram(mask) for i in range(3)))
+    hue, light, sat = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
+    sat = min(sat * MOUNT_SATURATION_SCALE, MOUNT_MAX_SATURATION)
+    light = min(max(light, MOUNT_LIGHTNESS[0]), MOUNT_LIGHTNESS[1])
+    return "#" + "".join(f"{round(c * 255):02x}" for c in colorsys.hls_to_rgb(hue, light, sat))
 
 
 def _copy_id(content_hash: str, key: str) -> str:
@@ -784,7 +818,7 @@ def process_next() -> bool:
             old = entry.get("copy")
             entry["copy"] = {"id": copy_id, "settings": pipe.key, "ext": pipe.extension,
                              "src": snapshot["hash"], "w": out.width, "h": out.height,
-                             "long": out.long_side}
+                             "long": out.long_side, "mount": out.mount}
             entry["error"] = None
             entry["taken"] = out.taken
             entry["date"] = _epoch(out.taken) if out.taken else _mtime_seconds(entry)
@@ -846,6 +880,7 @@ class ReadyPhoto:
     aspect: float            # width / height of the Display copy
     taken: str | None        # ISO date taken, when the EXIF had one
     date: float              # sort date: date taken, else the file's date
+    mount: str | None = None  # the "From photo" mount colour; None on a copy made before it existed
 
 
 def _natural_key(text: str) -> list[Any]:
@@ -884,12 +919,20 @@ def ready_photos(albums: Iterable[str] | None = None,
         out.append(ReadyPhoto(
             photo_id=hashlib.sha256(rel.encode()).hexdigest()[:16], copy_id=cid, filename=f"{cid}{ext}", album=_album_of(rel),
             name=_name_of(rel), aspect=round(w / h, 4), taken=e.get("taken"),
-            date=float(e.get("date") or 0.0)))
+            date=float(e.get("date") or 0.0), mount=_valid_mount(copy.get("mount"))))
     if order == ORDER_DATE:
         out.sort(key=lambda p: (-p.date, _natural_key(p.name), _natural_key(p.album)))
     else:
         out.sort(key=lambda p: (_natural_key(p.name), _natural_key(p.album), p.copy_id))
     return out
+
+
+_MOUNT_RE = re.compile(r"^#[0-9a-f]{6}$")
+
+
+def _valid_mount(value: Any) -> str | None:
+    """An index's mount colour, or None: the index is a cache file anyone may edit."""
+    return value if isinstance(value, str) and _MOUNT_RE.match(value) else None
 
 
 def copy_file(filename: str) -> Path | None:

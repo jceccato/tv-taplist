@@ -52,7 +52,9 @@ def test_the_defaults_are_webp_at_4k_and_both_are_global():
     cfg = config_store.load_config()
     assert (cfg["photo_format"], cfg["photo_size"]) == ("webp", "4k")
     assert {"photo_format", "photo_size"} <= config_store.NEVER_CUSTOMISABLE
-    assert lib.settings_key() == "webp-q99-3840x2160-p1"      # existing copies stay valid
+    # The defaults name the same copies the format setting found (p1 then); p2 is
+    # the mount colour (issue #61), which rebuilt every copy once on purpose.
+    assert lib.settings_key() == "webp-q99-3840x2160-p2"
 
 
 def test_a_bad_stored_value_falls_back_to_the_default():

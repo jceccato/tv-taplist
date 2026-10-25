@@ -991,3 +991,61 @@ def test_photos_in_reports_each_state_with_a_reason_for_failures():
     assert rows["bad.jpg"].state == "failed" and "cannot be read" in rows["bad.jpg"].reason
     assert rows["bad.jpg"].copy_id is None
     assert lib.thumb_file("../../config.json") is None
+
+
+# ---- the "From photo" mount colour (issue #61) ----------------------------------------
+
+def _framed(edge, centre, size=(1200, 800)):
+    """A photo whose outer edge is one colour and whose middle is another."""
+    im = Image.new("RGB", size, edge)
+    w, h = size
+    im.paste(Image.new("RGB", (w * 6 // 10, h * 6 // 10), centre), (w // 5, h // 5))
+    return im
+
+
+def _hls(hex_colour):
+    import colorsys
+    r, g, b = (int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    return colorsys.rgb_to_hls(r, g, b)
+
+
+def test_the_mount_colour_is_sampled_from_the_edges_and_muted():
+    build(("edge.jpg", _framed((200, 40, 30), (20, 200, 40))))
+    ready, _ = only_copy()
+    assert ready.mount is not None and len(ready.mount) == 7 and ready.mount.startswith("#")
+    h, l, s = _hls(ready.mount)
+    red_h, _, red_s = _hls("#c8281e")
+    # The edge's hue (red), not the centre's (green), and muted: far less saturated.
+    assert min(abs(h - red_h), 1 - abs(h - red_h)) < 0.05
+    assert s < red_s / 2
+    # Never a near-black or a blinding white, whatever the photo.
+    assert 0.1 < l < 0.9
+
+
+@pytest.mark.parametrize("edge", [(0, 0, 0), (255, 255, 255)])
+def test_a_black_or_white_edged_photo_still_gets_a_usable_mount(edge):
+    build(("edge.png", _framed(edge, (90, 90, 200))))
+    ready, _ = only_copy()
+    _, l, _ = _hls(ready.mount)
+    assert 0.1 < l < 0.9
+
+
+def test_the_mount_colour_is_sampled_when_the_copy_is_made_and_kept_in_the_index():
+    build(("edge.jpg", _framed((30, 60, 160), (240, 240, 0))))
+    first = only_copy()[0].mount
+    lib.reset_state()                     # read back from the index file, not memory
+    assert only_copy()[0].mount == first
+
+
+def test_a_copy_made_before_the_mount_colour_existed_is_rebuilt_with_one():
+    build(("edge.jpg", _framed((30, 60, 160), (240, 240, 0))))
+    entry = next(iter(lib._load_index().values()))
+    # A copy as an earlier version wrote it: its own pipeline key, and no colour.
+    old_key = lib.settings_key().rsplit("-p", 1)[0] + "-p1"
+    entry["copy"]["settings"] = old_key
+    entry["copy"].pop("mount", None)
+    lib._save_index()
+    stale = only_copy()[0]
+    assert stale.mount is None            # still served meanwhile, with no colour
+    assert lib.process_pending() == 1     # the sampling change marked it stale
+    assert only_copy()[0].mount is not None
