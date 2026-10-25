@@ -68,7 +68,7 @@ app/                FastAPI app + all logic
   timezone.py       TZ-aware iso_now()
 static/             css/display.css, css/admin.css, js/display.js, js/admin.js, placeholder.svg
 templates/          display.html, admin.html (tabbed), login.html
-tests/              pytest suite (661 tests, 19 files) + conftest.py fixtures
+tests/              pytest suite (690 tests, 20 files) + conftest.py fixtures
 Dockerfile · entrypoint.sh · docker-compose.yml · scripts/docker_test.sh
 scripts/setup.sh (guided installer / .env wizard)
 README.md           root landing page (embeds docs/venue_logo.png + docs/screenshot.png)
@@ -178,9 +178,24 @@ Fermenting Batches.
 each stat's `show_*` with its `hide_*_when_empty`; every other customisable
 setting is a unit of one). `CUSTOMISABLE_KEYS` is derived from the units. A
 guard test fails if a `DEFAULT_CONFIG` key is in neither list, so a new Setting
-must be classified when it is added. Nothing builds profile storage yet.
-**`effective_settings()`** is the one place the board's settings input is chosen;
-today it returns the Settings (the Default profile) unchanged.
+must be classified when it is added.
+
+**Display profiles are stored in `config.json` under `profiles`** (name to a dict
+of Customised settings only; `profiles` itself is in `NEVER_CUSTOMISABLE`).
+`_coerce_profiles` runs in `_coerce`: names are lowercased and must match
+`[a-z0-9-]{1,32}` (and not be `default`), else the profile is dropped; each
+profile's values go through the Default profile's own `_coerce`, so every
+`SETTINGS_BOUNDS` clamp applies; non-customisable keys are dropped, and a
+one-unit group that is not wholly present is dropped whole (followed).
+**`resolve_effective(settings, name)`** is the pure resolution: it returns an
+`Effective(settings, profile, chosen)` where `chosen` is `default` (no name),
+`url` (an existing profile) or `unknown` (a name with no profile, which gets the
+Default profile). The profile is read over the Settings at resolution time, so
+followed settings track the Default live. `effective_settings()` (no arguments)
+is the Default profile's, for callers with no screen in hand. `GET
+/api/board?display=<name>` resolves and records unknown names in memory
+(`config_store.unknown_profile_names()`, bounded to 50, most recent last, lost on
+restart); `display.js` only forwards its own `?display=` on each poll.
 
 ---
 
@@ -417,7 +432,8 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
 `/img/placeholder`,`/img/venue-logo`,`/img/<file>` · `GET /healthz`.
 
 - **`GET /api/board`** (public) resolves from **effective settings** passed to
-  `build_board(effective)` (the route passes `config_store.effective_settings()`);
+  `build_board(effective)` (the route passes `resolve_effective(load_config(),
+  display).settings`, `display` being the optional `?display=` profile name);
   `board.py` does not import or call `load_config`, and a test pins that.
   It carries **resolved answers, not inputs**: six
   Visibility booleans per Tap (`abv_visible`, `ibu_visible`, `ebc_visible`,
@@ -562,7 +578,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 661 tests, 19 files: colours (incl. the single Colour resolution point -
+- 690 tests, 20 files: colours (incl. the single Colour resolution point -
   swatch-vs-Placeholder agreement, preview-vs-board equivalence, Unknown
   fallbacks, `display_color_to_ebc`), beer-glass, themes, storage, the Tap file
   store (precedence walk, unreadable-file handling, the four on-disk filenames),

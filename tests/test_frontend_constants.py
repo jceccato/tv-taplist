@@ -414,3 +414,14 @@ def test_display_js_panel_never_stacks_on_the_deck_page():
     show = js.split("function showPage(", 1)[1].split("\n  }", 1)[0]
     assert re.search(r"deckPageIndex\b.*panelHide\(\)", show), (
         "showPage() no longer pulls the panel when landing on the deck page")
+
+
+def test_display_js_does_not_mirror_the_profile_declaration():
+    """The display forwards `?display=` and never knows which settings a profile
+    may customise (ADR-0007): neither the keys nor the units appear in it."""
+    from app.config_store import CUSTOMISABLE_UNITS
+    js = _display_js()
+    assert "CUSTOMISABLE" not in js and "NEVER_CUSTOMISABLE" not in js
+    for unit in CUSTOMISABLE_UNITS:
+        assert f'"{unit}"' not in js or unit in DEFAULT_CONFIG, unit
+    assert len(re.findall(r'/api/board', js)) == 2   # the one URL, built once

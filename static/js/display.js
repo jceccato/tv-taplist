@@ -48,6 +48,15 @@
   const venueHeader = document.getElementById("venue-header");
   const venueLogo = document.getElementById("venue-logo");
 
+  // The screen's Display profile is chosen by `?display=<name>` in its start URL
+  // and applied by the server (ADR-0007). All this page does is forward the
+  // name, untouched, on every board poll; it holds no profile logic, so an
+  // unknown or mistyped name is the server's business.
+  const BOARD_URL = (function () {
+    const name = new URLSearchParams(window.location.search).get("display");
+    return name === null ? "/api/board" : "/api/board?display=" + encodeURIComponent(name);
+  })();
+
   // Default display settings until the first board arrives. Every key here is a
   // hand-copy of a server default (config_store.DEFAULT_CONFIG) - there is no
   // build step to share them - so tests/test_frontend_constants.py pins the
@@ -1190,7 +1199,7 @@
   // ---- polling ----
   async function poll() {
     try {
-      const resp = await fetch("/api/board", { cache: "no-store" });
+      const resp = await fetch(BOARD_URL, { cache: "no-store" });
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       const board = await resp.json();
       applyBoard(board);

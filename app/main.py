@@ -63,8 +63,11 @@ from .config_store import (
     UPCOMING_LABEL_PRESETS,
     apply_settings,
     brewfather_credentials,
+    CHOSEN_UNKNOWN,
     effective_settings,
     load_config,
+    record_unknown_profile,
+    resolve_effective,
     update_config,
 )
 from .theme import DEFAULT_THEME, THEME_FIELD_LABELS, THEME_KEYS, THEMES
@@ -163,9 +166,15 @@ async def display_page(request: Request):
 
 
 @app.get("/api/board")
-async def api_board():
+async def api_board(display: str | None = None):
+    # The server applies the screen's Display profile (ADR-0007): the screen
+    # forwards its `?display=` and gets a board that is already resolved. An
+    # unknown name gets the Default profile and is remembered for the Admin.
     # No-store so proxies never serve a stale board to a TV.
-    return JSONResponse(build_board(effective_settings()), headers={"Cache-Control": "no-store"})
+    resolved = resolve_effective(load_config(), display)
+    if resolved.chosen == CHOSEN_UNKNOWN:
+        record_unknown_profile(display or "")
+    return JSONResponse(build_board(resolved.settings), headers={"Cache-Control": "no-store"})
 
 
 def _optional_number(value: str) -> float | None:
@@ -664,6 +673,9 @@ SETTINGS_NOT_ON_THE_FORM = frozenset({
     # off the form - a field here that the form never posts would take the
     # model's default on every Save and quietly switch the check back on.
     "update_check_enabled",
+    # Display profiles are edited by their own Admin editor (a later ticket), not
+    # by the Settings form; a field here would reset them on every Save.
+    "profiles",
 })
 
 

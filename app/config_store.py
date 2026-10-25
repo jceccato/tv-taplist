@@ -17,8 +17,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import threading
 import time
-from typing import Any
+from typing import Any, NamedTuple
 
 from . import upcoming_store
 from .atomic import JOB_LOCK, atomic_write_text
@@ -151,6 +153,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # operator's intent lives here; what the check FOUND is Status and lives in
     # status.json, along with the sync timestamps that used to sit below it.
     "update_check_enabled": True,     # operator can disable for air-gapped deploys
+    # Display profiles (ADR-0007): name -> {customised key: value}. A profile
+    # holds ONLY its Customised settings; everything else follows the Default
+    # profile (the rest of this dict). Names are validated and values clamped by
+    # `_coerce_profiles`. Empty by default, so an upgrade changes no screen.
+    "profiles": {},
 }
 
 # ---- Display profiles: what can be customised (ADR-0007) ---------------------
@@ -174,6 +181,7 @@ NEVER_CUSTOMISABLE: frozenset[str] = frozenset({
     "venue_logo",
     "color_unit",
     "update_check_enabled",
+    "profiles",   # the profiles themselves are not something a profile customises
 })
 
 # Each customisable unit: unit name mapped to the keys customised (or followed) together,
@@ -214,19 +222,105 @@ CUSTOMISABLE_KEYS: frozenset[str] = frozenset(
     key for keys in CUSTOMISABLE_UNITS.values() for key in keys)
 
 
-def effective_settings() -> dict[str, Any]:
-    """The Settings the board is resolved from: the **effective settings**.
+# Display profile names: lowercase letters, digits and hyphens, up to 32 long,
+# matched regardless of case (so a name works safely in a URL).
+MAX_PROFILE_NAME_LEN = 32
+_PROFILE_NAME_RE = re.compile(r"^[a-z0-9-]{1,%d}$" % MAX_PROFILE_NAME_LEN)
+# "default" names the Default profile, which is not stored and cannot be a
+# stored profile (it cannot be created, renamed or deleted).
+DEFAULT_PROFILE = "default"
 
-    Today that is exactly the Settings (the Default profile). It is the one
-    place the board's input is chosen, so a later ticket can resolve a Display
-    profile over the Default profile here without the board changing.
+# How a screen's profile was chosen (the last field of `Effective`).
+CHOSEN_DEFAULT = "default"    # no profile named
+CHOSEN_URL = "url"            # `?display=<name>` named an existing profile
+CHOSEN_UNKNOWN = "unknown"    # a name was asked for but no such profile exists
+
+
+def normalize_profile_name(name: Any) -> str | None:
+    """The canonical form of a profile name, or None if it is not a valid one."""
+    if not isinstance(name, str):
+        return None
+    clean = name.strip().lower()
+    if clean == DEFAULT_PROFILE or not _PROFILE_NAME_RE.match(clean):
+        return None
+    return clean
+
+
+class Effective(NamedTuple):
+    """The result of resolving a screen's profile.
+
+    `settings` are the **effective settings** (GLOSSARY.md): the profile's
+    Customised settings over the Default profile. `profile` is the name that was
+    applied ("default" for the Default profile). `chosen` says how: one of
+    CHOSEN_DEFAULT, CHOSEN_URL or CHOSEN_UNKNOWN.
     """
-    return load_config()
+    settings: dict[str, Any]
+    profile: str
+    chosen: str
 
 
-# Upper bound on the tap count. Well above any real venue; guards /api/board and
-# the admin's per-tap rows from an accidental or pasted absurd value that would
-# balloon every board build (each tap does per-slot filesystem probing).
+def resolve_effective(settings: dict[str, Any], profile_name: str | None) -> Effective:
+    """Pure: resolve the effective settings for one screen.
+
+    No I/O. `settings` is the coerced Settings (the Default profile plus the
+    stored `profiles`); `profile_name` is what the screen asked for, or None.
+    A setting the profile does not customise is read from `settings` here, at
+    resolution time, so a change to the Default profile reaches every profile
+    that follows it. An unknown (or invalid) name gets the Default profile.
+    """
+    profiles = settings.get("profiles") or {}
+    base = {k: v for k, v in settings.items() if k != "profiles"}
+    if profile_name is None or not str(profile_name).strip():
+        return Effective(base, DEFAULT_PROFILE, CHOSEN_DEFAULT)
+    name = normalize_profile_name(profile_name)
+    if name is None or name not in profiles:
+        return Effective(base, DEFAULT_PROFILE, CHOSEN_UNKNOWN)
+    return Effective({**base, **profiles[name]}, name, CHOSEN_URL)
+
+
+def effective_settings() -> dict[str, Any]:
+    """The Default profile's effective settings, read from config.json.
+
+    What a caller with no screen in hand (a bare `build_board()`, the Admin's
+    summary) resolves from. A screen's own profile goes through
+    `resolve_effective`.
+    """
+    return resolve_effective(load_config(), None).settings
+
+
+# Unknown profile names screens have asked for since the last restart (ADR-0007:
+# runtime observations live in memory, not in Settings). Bounded, most recent
+# last, so a scanner cannot grow it.
+MAX_UNKNOWN_PROFILE_NAMES = 50
+_MAX_RECORDED_NAME_LEN = 64
+_unknown_names: dict[str, None] = {}
+_unknown_lock = threading.Lock()
+
+
+def record_unknown_profile(name: str) -> None:
+    """Remember that a screen asked for a profile that does not exist."""
+    clean = str(name).strip().lower()[:_MAX_RECORDED_NAME_LEN]
+    if not clean:
+        return
+    with _unknown_lock:
+        _unknown_names.pop(clean, None)      # re-asked: move to most recent
+        _unknown_names[clean] = None
+        while len(_unknown_names) > MAX_UNKNOWN_PROFILE_NAMES:
+            _unknown_names.pop(next(iter(_unknown_names)))
+
+
+def unknown_profile_names() -> list[str]:
+    """Unknown profile names asked for since the last restart, oldest first."""
+    with _unknown_lock:
+        return list(_unknown_names)
+
+
+def clear_unknown_profile_names() -> None:
+    """Forget every recorded unknown name (tests; also a future Admin action)."""
+    with _unknown_lock:
+        _unknown_names.clear()
+
+
 MAX_NUM_TAPS = 200
 # Cap the venue logo at a third of the screen height (per the design).
 MAX_VENUE_LOGO_VH = 33
@@ -482,7 +576,45 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     merged["paginate"] = bool(merged["paginate"])
 
     merged["venue_logo"] = (str(merged["venue_logo"]) if merged["venue_logo"] else None)
+    merged["profiles"] = _coerce_profiles(merged["profiles"])
     return merged
+
+
+def _coerce_profile(values: Any) -> dict[str, Any]:
+    """One profile's Customised settings, coerced exactly like the Default profile.
+
+    Non-customisable keys are dropped. A one-unit group that is not wholly
+    present is dropped whole (it coerces to followed). The surviving values go
+    through `_coerce` itself, so every bound and normaliser is the Default
+    profile's, with nothing restated here.
+    """
+    if not isinstance(values, dict):
+        return {}
+    kept: dict[str, Any] = {}
+    for unit in CUSTOMISABLE_UNITS.values():
+        if all(key in values for key in unit):
+            kept.update({key: values[key] for key in unit})
+    coerced = _coerce(kept)
+    return {key: coerced[key] for key in kept}
+
+
+def _coerce_profiles(profiles: Any) -> dict[str, dict[str, Any]]:
+    """Valid names (lowercased) with coerced Customised settings; the rest dropped.
+
+    Dropped rather than refused, like every other bound: a hand-edited
+    config.json has nobody to report an error to and must still boot. Two keys
+    that differ only in case collapse to one (the later wins).
+    """
+    if not isinstance(profiles, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for raw_name, values in profiles.items():
+        name = normalize_profile_name(raw_name)
+        if name is None:
+            log.warning("dropping Display profile with invalid name %r", str(raw_name)[:64])
+            continue
+        out[name] = _coerce_profile(values)
+    return out
 
 
 # Each Brewfather credential and the environment variable that can manage it.

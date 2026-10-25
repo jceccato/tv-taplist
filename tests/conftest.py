@@ -43,6 +43,7 @@ def clean_state():
         paths.STATUS_PATH.unlink()
     config_store.save_config(dict(config_store.DEFAULT_CONFIG))
     auth._failed.clear()
+    config_store.clear_unknown_profile_names()
     yield
 
 

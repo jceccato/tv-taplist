@@ -190,6 +190,12 @@ Default profile. Some settings are customised only together, as one unit (a
 Theme and its colours).
 _Avoid_: override (that word belongs to Manual Taps and Colour), local setting
 
+**Effective settings**:
+The settings a screen actually uses: its Display profile's Customised settings
+over the Default profile. The board is resolved from these, never from Settings
+directly.
+_Avoid_: resolved config, merged settings
+
 **Status**:
 Machine-written runtime state - sync timestamps, last error, update-check
 results. Regenerable on the next cycle and written constantly by scheduled jobs,
