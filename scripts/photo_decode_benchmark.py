@@ -14,7 +14,9 @@ Usage, with the photos mounted into a throwaway container of the image:
       tv-taplist:local /bench/photo_decode_benchmark.py /photos/*
 
 Options: --size 4k|1080p (default 4k), --format webp|jpeg (default webp),
---runs N (default 3).
+--runs N (default 3), --develop (also time each RAW's half-size develop, the path
+a RAW whose embedded preview is too small takes; most cameras' previews are big
+enough, so without this only the quick path is measured).
 """
 from __future__ import annotations
 
@@ -37,6 +39,8 @@ def main() -> int:
     ap.add_argument("--size", choices=lib.SIZES, default=lib.SIZE_4K)
     ap.add_argument("--format", choices=lib.FORMATS, default=lib.FORMAT_WEBP)
     ap.add_argument("--runs", type=int, default=3)
+    ap.add_argument("--develop", action="store_true",
+                    help="also time each RAW's half-size develop")
     args = ap.parse_args()
 
     pipe = lib.Pipeline(args.format, lib.TARGET_SIZE_1080P if args.size == lib.SIZE_1080P
@@ -49,22 +53,34 @@ def main() -> int:
 
     failed = False
     for path in args.files:
-        times, out = [], None
-        try:
-            for _ in range(max(1, args.runs)):
-                started = time.perf_counter()
-                out = lib._render(path, pipe)
-                times.append(time.perf_counter() - started)
-        except lib.UnreadablePhoto as exc:
-            print(f"{path.name}: UNREADABLE ({exc})")
-            failed = True
-            continue
-        mb = path.stat().st_size / 1024 ** 2
-        print(f"{path.name}: {mb:.1f} MB, long side {out.long_side} px, via {out.source}, "
-              f"copy {out.width}x{out.height} ({len(out.display) / 1024 ** 2:.1f} MB)")
-        print(f"  best {min(times):.2f} s  median {statistics.median(times):.2f} s  "
-              f"runs {', '.join(f'{t:.2f}' for t in times)}")
+        failed |= not _time(path, pipe, args.runs)
+        if args.develop and path.suffix.lower() in lib.RAW_EXTENSIONS:
+            preview_min = lib.RAW_PREVIEW_MIN_LONG_SIDE
+            lib.RAW_PREVIEW_MIN_LONG_SIDE = sys.maxsize     # no preview is big enough
+            try:
+                failed |= not _time(path, pipe, args.runs)
+            finally:
+                lib.RAW_PREVIEW_MIN_LONG_SIDE = preview_min
     return 1 if failed else 0
+
+
+def _time(path: Path, pipe: lib.Pipeline, runs: int) -> bool:
+    """Print one file's times through the pipeline; False when it cannot be read."""
+    times, out = [], None
+    try:
+        for _ in range(max(1, runs)):
+            started = time.perf_counter()
+            out = lib._render(path, pipe)
+            times.append(time.perf_counter() - started)
+    except lib.UnreadablePhoto as exc:
+        print(f"{path.name}: UNREADABLE ({exc})")
+        return False
+    mb = path.stat().st_size / 1024 ** 2
+    print(f"{path.name}: {mb:.1f} MB, long side {out.long_side} px, via {out.source}, "
+          f"copy {out.width}x{out.height} ({len(out.display) / 1024 ** 2:.1f} MB)")
+    print(f"  best {min(times):.2f} s  median {statistics.median(times):.2f} s  "
+          f"runs {', '.join(f'{t:.2f}' for t in times)}")
+    return True
 
 
 if __name__ == "__main__":
