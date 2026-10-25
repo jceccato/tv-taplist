@@ -606,7 +606,7 @@ def resolve_album(cfg: dict[str, Any]) -> dict[str, Any] | None:
         "keep_ticker": bool(cfg.get("album_keep_ticker", False)),
         "photos": [
             {
-                "id": p.copy_id,
+                "id": p.photo_id,
                 "url": f"/img/photo/{p.filename}",
                 "aspect": p.aspect,
                 "album": p.album,

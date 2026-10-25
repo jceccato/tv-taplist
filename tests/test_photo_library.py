@@ -485,3 +485,15 @@ def test_the_scheduler_scans_for_photos_every_minute_and_once_at_start(monkeypat
     assert kw["max_instances"] == 1 and kw["coalesce"] is True
     assert kw["next_run_time"] is not None            # runs at boot, not a minute later
     assert func is scheduler._safe_photo_scan
+
+
+def test_a_copy_that_cannot_be_written_is_recorded_not_retried_forever(monkeypatch):
+    write_image(paths.PHOTOS_DIR / "one.jpg", halves())
+    lib.scan()
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(lib, "atomic_write_bytes", boom)
+    assert lib.process_pending() == 1          # one attempt, then it is marked failed
+    assert lib.status().failed == 1
+    assert lib.process_next() is False

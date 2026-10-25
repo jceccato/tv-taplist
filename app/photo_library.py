@@ -33,7 +33,6 @@ or missing index just means everything is re-hashed and rebuilt.
 """
 from __future__ import annotations
 
-import calendar
 import hashlib
 import io
 import json
@@ -364,7 +363,9 @@ def _date_taken(im: Image.Image) -> str | None:
 
 
 def _epoch(iso: str) -> float:
-    return float(calendar.timegm(datetime.fromisoformat(iso).timetuple()))
+    # EXIF times are the camera's local clock with no zone; read them as this
+    # box's local time so they compare with a file's real mtime (the fallback).
+    return time.mktime(datetime.fromisoformat(iso).timetuple())
 
 
 def _to_srgb(im: Image.Image, icc: bytes | None) -> Image.Image:
@@ -504,7 +505,8 @@ def process_next() -> bool:
             atomic_write_bytes(_display_dir() / f"{copy_id}{_copy_extension()}", display)
             atomic_write_bytes(_thumb_dir() / f"{copy_id}.webp", thumb)
         except OSError as exc:
-            log.warning("could not write the Display copy of %s: %s", rel, exc)
+            # Recorded, or this photo stays first in line and is retried forever.
+            _record_failure(rel, snapshot, f"copy could not be written ({str(exc)[:_ERROR_TEXT_LEN]})")
             return True
         with _LOCK:
             entry = _load_index().get(rel)
@@ -569,6 +571,7 @@ def run_scan_and_process() -> None:
 @dataclass(frozen=True)
 class ReadyPhoto:
     """A photo whose Display copy exists, as the board needs it."""
+    photo_id: str            # unique per original (two files with equal content share a copy)
     copy_id: str
     filename: str            # the Display copy's public filename (opaque, versioned by content)
     album: str
@@ -611,7 +614,7 @@ def ready_photos(albums: Iterable[str] | None = None,
             continue
         w, h = copy.get("w") or 1, copy.get("h") or 1
         out.append(ReadyPhoto(
-            copy_id=cid, filename=f"{cid}{_copy_extension()}", album=_album_of(rel),
+            photo_id=hashlib.sha256(rel.encode()).hexdigest()[:16], copy_id=cid, filename=f"{cid}{_copy_extension()}", album=_album_of(rel),
             name=_name_of(rel), aspect=round(w / h, 4), taken=e.get("taken"),
             date=float(e.get("date") or 0.0)))
     if order == ORDER_DATE:

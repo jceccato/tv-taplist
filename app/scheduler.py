@@ -6,7 +6,8 @@
 - Photo scan: every minute (and once at start-up); reconciles hand-made changes
   in /data/photos and builds Display copies one photo at a time (ADR-0008).
 
-All jobs take JOB_LOCK internally, so even though APScheduler runs them on a
+The sync and cleanup jobs take JOB_LOCK internally (the photo scan deliberately
+does not: a long decode must not block admin saves; it has its own locks), so even though APScheduler runs them on a
 thread pool they never interleave file writes. max_instances=1 prevents a slow
 job from stacking up.
 

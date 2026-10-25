@@ -150,7 +150,7 @@ def test_the_photo_order_follows_the_setting():
                 exif=exif_bytes(taken="2020:01:01 00:00:00"), age_seconds=60)
     lib.scan()
     lib.process_pending()
-    names = {p.copy_id: p.name for p in lib.ready_photos()}
+    names = {p.photo_id: p.name for p in lib.ready_photos()}
 
     def order(setting):
         _album_profile_reset(album_order=setting)
@@ -323,3 +323,17 @@ def test_the_snapshot_carries_the_album_settings_but_not_the_photos():
     assert not any(n.startswith(("photos", "photo_cache")) for n in names)
     carried = json.loads(zipfile.ZipFile(io.BytesIO(r.content)).read("config.json"))
     assert carried["album_enabled"] is True and carried["album_every_turns"] == 7
+
+
+def test_two_files_with_the_same_content_have_distinct_board_ids():
+    # They share one Display copy, but the page tracks its place by id, so the ids
+    # must differ or Name/Date order would jump back and skip photos.
+    same = halves((640, 480))
+    write_image(paths.PHOTOS_DIR / "a.jpg", same)
+    write_image(paths.PHOTOS_DIR / "b.jpg", same)
+    lib.scan()
+    lib.process_pending()
+    _album_profile()
+    photos = _board()["album"]["photos"]
+    assert len(photos) == 2 and len({p["id"] for p in photos}) == 2
+    assert len({p["url"] for p in photos}) == 1

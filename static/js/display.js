@@ -1183,6 +1183,7 @@
     pendingBoard: null,    // the newest board that arrived mid-visit, applied when the taps return
     hideTimer: null,
     failures: 0,           // photos that would not load in a row
+    stalled: false,        // every photo failed to load: wait for the next poll before retrying
   };
 
   function shuffled(ids) {
@@ -1205,6 +1206,7 @@
   function albumUpdate(blockFromBoard) {
     const cfg = blockFromBoard && typeof blockFromBoard === "object" ? blockFromBoard : null;
     album.cfg = cfg;
+    album.stalled = false;
     album.photos = cfg && Array.isArray(cfg.photos) ? cfg.photos : [];
     const key = cfg ? String(cfg.order) : null;
     if (key !== album.orderKey) {          // another order: the old place means nothing
@@ -1302,7 +1304,8 @@
     probe.onerror = () => {
       if (seq !== album.seq) return;
       album.failures++;
-      if (album.failures >= album.photos.length) endVisit(true); else showNextPhoto();
+      if (album.failures >= album.photos.length) { album.stalled = true; endVisit(true); }
+      else showNextPhoto();
     };
     probe.src = photo.url;
   }
@@ -1366,7 +1369,7 @@
   // every_turns 0 is a photo frame: a visit that never ends while photos exist.
   function maybeStartPhotosOnly() {
     const plan = albumPlan();
-    if (plan && plan.every_turns === 0 && !album.visiting && state.hasRendered) startVisit();
+    if (plan && plan.every_turns === 0 && !album.visiting && !album.stalled && state.hasRendered) startVisit();
   }
 
   if (albumEl) {
@@ -1439,7 +1442,7 @@
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       const board = await resp.json();
       albumUpdate(board.album);
-      if (album.visiting && state.hasRendered) {
+      if (album.visiting && album.plan.every_turns > 0 && state.hasRendered) {
         // The photos own the screen: keep only the newest board and apply it
         // when the taps return, so a keg change is never lost.
         album.pendingBoard = board;

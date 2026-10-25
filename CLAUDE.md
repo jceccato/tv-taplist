@@ -70,7 +70,7 @@ app/                FastAPI app + all logic
   timezone.py       TZ-aware iso_now()
 static/             css/display.css, css/admin.css, js/display.js, js/admin.js, placeholder.svg
 templates/          display.html, admin.html (tabbed), login.html
-tests/              pytest suite (863 tests, 25 files) + conftest.py fixtures; tests/browser = Playwright page tests
+tests/              pytest suite (865 tests, 25 files) + conftest.py fixtures; tests/browser = Playwright page tests
 Dockerfile · entrypoint.sh · docker-compose.yml · scripts/docker_test.sh
 scripts/setup.sh (guided installer / .env wizard)
 README.md           root landing page (embeds docs/venue_logo.png + docs/screenshot.png)
@@ -564,7 +564,7 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
   `/img` security headers; see the photo album section. The board's **`album`**
   block (only with the album on) carries `every_turns`, `photos_per_visit`,
   `seconds_per_photo`, `fade_seconds`, `order`, `keep_ticker` and `photos`: ready
-  copies only, each `{id, url, aspect, album, taken}`. With the album off the key is
+  copies only, each `{id, url, aspect, album, taken}` (`id` is unique per original, not per copy). With the album off the key is
   absent, like `upcoming`. Built by `board.resolve_album`.
 - **`GET /api/preview-color`** (`?ebc=&sat=&hex=`) is **delegation** to
   `colors.resolve_color`; its only own step is the display-unit conversion
@@ -714,7 +714,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 863 tests, 25 files (the nine page tests skip without a browser):
+- 865 tests, 25 files (the nine page tests skip without a browser):
   **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
   the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a
   Display P3 profile - upright, sRGB, 4K fit up and down, WebP q99, no metadata in

@@ -606,9 +606,9 @@ async def admin_page(request: Request, profile: str | None = None):
             # The photo album fieldset: the folders found, the ticked names that
             # no longer match one (kept visible so a Save does not drop them), and
             # how the Display copies are getting on.
-            "album_names": photo_library.list_albums(),
+            "album_names": (album_names := photo_library.list_albums()),
             "album_missing": [n for n in cfg.get("album_selection", [])
-                              if n not in photo_library.list_albums()],
+                              if n not in album_names],
             "album_status": photo_library.status(),
             "venue_logo_url": "/img/venue-logo" if venue_logo_path() else None,
             # Every numeric Settings input takes its min/max from here, so the
