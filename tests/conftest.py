@@ -40,8 +40,11 @@ def clean_state():
     # library's in-memory index of them.
     shutil.rmtree(paths.PHOTOS_DIR, ignore_errors=True)
     shutil.rmtree(paths.PHOTO_CACHE_DIR, ignore_errors=True)
+    shutil.rmtree(paths.PHOTO_UPLOAD_STAGING_DIR, ignore_errors=True)
     paths.PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
     photo_library.reset_state()
+    for logo in paths.DATA_DIR.glob("venue_logo.*"):     # the browser tests' venue fixture writes one
+        logo.unlink()
     if paths.CONFIG_PATH.exists():
         paths.CONFIG_PATH.unlink()
     # Status is a separate file and is deliberately NOT seeded: a fresh box has

@@ -70,7 +70,7 @@ app/                FastAPI app + all logic
   timezone.py       TZ-aware iso_now()
 static/             css/display.css, css/admin.css, js/display.js, js/admin.js, placeholder.svg
 templates/          display.html, admin.html (tabbed), login.html
-tests/              pytest suite (865 tests, 25 files) + conftest.py fixtures; tests/browser = Playwright page tests
+tests/              pytest suite (892 tests, 27 files) + conftest.py fixtures; tests/browser = Playwright page tests
 Dockerfile · entrypoint.sh · docker-compose.yml · scripts/docker_test.sh
 scripts/setup.sh (guided installer / .env wizard)
 README.md           root landing page (embeds docs/venue_logo.png + docs/screenshot.png)
@@ -283,6 +283,23 @@ ticked list with nothing ticked".
 - **Order.** `name` is natural and case-blind, `date` is newest first by date taken
   falling back to the file's mtime; `shuffle` returns the set in name order, since
   the page shuffles it (it also has to remember its place).
+- **Uploads (issue #57).** The Admin's Photos tab sends each file as its own raw-body
+  `POST /admin/photos/upload?album=&name=` (no multipart, so nothing is spooled to the
+  system temp; the Snapshot stage uses the same trick), two or three at a time with a
+  bar and Retry per file. `begin_upload()` refuses a declared size over **250 MB**
+  (`MAX_UPLOAD_BYTES`, separate from the 10 MB beer-image cap) or a data disk under
+  **1 GB free** (`MIN_FREE_BYTES`) before reading a byte; the `Upload` context streams to
+  `.tmp_photo_uploads/` in the data directory, hashing as it goes, and removes the
+  staged file on every exit path (stale ones are swept by the scan). `commit()` files it
+  into an existing album (Unsorted = top level): a client name is reduced to a plain
+  file name, a clash gets ` (2)` before the extension (case-blind), and a file whose
+  **content** is already anywhere in the library is skipped with a note naming the
+  existing copy. The new file is indexed with its hash at once, so duplicates are caught
+  before any scan settles, then `kick_processing()` starts the one-at-a-time pipeline
+  in a background thread. The Photos tab polls `GET /admin/photos/status` (counts,
+  albums, one album's photos with ready/waiting/failed + reason) and shows thumbnails
+  from the Admin-only `GET /admin/photos/thumb/<copy id>.webp`; the Settings tab no
+  longer carries the ready/pending/failed line.
 - **Runtime state is in memory only**: the library's index is a cache file, and the
   page's place in the album is lost on reload (a reload starts a fresh Shuffle pass).
 
@@ -714,7 +731,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 865 tests, 25 files (the nine page tests skip without a browser):
+- 892 tests, 27 files (the eleven page tests skip without a browser):
   **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
   the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a
   Display P3 profile - upright, sRGB, 4K fit up and down, WebP q99, no metadata in

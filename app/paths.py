@@ -39,6 +39,10 @@ UPCOMING_DIR = DATA_DIR / "upcoming"
 # in app/ may.
 PHOTOS_DIR = DATA_DIR / "photos"
 PHOTO_CACHE_DIR = DATA_DIR / "photo_cache"
+# Where an uploaded photo is streamed before the library files it (same disk as
+# `photos/`, so the final move is a rename). Dot-prefixed so no scan, Snapshot or
+# album listing ever sees it; emptied on every exit path and swept when stale.
+PHOTO_UPLOAD_STAGING_DIR = DATA_DIR / ".tmp_photo_uploads"
 
 # Operator Settings, including the Brewfather credentials (atomic-written).
 CONFIG_PATH = DATA_DIR / "config.json"

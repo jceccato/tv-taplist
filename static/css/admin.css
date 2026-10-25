@@ -260,3 +260,24 @@ input[type=color] {
    dimmed (not disabled) while every album is shown. */
 .album-picker { display: flex; flex-wrap: wrap; gap: 0.2rem 1.2rem; margin: 0.3rem 0 0.6rem; }
 .album-picker.dim { opacity: 0.55; }
+
+/* ---- Photos tab (issue #57) ---- */
+.photos-drop { margin: 0.8rem 0; padding: 1rem; border: 2px dashed var(--border, #3a4152); border-radius: 10px; text-align: center; }
+.photos-drop.over { border-color: var(--accent); }
+.photos-drop p { margin: 0 0 0.4rem; color: var(--muted); }
+.photos-add { display: inline-block; cursor: pointer; margin-top: 0; }
+.photos-uploads, .photos-grid { list-style: none; margin: 0.6rem 0; padding: 0; }
+.upload-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 0.2rem 0.6rem; align-items: center; padding: 0.35rem 0; border-bottom: 1px solid var(--border, #2a3040); font-size: 0.85rem; }
+.upload-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-row progress { width: 100%; }
+.upload-msg { grid-column: 1 / 2; color: var(--muted); }
+.upload-row[data-state="failed"] .upload-msg { color: var(--danger); }
+.upload-row[data-state="done"] .upload-msg { color: var(--ok); }
+.upload-retry { grid-column: 2 / 3; margin-top: 0; justify-self: end; }
+.photos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.6rem; }
+.photo-tile { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.75rem; min-width: 0; }
+.photo-tile img, .photo-ph { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 6px; background: #1b2030; }
+.photo-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.photo-state { color: var(--muted); }
+.photo-tile.failed .photo-state { color: var(--danger); }
+.photo-tile.ready .photo-state { color: var(--ok); }

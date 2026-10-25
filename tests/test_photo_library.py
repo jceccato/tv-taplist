@@ -497,3 +497,173 @@ def test_a_copy_that_cannot_be_written_is_recorded_not_retried_forever(monkeypat
     assert lib.process_pending() == 1          # one attempt, then it is marked failed
     assert lib.status().failed == 1
     assert lib.process_next() is False
+
+
+# ---- uploads (issue #57) ------------------------------------------------------------
+
+def _jpeg(color=(200, 30, 30), size=(300, 200)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", size, color).save(buf, "JPEG")
+    return buf.getvalue()
+
+
+def _upload(data: bytes, name: str, album: str = lib.UNSORTED, chunk: int = 4096):
+    with lib.begin_upload(len(data)) as up:
+        for i in range(0, len(data), chunk):
+            up.write(data[i:i + chunk])
+        return up.commit(name, album)
+
+
+def _staged():
+    d = paths.PHOTO_UPLOAD_STAGING_DIR
+    return list(d.iterdir()) if d.exists() else []
+
+
+def test_an_upload_is_filed_in_its_album_and_processed_like_any_photo():
+    (paths.PHOTOS_DIR / "Events").mkdir()
+    r = _upload(_jpeg(), "IMG_1.jpg", "Events")
+    assert (r.outcome, r.album, r.name, r.renamed) == ("stored", "Events", "IMG_1.jpg", False)
+    assert (paths.PHOTOS_DIR / "Events" / "IMG_1.jpg").read_bytes() == _jpeg()
+    assert _staged() == []
+    lib.process_pending()
+    assert [(p.album, p.name) for p in lib.ready_photos()] == [("Events", "IMG_1.jpg")]
+
+
+def test_uploads_default_to_unsorted_the_loose_files():
+    _upload(_jpeg(), "loose.jpg")
+    assert (paths.PHOTOS_DIR / "loose.jpg").is_file()
+    assert lib.list_albums() == ["Unsorted"]
+
+
+def test_an_exact_duplicate_by_content_is_skipped_even_under_another_name_or_album():
+    (paths.PHOTOS_DIR / "Events").mkdir()
+    _upload(_jpeg(), "first.jpg", "Events")
+    r = _upload(_jpeg(), "renamed.jpg")
+    assert (r.outcome, r.album, r.name) == ("duplicate", "Events", "first.jpg")
+    assert not (paths.PHOTOS_DIR / "renamed.jpg").exists()
+    assert _staged() == []
+
+
+def test_a_duplicate_of_a_photo_dropped_in_by_hand_is_caught_too():
+    write_image(paths.PHOTOS_DIR / "hand.jpg", Image.new("RGB", (300, 200), (1, 2, 3)))
+    backdate(paths.PHOTOS_DIR / "hand.jpg", 60)
+    same = (paths.PHOTOS_DIR / "hand.jpg").read_bytes()
+    assert _upload(same, "again.jpg").outcome == "duplicate"
+
+
+def test_a_name_clash_gets_a_suffix_before_the_extension():
+    a = _upload(_jpeg((1, 1, 1)), "IMG.jpg")
+    b = _upload(_jpeg((2, 2, 2)), "IMG.jpg")
+    c = _upload(_jpeg((3, 3, 3)), "img.JPG")      # case-blind, like a Windows bind mount
+    assert (a.name, b.name, c.name) == ("IMG.jpg", "IMG (2).jpg", "img (3).jpg")
+    assert (b.renamed, c.renamed) == (True, True)
+    assert sorted(p.name for p in paths.PHOTOS_DIR.iterdir()) == ["IMG (2).jpg", "IMG.jpg", "img (3).jpg"]
+
+
+@pytest.mark.parametrize("sent, kept", [
+    ("../../etc/passwd.jpg", "passwd.jpg"),
+    ("C:\\Users\\me\\a.png", "a.png"),
+    (".hidden.jpg", "hidden.jpg"),
+    ("we<ird>:name?.webp", "weirdname.webp"),
+    ("", None),
+])
+def test_a_client_supplied_name_can_never_leave_the_album(sent, kept):
+    if kept is None:
+        with pytest.raises(lib.UploadRejected):
+            _upload(_jpeg(), sent)
+        return
+    r = _upload(_jpeg(), sent)
+    assert r.name == kept
+    assert [p.name for p in paths.PHOTOS_DIR.iterdir()] == [kept]
+
+
+def test_only_photo_formats_are_taken_and_nothing_is_left_staged():
+    with pytest.raises(lib.UploadRejected, match="not a JPEG, PNG or WebP"):
+        _upload(b"%PDF-1.4", "doc.pdf")
+    with pytest.raises(lib.UploadRejected, match="empty"):
+        _upload(b"", "empty.jpg")
+    assert _staged() == [] and list(paths.PHOTOS_DIR.iterdir()) == []
+
+
+def test_an_unknown_album_is_refused_and_never_created():
+    with pytest.raises(lib.UnknownAlbum):
+        _upload(_jpeg(), "a.jpg", "../elsewhere")
+    with pytest.raises(lib.UnknownAlbum):
+        _upload(_jpeg(), "a.jpg", "Nope")
+    assert list(paths.PHOTOS_DIR.iterdir()) == [] and _staged() == []
+
+
+def test_the_250_mb_cap_is_enforced_as_declared_and_as_received(monkeypatch):
+    assert lib.MAX_UPLOAD_BYTES == 250 * 1024 * 1024
+    with pytest.raises(lib.UploadTooLarge, match="250 MB"):
+        lib.begin_upload(lib.MAX_UPLOAD_BYTES + 1)         # announced: refused before staging
+    assert _staged() == []
+    monkeypatch.setattr(lib, "MAX_UPLOAD_BYTES", 1000)       # received: the stream is cut off
+    with pytest.raises(lib.UploadTooLarge):
+        with lib.begin_upload() as up:
+            up.write(b"x" * 600)
+            up.write(b"x" * 600)
+    assert _staged() == []
+    with lib.begin_upload(1000) as up:                        # exactly at the cap is fine
+        up.write(b"x" * 1000)
+
+
+def test_uploads_are_refused_below_one_gb_free(monkeypatch):
+    assert lib.MIN_FREE_BYTES == 1024 ** 3
+    monkeypatch.setattr(lib, "_free_bytes", lambda: lib.MIN_FREE_BYTES - 1)
+    with pytest.raises(lib.LowDiskSpace, match="free"):
+        lib.begin_upload(10)
+    monkeypatch.setattr(lib, "_free_bytes", lambda: lib.MIN_FREE_BYTES)
+    lib.begin_upload(10).close()
+    assert _staged() == []
+
+
+def test_a_staged_upload_is_removed_on_every_exit_path(monkeypatch):
+    with pytest.raises(RuntimeError):                       # the request blew up mid-stream
+        with lib.begin_upload() as up:
+            up.write(b"abc")
+            assert len(_staged()) == 1
+            raise RuntimeError("client went away")
+    assert _staged() == []
+    with lib.begin_upload() as up:                          # never committed
+        up.write(b"abc")
+    assert _staged() == []
+    monkeypatch.setattr(os, "replace", lambda *a: (_ for _ in ()).throw(OSError("disk")))
+    with pytest.raises(OSError):                            # the final move failed
+        _upload(_jpeg(), "a.jpg")
+    assert _staged() == []
+
+
+def test_a_stale_staged_file_left_by_a_crash_is_swept(monkeypatch):
+    paths.PHOTO_UPLOAD_STAGING_DIR.mkdir(parents=True, exist_ok=True)
+    old = paths.PHOTO_UPLOAD_STAGING_DIR / "crash.part"
+    old.write_bytes(b"x")
+    os.utime(old, (time.time() - 2 * lib.STALE_STAGING_SECONDS,) * 2)
+    fresh = paths.PHOTO_UPLOAD_STAGING_DIR / "live.part"
+    fresh.write_bytes(b"x")
+    lib.scan()
+    assert not old.exists() and fresh.exists()
+
+
+def test_the_staging_folder_is_invisible_to_albums_and_scans():
+    with lib.begin_upload() as up:
+        up.write(_jpeg())
+        lib.scan()
+        assert lib.list_albums() == []
+        assert lib.status().total == 0
+
+
+def test_photos_in_reports_each_state_with_a_reason_for_failures():
+    write_image(paths.PHOTOS_DIR / "ok.jpg", halves())
+    (paths.PHOTOS_DIR / "bad.jpg").write_bytes(b"not an image at all")
+    backdate(paths.PHOTOS_DIR / "bad.jpg", 60)
+    lib.scan()
+    waiting = {r.name: r.state for r in lib.photos_in(lib.UNSORTED)}
+    assert waiting == {"bad.jpg": "waiting", "ok.jpg": "waiting"}
+    lib.process_pending()
+    rows = {r.name: r for r in lib.photos_in(lib.UNSORTED)}
+    assert rows["ok.jpg"].state == "ready" and rows["ok.jpg"].copy_id
+    assert lib.thumb_file(rows["ok.jpg"].copy_id + ".webp").is_file()
+    assert rows["bad.jpg"].state == "failed" and "cannot be read" in rows["bad.jpg"].reason
+    assert rows["bad.jpg"].copy_id is None
+    assert lib.thumb_file("../../config.json") is None

@@ -39,13 +39,16 @@ import json
 import logging
 import os
 import re
+import shutil
 import threading
+import unicodedata
+import uuid
 import time
 import warnings
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, BinaryIO, Iterable
 
 from PIL import Image, ImageCms, ImageOps
 
@@ -91,6 +94,18 @@ ORPHAN_GRACE_SECONDS = 600.0
 _COPY_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _INDEX_VERSION = 1
 _ERROR_TEXT_LEN = 200
+
+
+# ---- uploads (issue #57) ----------------------------------------------------------
+
+# One uploaded file may be at most this big (separate from the 10 MB beer-image cap).
+MAX_UPLOAD_BYTES = 250 * 1024 * 1024
+# Uploads are refused while the data disk has less than this free, so a flood of
+# photos can never fill the disk the whole box (config, taps) lives on.
+MIN_FREE_BYTES = 1024 * 1024 * 1024
+# A staged upload older than this is a crash's leftover and is swept.
+STALE_STAGING_SECONDS = 3600.0
+_MAX_STEM_LEN = 120
 
 
 def settings_key() -> str:
@@ -297,6 +312,7 @@ def scan(settle_seconds: float = SETTLE_SECONDS) -> ScanResult:
         if added or changed or gone:
             _save_index()
         _sweep_orphans()
+        _sweep_stale_staging()
         _last_scan = time.time()
     if added or changed or gone:
         log.info("photo scan: %d new, %d changed, %d removed", added, changed, len(gone))
@@ -656,3 +672,252 @@ def status() -> Status:
         elif _is_pending(e):
             pending += 1
     return Status(len(rows), ready, pending, len(failures), tuple(sorted(failures)))
+
+
+# ---- uploads ---------------------------------------------------------------------------
+
+class UploadRejected(Exception):
+    """An upload the library will not take; the message is for the operator.
+
+    `status_code` is the HTTP status the route answers with, so the route needs
+    no rules of its own.
+    """
+    status_code = 422
+
+
+class UploadTooLarge(UploadRejected):
+    status_code = 413
+
+
+class LowDiskSpace(UploadRejected):
+    status_code = 507
+
+
+class UnknownAlbum(UploadRejected):
+    status_code = 404
+
+
+def _free_bytes() -> int:
+    """Free space on the data disk (a seam for tests)."""
+    return shutil.disk_usage(paths.DATA_DIR).free
+
+
+def _sweep_stale_staging() -> None:
+    cutoff = time.time() - STALE_STAGING_SECONDS
+    try:
+        names = os.listdir(paths.PHOTO_UPLOAD_STAGING_DIR)
+    except OSError:
+        return
+    for name in names:
+        path = paths.PHOTO_UPLOAD_STAGING_DIR / name
+        try:
+            if path.stat().st_mtime < cutoff:
+                safe_unlink(path)
+        except OSError:
+            continue
+
+
+@dataclass(frozen=True)
+class StoredUpload:
+    """What happened to one uploaded file.
+
+    `outcome` is `stored` (filed under `name` in `album`) or `duplicate` (its
+    content is already in the library as `album`/`name`; nothing was added).
+    """
+    outcome: str
+    album: str
+    name: str
+    renamed: bool = False        # the name clashed and got a suffix
+
+
+def _clean_name(raw: str) -> tuple[str, str]:
+    """A safe (stem, extension) from whatever name the client sent. Extension is lowercased."""
+    name = unicodedata.normalize("NFC", str(raw)).replace("\\", "/").rsplit("/", 1)[-1]
+    name = "".join(c for c in name if c.isprintable() and c not in '<>:"|?*').strip(" .")
+    stem, dot, ext = name.rpartition(".")
+    if not dot:
+        stem, ext = name, ""
+    stem = stem.strip(" .")[:_MAX_STEM_LEN].strip(" .")
+    return stem or "photo", ("." + ext.lower()) if ext else ""
+
+
+def _album_dir(album: str) -> Path:
+    """The folder of an existing album (Unsorted is the top level); else UnknownAlbum."""
+    if album == UNSORTED:
+        return paths.PHOTOS_DIR
+    if album in list_albums() and "/" not in album and album not in (".", ".."):
+        folder = paths.PHOTOS_DIR / album
+        if folder.is_dir() and not folder.is_symlink():
+            return folder
+    raise UnknownAlbum(f"There is no album called “{album}”.")
+
+
+class Upload:
+    """One file being received: streamed to a staging file, hashed as it goes.
+
+    Use as a context manager. The staging file is removed on every way out
+    (stored, duplicate, rejected, failed, client gone), so a staged upload never
+    outlives the request.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._file: BinaryIO | None = open(path, "wb")
+        self._hash = hashlib.sha256()
+        self.size = 0
+
+    def __enter__(self) -> "Upload":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if self._file is not None:
+            try:
+                self._file.close()
+            finally:
+                self._file = None
+        safe_unlink(self._path)
+
+    def write(self, chunk: bytes) -> None:
+        self.size += len(chunk)
+        if self.size > MAX_UPLOAD_BYTES:
+            raise UploadTooLarge(_too_large_message())
+        assert self._file is not None
+        self._hash.update(chunk)
+        self._file.write(chunk)
+
+    def commit(self, filename: str, album: str = UNSORTED) -> StoredUpload:
+        """File the received photo into an album, or report it as a duplicate."""
+        assert self._file is not None
+        self._file.flush()
+        self._file.close()
+        self._file = None
+        stem, ext = _clean_name(filename)
+        if ext not in PHOTO_EXTENSIONS:
+            raise UploadRejected(
+                f"“{stem}{ext}” is not a JPEG, PNG or WebP photo.")
+        if self.size == 0:
+            raise UploadRejected("The file is empty.")
+        folder = _album_dir(album)
+        scan()      # so a photo dropped in by hand a moment ago counts for the duplicate check
+        digest = self._hash.hexdigest()
+        with _STORE_LOCK, _LOCK:
+            idx = _load_index()
+            for rel, e in idx.items():
+                if e.get("hash") == digest:
+                    return StoredUpload("duplicate", _album_of(rel), _name_of(rel))
+            taken = {n.casefold() for n in os.listdir(folder)}
+            name, n = f"{stem}{ext}", 1
+            while name.casefold() in taken:
+                n += 1
+                name = f"{stem} ({n}){ext}"
+            dest = folder / name
+            os.replace(self._path, dest)
+            st = dest.stat()
+            rel = name if folder == paths.PHOTOS_DIR else f"{folder.name}/{name}"
+            # Indexed with its hash now, so a later upload of the same content is
+            # a duplicate straight away, without waiting for a scan to settle.
+            idx[rel] = {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "hash": digest,
+                        "taken": None, "date": st.st_mtime, "copy": None, "error": None}
+            _save_index()
+        return StoredUpload("stored", album, name, renamed=(n > 1))
+
+
+def _too_large_message() -> str:
+    return f"That file is over the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit for one photo."
+
+
+_STORE_LOCK = threading.Lock()
+
+
+def begin_upload(declared_size: int | None = None) -> Upload:
+    """Start receiving one photo, or raise UploadRejected before reading any of it.
+
+    `declared_size` is the client's Content-Length, when it sent one: a file that
+    announces itself as too big is refused without a byte being staged.
+    """
+    if declared_size is not None and declared_size > MAX_UPLOAD_BYTES:
+        raise UploadTooLarge(_too_large_message())
+    free = _free_bytes()
+    if free < MIN_FREE_BYTES:
+        raise LowDiskSpace(
+            f"Uploads are paused: only {free / 1024 ** 3:.1f} GB is free on the data disk "
+            f"and at least {MIN_FREE_BYTES // 1024 ** 3} GB is needed. Free some space and try again.")
+    paths.PHOTO_UPLOAD_STAGING_DIR.mkdir(parents=True, exist_ok=True)
+    _sweep_stale_staging()
+    return Upload(paths.PHOTO_UPLOAD_STAGING_DIR / f"{uuid.uuid4().hex}.part")
+
+
+# ---- processing after an upload ---------------------------------------------------------
+
+_kick_lock = threading.Lock()
+_kick_running = False
+
+
+def kick_processing() -> None:
+    """Start working through pending photos now rather than at the next minute's job.
+
+    At most one such background run exists at a time; the one-at-a-time lock in
+    `process_next` still governs the actual decoding.
+    """
+    global _kick_running
+    with _kick_lock:
+        if _kick_running:
+            return
+        _kick_running = True
+
+    def run() -> None:
+        global _kick_running
+        try:
+            scan()
+            process_pending()
+        except Exception:  # noqa: BLE001 - the scheduled job will try again
+            log.exception("photo processing after an upload failed")
+        finally:
+            with _kick_lock:
+                _kick_running = False
+
+    threading.Thread(target=run, name="photo-process", daemon=True).start()
+
+
+# ---- the Photos tab's listing ------------------------------------------------------------
+
+@dataclass(frozen=True)
+class PhotoRow:
+    photo_id: str
+    album: str
+    name: str
+    state: str               # ready | waiting | failed
+    reason: str | None       # why, when failed
+    copy_id: str | None      # names the thumbnail, when there is one
+
+
+def photos_in(album: str) -> list[PhotoRow]:
+    """Every photo of one album with its state, in natural name order."""
+    with _LOCK:
+        rows = [(rel, dict(e)) for rel, e in _load_index().items() if _album_of(rel) == album]
+    out = []
+    for rel, e in rows:
+        err = e.get("error")
+        copy = e.get("copy") if _copy_file_exists(e) else None
+        if isinstance(err, dict) and err.get("settings") == settings_key():
+            state, reason = "failed", str(err.get("reason", ""))
+        elif copy is not None:
+            state, reason = "ready", None      # a stale copy is still served until replaced
+        else:
+            state, reason = "waiting", None
+        out.append(PhotoRow(hashlib.sha256(rel.encode()).hexdigest()[:16], album, _name_of(rel),
+                            state, reason, copy["id"] if copy else None))
+    out.sort(key=lambda r: _natural_key(r.name))
+    return out
+
+
+def thumb_file(filename: str) -> Path | None:
+    """The thumbnail for `<copy id>.webp`, or None (unknown, malformed, or traversal)."""
+    stem, dot, ext = str(filename).rpartition(".")
+    if not dot or ext != "webp" or not _COPY_ID_RE.match(stem):
+        return None
+    path = _thumb_dir() / f"{stem}.webp"
+    return path if path.is_file() else None

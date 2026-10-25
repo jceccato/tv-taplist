@@ -859,4 +859,187 @@
       }
     });
   }
+  // ---- Photos tab: upload + status (issue #57) ----
+  // Every file is its own request (raw body, so the server streams it to disk),
+  // two or three at a time, each with its own bar and Retry: one bad or huge file
+  // never sinks the rest. Uploads go into the album being viewed.
+  const photosPanel = document.getElementById("tab-photos");
+  if (photosPanel) {
+    const PHOTO_MAX_BYTES = 250 * 1024 * 1024;   // mirrors photo_library.MAX_UPLOAD_BYTES; the server decides
+    const PHOTO_PARALLEL = 3;
+    const PHOTO_EXT = /\.(jpe?g|png|webp)$/i;
+    const albumSel = document.getElementById("photos-album");
+    const drop = document.getElementById("photos-drop");
+    const fileInput = document.getElementById("photos-file");
+    const list = document.getElementById("photos-uploads");
+    const progress = document.getElementById("photos-progress");
+    const grid = document.getElementById("photos-grid");
+    const empty = document.getElementById("photos-empty");
+    const queue = [];
+    let active = 0;
+    let pollTimer = null;
+    let pending = 0;
+
+    function setProgressText(st) {
+      if (st.pending > 0) {
+        progress.textContent = "Processing " + (st.ready + st.failed) + " of " + st.total;
+      } else {
+        progress.textContent = st.total + " photo" + (st.total === 1 ? "" : "s") + ": "
+          + st.ready + " ready" + (st.failed ? ", " + st.failed + " could not be read" : "") + ".";
+      }
+    }
+
+    async function refreshPhotos() {
+      try {
+        const resp = await fetch("/admin/photos/status?album=" + encodeURIComponent(albumSel.value));
+        if (resp.ok) {
+          const st = await resp.json();
+          const wanted = albumSel.value;
+          albumSel.replaceChildren(...st.albums.map((a) => {
+            const o = document.createElement("option");
+            o.value = o.textContent = a;
+            return o;
+          }));
+          albumSel.value = st.albums.includes(wanted) ? wanted : st.album;
+          pending = st.pending;
+          setProgressText(st);
+          grid.replaceChildren(...st.photos.map((p) => {
+            const li = document.createElement("li");
+            li.className = "photo-tile " + p.state;
+            li.dataset.state = p.state;
+            li.dataset.name = p.name;
+            if (p.thumb) {
+              const img = document.createElement("img");
+              img.src = p.thumb; img.alt = p.name; img.loading = "lazy";
+              li.append(img);
+            } else {
+              const ph = document.createElement("div");
+              ph.className = "photo-ph";
+              li.append(ph);
+            }
+            const cap = document.createElement("span");
+            cap.className = "photo-name";
+            cap.textContent = p.name;
+            const state = document.createElement("span");
+            state.className = "photo-state";
+            state.textContent = p.state === "ready" ? "Ready"
+              : p.state === "waiting" ? "Waiting"
+              : "Failed: " + (p.reason || "unknown reason");
+            li.append(cap, state);
+            return li;
+          }));
+          empty.hidden = st.photos.length > 0;
+        }
+      } catch (_) { /* offline: keep the last view */ }
+      schedulePoll();
+    }
+
+    function schedulePoll() {
+      clearTimeout(pollTimer);
+      // Keep looking while photos are processing or files are still going up.
+      if (!photosPanel.hidden && (pending > 0 || active > 0 || queue.length > 0)) {
+        pollTimer = setTimeout(refreshPhotos, 2500);
+      }
+    }
+
+    function addRow(item) {
+      const li = document.createElement("li");
+      li.className = "upload-row";
+      const name = document.createElement("span");
+      name.className = "upload-name";
+      name.textContent = item.file.name;
+      const bar = document.createElement("progress");
+      bar.max = 100; bar.value = 0;
+      const msg = document.createElement("span");
+      msg.className = "upload-msg";
+      const retry = document.createElement("button");
+      retry.type = "button"; retry.className = "btn upload-retry"; retry.textContent = "Retry"; retry.hidden = true;
+      retry.addEventListener("click", () => { retry.hidden = true; enqueue(item); });
+      li.append(name, bar, msg, retry);
+      list.append(li);
+      item.ui = { li, bar, msg, retry };
+    }
+
+    function setRow(item, state, text, canRetry) {
+      item.ui.li.dataset.state = state;
+      item.ui.msg.textContent = text;
+      item.ui.retry.hidden = !(state === "failed" && canRetry !== false);
+    }
+
+    function enqueue(item) {
+      setRow(item, "waiting", "Waiting");
+      item.ui.bar.value = 0;
+      queue.push(item);
+      pump();
+    }
+
+    function pump() {
+      while (active < PHOTO_PARALLEL && queue.length) {
+        const item = queue.shift();
+        active++;
+        sendPhoto(item).finally(() => { active--; pump(); if (!active && !queue.length) refreshPhotos(); });
+      }
+      schedulePoll();
+    }
+
+    function sendPhoto(item) {
+      return new Promise((resolve) => {
+        const xhr = new XMLHttpRequest();
+        const url = "/admin/photos/upload?album=" + encodeURIComponent(item.album)
+          + "&name=" + encodeURIComponent(item.file.name);
+        xhr.open("POST", url);
+        setRow(item, "uploading", "Uploading");
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) item.ui.bar.value = Math.round(100 * e.loaded / e.total);
+        };
+        xhr.onload = () => {
+          let body = null;
+          try { body = JSON.parse(xhr.responseText); } catch (_) { /* non-JSON */ }
+          if (xhr.status >= 200 && xhr.status < 300 && body) {
+            item.ui.bar.value = 100;
+            if (body.outcome === "duplicate") {
+              setRow(item, "duplicate", "Skipped: already in the library as "
+                + (body.album === "Unsorted" ? "" : body.album + "/") + body.name);
+            } else {
+              setRow(item, "done", body.renamed ? "Added as " + body.name + " (that name was taken)" : "Added");
+            }
+          } else if (xhr.status === 401) {
+            setRow(item, "failed", "Signed out. Sign in again, then retry.");
+          } else {
+            setRow(item, "failed", (body && body.detail) || ("Failed (HTTP " + xhr.status + ")"));
+          }
+          resolve();
+        };
+        xhr.onerror = () => { setRow(item, "failed", "The connection failed."); resolve(); };
+        xhr.onabort = xhr.onerror;
+        xhr.send(item.file);
+      });
+    }
+
+    function addFiles(files) {
+      for (const file of files) {
+        const item = { file, album: albumSel.value };
+        addRow(item);
+        if (!PHOTO_EXT.test(file.name)) {
+          setRow(item, "failed", "Only JPEG, PNG and WebP photos can be added.", false);
+        } else if (file.size > PHOTO_MAX_BYTES) {
+          setRow(item, "failed", "Over the 250 MB limit for one photo.", false);
+        } else {
+          enqueue(item);
+        }
+      }
+    }
+
+    fileInput.addEventListener("change", () => { addFiles(Array.from(fileInput.files)); fileInput.value = ""; });
+    ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => {
+      e.preventDefault(); drop.classList.add("over");
+    }));
+    ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => {
+      e.preventDefault(); drop.classList.remove("over");
+    }));
+    drop.addEventListener("drop", (e) => addFiles(Array.from(e.dataTransfer.files)));
+    albumSel.addEventListener("change", refreshPhotos);
+    document.querySelectorAll('.tab[data-tab="photos"]').forEach((t) => t.addEventListener("click", refreshPhotos));
+    if (!photosPanel.hidden) refreshPhotos();
+  }
 })();

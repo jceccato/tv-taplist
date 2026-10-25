@@ -215,6 +215,7 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
       <button class="tab" type="button" data-tab="theme" role="tab">Theme</button>
       {% if not editing %}
       <button class="tab" type="button" data-tab="overrides" role="tab">Manual overrides</button>
+      <button class="tab" type="button" data-tab="photos" role="tab">Photos</button>
       <button class="tab" type="button" data-tab="snapshot" role="tab">Snapshot</button>
       {% endif %}
     </nav>
@@ -524,9 +525,7 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             </label>
             {% endcall %}
             <p class="hint">
-              Drop JPEG, PNG or WebP files into the <code>photos</code> folder of the data directory (loose files form the album &ldquo;Unsorted&rdquo;; each folder is an album, and folders inside it count as part of it). Changes are picked up within a minute. Each photo is shown once its screen copy is ready: {{ album_status.ready }} ready{% if album_status.pending %}, {{ album_status.pending }} still processing{% endif %}{% if album_status.failed %}, {{ album_status.failed }} could not be read{% endif %}.
-              {% if album_status.failures %}<br>Could not be read:
-                {% for album, file, reason in album_status.failures %}<code>{{ album }}/{{ file }}</code> ({{ reason }}){{ ', ' if not loop.last else '' }}{% endfor %}.{% endif %}
+              Drop JPEG, PNG or WebP files into the <code>photos</code> folder of the data directory (loose files form the album &ldquo;Unsorted&rdquo;; each folder is an album, and folders inside it count as part of it). Changes are picked up within a minute. Each photo is shown once its screen copy is ready; the Photos tab uploads photos and shows how they are getting on.
             </p>
 
             {% call unit('album_every_turns') %}
@@ -790,6 +789,27 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
           </form>
           {% endfor %}
         </div>
+      </section>
+    </div>
+
+    <!-- ===== Photos tab (issue #57) =====
+         Uploads go into the album being viewed. Each file is its own request
+         (see admin.js), so the page lists one row per file with its own bar. -->
+    <div class="tab-panel" id="tab-photos" role="tabpanel" hidden>
+      <section class="card-panel">
+        <h2>Photos</h2>
+        <p class="hint">Photos you add are kept as they are in the album you are viewing; each screen is sent a processed copy, never the original. JPEG, PNG and WebP, up to 250 MB each.</p>
+        <label for="photos-album">Album</label>
+        <select id="photos-album"><option value="Unsorted">Unsorted</option></select>
+        <div id="photos-drop" class="photos-drop" tabindex="0">
+          <p>Drag photos here, or</p>
+          <label class="btn primary photos-add" for="photos-file">Add photos</label>
+          <input type="file" id="photos-file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple hidden>
+        </div>
+        <ul id="photos-uploads" class="photos-uploads" aria-live="polite"></ul>
+        <p id="photos-progress" class="hint" role="status"></p>
+        <ul id="photos-grid" class="photos-grid"></ul>
+        <p id="photos-empty" class="muted" hidden>No photos in this album yet.</p>
       </section>
     </div>
 

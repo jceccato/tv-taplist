@@ -8,6 +8,9 @@ Public display:
   GET  /api/preview-color -> computed swatch colour for the admin live preview
   GET  /img/{filename}  -> tap image from /data/taps (path-sanitised)
   GET  /img/upcoming/{filename} -> upcoming-beer image from /data/upcoming (path-sanitised)
+  POST /admin/photos/upload  -> one photo, streamed to the photo library (admin)
+  GET  /admin/photos/status  -> the Photos tab's counts and per-photo states (admin)
+  GET  /admin/photos/thumb/{filename} -> a photo's thumbnail (admin only)
   GET  /img/photo/{filename} -> a photo's Display copy from the photo cache (never an original)
   GET  /img/placeholder -> fallback image
   GET  /healthz         -> lightweight healthcheck
@@ -30,6 +33,7 @@ from __future__ import annotations
 
 import json
 import logging
+import errno
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -603,13 +607,12 @@ async def admin_page(request: Request, profile: str | None = None):
             # silently does nothing is worse than no checkbox.
             "snapshot_credential_option": snapshot.credential_choice_available(),
             "color_label": "SRM" if cfg.get("color_unit") == "srm" else "EBC",
-            # The photo album fieldset: the folders found, the ticked names that
-            # no longer match one (kept visible so a Save does not drop them), and
-            # how the Display copies are getting on.
+            # The photo album fieldset: the folders found and the ticked names that
+            # no longer match one (kept visible so a Save does not drop them). How
+            # the Display copies are getting on lives on the Photos tab.
             "album_names": (album_names := photo_library.list_albums()),
             "album_missing": [n for n in cfg.get("album_selection", [])
                               if n not in album_names],
-            "album_status": photo_library.status(),
             "venue_logo_url": "/img/venue-logo" if venue_logo_path() else None,
             # Every numeric Settings input takes its min/max from here, so the
             # browser refuses at the point of typing exactly what the store
@@ -973,6 +976,76 @@ async def rename_profile(name: str, new_name: Annotated[str, Form()],
 async def delete_profile(name: str, _: None = Depends(auth.require_admin)):
     _profile_call(admin_ops.delete_profile, name)
     return {"ok": True}
+
+
+# ---- admin: photo album uploads (issue #57) ----------------------------
+
+@app.post("/admin/photos/upload")
+async def upload_photo(
+    request: Request,
+    name: str = "",
+    album: str = photo_library.UNSORTED,
+    _: None = Depends(auth.require_admin),
+):
+    """Receive ONE photo as the raw request body and hand it to the photo library.
+
+    The body is the file itself rather than a multipart form, so it streams
+    straight into the data directory and nothing is spooled to the system temp
+    directory (Starlette's multipart parser would). The 250 MB cap is the photo
+    library's, separate from the 10 MB beer-image cap below. The page sends each
+    photo in its own request, so one bad file never sinks the others. The
+    library removes the staged file on every way out of the `with`.
+    """
+    ensure_dirs()
+    try:
+        declared = int(request.headers.get("content-length", ""))
+    except ValueError:
+        declared = None
+    try:
+        with photo_library.begin_upload(declared) as upload:
+            async for chunk in request.stream():
+                upload.write(chunk)
+            result = upload.commit(name, album)
+    except photo_library.UploadRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except OSError as exc:
+        if exc.errno == errno.ENOSPC:
+            raise HTTPException(status_code=507,
+                                detail="The data disk filled up during the upload.") from exc
+        raise
+    if result.outcome == "stored":
+        photo_library.kick_processing()
+        log.info("photo uploaded to %s (%s)", result.album, "renamed" if result.renamed else "as named")
+    return {"ok": True, "outcome": result.outcome, "album": result.album,
+            "name": result.name, "renamed": result.renamed}
+
+
+@app.get("/admin/photos/status")
+async def photos_status(album: str = photo_library.UNSORTED,
+                        _: None = Depends(auth.require_admin)):
+    """What the Photos tab shows: counts, the albums to choose from, and one album's photos."""
+    st = photo_library.status()
+    albums = photo_library.list_albums()
+    if photo_library.UNSORTED not in albums:
+        albums = [photo_library.UNSORTED, *albums]
+    return {
+        "total": st.total, "ready": st.ready, "pending": st.pending, "failed": st.failed,
+        "albums": albums,
+        "album": album,
+        "photos": [{"id": r.photo_id, "name": r.name, "state": r.state, "reason": r.reason,
+                    "thumb": f"/admin/photos/thumb/{r.copy_id}.webp" if r.copy_id else None}
+                   for r in photo_library.photos_in(album)],
+    }
+
+
+@app.get("/admin/photos/thumb/{filename}")
+async def photo_thumb(filename: str, _: None = Depends(auth.require_admin)):
+    """A photo's 480 px thumbnail, for the Photos tab. Admin login required; never public."""
+    p = photo_library.thumb_file(filename)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no such thumbnail")
+    return FileResponse(p, media_type="image/webp",
+                        headers={"Cache-Control": "private, max-age=86400"})
 
 
 # ---- admin: uploads ------------------------------------------------------
