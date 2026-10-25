@@ -124,6 +124,27 @@ def test_snapshot_carries_the_archive_and_the_root_images(write_tap, no_credenti
     }
 
 
+def test_snapshot_carries_the_retention_setting_but_no_photos_original_or_removed(no_credential_env):
+    from photo_fixtures import halves, write_image
+    from app import photo_library as lib
+    config_store.update_config(photo_removed_retention_days=45)
+    write_image(paths.PHOTOS_DIR / "Events" / "kept.jpg", halves())
+    write_image(paths.PHOTOS_DIR / "gone.jpg", halves(left=(1, 2, 3)))
+    lib.scan()
+    lib.process_pending()
+    lib.remove_photos([r.photo_id for r in lib.photos_in("Unsorted")])
+
+    exported = _export_bytes()
+    zf = zipfile.ZipFile(io.BytesIO(exported))
+    assert set(zf.namelist()) == {"config.json"}                 # no originals, copies or bin
+    assert json.loads(zf.read("config.json"))["photo_removed_retention_days"] == 45
+
+    # And importing it restores the setting, again without touching any photo.
+    config_store.update_config(photo_removed_retention_days=3)
+    snapshot.import_snapshot(_stage(exported))
+    assert config_store.load_config()["photo_removed_retention_days"] == 45
+
+
 def test_snapshot_carries_no_status_and_no_data_dir_id(write_tap, no_credential_env):
     # Status regenerates on the next cycle, and the DDI names which directory
     # this box is using rather than which data sits in it. Neither belongs to a

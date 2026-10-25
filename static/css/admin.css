@@ -281,3 +281,17 @@ input[type=color] {
 .photo-state { color: var(--muted); }
 .photo-tile.failed .photo-state { color: var(--danger); }
 .photo-tile.ready .photo-state { color: var(--ok); }
+
+/* ---- organising photos and Removed (issue #58) ---- */
+.album-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.album-bar select { flex: 1 1 12rem; width: auto; }
+.album-bar .btn, .selbar .btn, .inline-form .btn { margin-top: 0; padding: 0.4rem 0.8rem; }
+.selbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0.6rem 0; padding: 0.5rem 0.7rem; border: 1px solid var(--accent); border-radius: 8px; }
+.selbar select { width: auto; }
+.inline-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0.6rem 0; }
+.inline-form input { width: 6rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.photo-tile { position: relative; }
+.photo-pick { position: absolute; top: 0.3rem; left: 0.3rem; width: 1.2rem; height: 1.2rem; margin: 0; cursor: pointer; }
+.photo-tile.picked img, .photo-tile.picked .photo-ph { outline: 3px solid var(--accent); outline-offset: -3px; }
+#removed-empty-all { margin-top: 0.6rem; }

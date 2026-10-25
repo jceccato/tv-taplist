@@ -107,6 +107,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "announcement_text": "",
     "max_archive_age_days": 180,
     "max_archive_storage_mb": 2048,
+    # Days a removed photo waits in Removed before the daily cleanup purges it
+    # (ADR-0008). Global: there is one bin. Set on the Photos tab, not the
+    # Settings form.
+    "photo_removed_retention_days": 30,
     # Display options.
     "color_unit": "ebc",            # "ebc" or "srm" - colour stat display unit
     "show_abv": True,               # global show/hide for each stat
@@ -196,6 +200,7 @@ NEVER_CUSTOMISABLE: frozenset[str] = frozenset({
     "num_taps",
     "max_archive_age_days",
     "max_archive_storage_mb",
+    "photo_removed_retention_days",
     "venue_logo",
     "color_unit",
     "update_check_enabled",
@@ -498,6 +503,8 @@ SETTINGS_BOUNDS: dict[str, tuple[float, float | None]] = {
     "upcoming_interval_seconds": (5, 300),
     "max_archive_age_days": (0, None),
     "max_archive_storage_mb": (0, None),
+    # 0 purges the bin at every nightly cleanup; ten years is the practical top.
+    "photo_removed_retention_days": (0, 3650),
     "page_size": (1, MAX_PAGE_SIZE),
     "rotation_seconds": (MIN_ROTATION_SECONDS, MAX_ROTATION_SECONDS),
     "venue_logo_height_vh": (0, MAX_VENUE_LOGO_VH),
@@ -612,7 +619,8 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     # disposition. The Admin form carries the same numbers as input attributes
     # so an operator is stopped while typing instead. See GLOSSARY.md.
     for key in ("num_taps", "max_upcoming_previews", "upcoming_interval_seconds",
-                "max_archive_age_days", "max_archive_storage_mb", "page_size",
+                "max_archive_age_days", "max_archive_storage_mb",
+                "photo_removed_retention_days", "page_size",
                 "rotation_seconds", "venue_logo_height_vh",
                 "upcoming_panel_multiple", "album_every_turns",
                 "album_photos_per_visit", "album_seconds_per_photo"):

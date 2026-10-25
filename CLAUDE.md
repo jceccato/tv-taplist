@@ -70,7 +70,7 @@ app/                FastAPI app + all logic
   timezone.py       TZ-aware iso_now()
 static/             css/display.css, css/admin.css, js/display.js, js/admin.js, placeholder.svg
 templates/          display.html, admin.html (tabbed), login.html
-tests/              pytest suite (892 tests, 27 files) + conftest.py fixtures; tests/browser = Playwright page tests
+tests/              pytest suite (935 tests, 29 files) + conftest.py fixtures; tests/browser = Playwright page tests
 Dockerfile · entrypoint.sh · docker-compose.yml · scripts/docker_test.sh
 scripts/setup.sh (guided installer / .env wizard)
 README.md           root landing page (embeds docs/venue_logo.png + docs/screenshot.png)
@@ -94,6 +94,8 @@ docs/               INSTALLATION.md · FAQ.md · UNRAID.md · WINDOWS.md · PUBL
   photos/            the photo album's ORIGINALS, untouched (ADR-0008): each
                      folder an Album, loose files the Album "Unsorted", folders
                      inside an album part of it. Operator-owned, hand-editable.
+  photos_removed/    Removed photos: `<token>.<ext>` + `<token>.json` (album,
+                     name, removal time). Purged by the daily cleanup.
   photo_cache/       DISPOSABLE: display/ (the Display copies), thumbs/ and
                      index.json (sizes, mtimes, content hashes, date taken).
                      Deleting it costs only reprocessing time.
@@ -247,9 +249,9 @@ ticked list with nothing ticked".
 
 ## The photo album (`photo_library.py`, ADR-0008)
 
-- **One module owns `/data/photos/` and `/data/photo_cache/`.** Nothing else in
-  `app/` builds a path under either (a guard test walks the AST for
-  `PHOTOS_DIR`/`PHOTO_CACHE_DIR`, as the Tap store's filenames are guarded). Its
+- **One module owns `/data/photos/`, `/data/photos_removed/` and `/data/photo_cache/`.** Nothing else in
+  `app/` builds a path under any of them (a guard test walks the AST for
+  `PHOTOS_DIR`/`PHOTO_CACHE_DIR`/`PHOTOS_REMOVED_DIR`, as the Tap store's filenames are guarded). Its
   operations: `list_albums`, `scan`, `begin_upload`/`Upload.commit`, `kick_processing`, `photos_in`, `thumb_file`, `process_next`/`process_pending`,
   `ready_photos(albums, order)`, `copy_file(filename)`, `status`.
 - **Originals are never served or referenced.** The board carries only
@@ -300,6 +302,31 @@ ticked list with nothing ticked".
   albums, one album's photos with ready/waiting/failed + reason) and shows thumbnails
   from the Admin-only `GET /admin/photos/thumb/<copy id>.webp`; the Settings tab no
   longer carries the ready/pending/failed line.
+- **Organising and Removed (issue #58).** `create_album`/`rename_album`/`delete_album`,
+  `move_photos`, `remove_photos`, and `list_removed`/`restore_removed`/`delete_removed`/
+  `empty_removed`/`purge_removed` all run under `_STORE_LOCK` (the lock an upload takes)
+  and change the index at once. Photos are addressed by the `photo_id` the Photos tab
+  lists (a hash of the path, so an id changes when a photo moves). Album names reject
+  `/ \ < > : " | ? *`, leading/trailing dots, "Unsorted" and a case-blind clash.
+  A rename moves the folder and re-keys the index (no re-hash, no new copy); the profiles
+  that ticked the old name are updated by `admin_ops.rename_album`, because config sits
+  a layer above this module (config_store imports it). Delete moves every photo to
+  Removed, then removes the folders that are empty; a non-photo file keeps its folder.
+  **Removed** is `photos_removed/<token>.<ext>` plus `<token>.json` `{album, name, ext,
+  removed_at, copy_id}`; the record is written before the move. Removing deletes the
+  public Display copy at once (unless an identical photo shares it) but keeps the thumbnail,
+  which the orphan sweep also spares while a record names it. Restore recreates the album
+  folder if needed (a hand-edited bad album falls back to Unsorted), suffixes a taken
+  name, then scans so the photo is reprocessed. `purge_removed(days)` is called from
+  `cleanup.run_cleanup` (daily 03:30) with the global `photo_removed_retention_days`
+  (default 30, 0 to 3650, never customisable, set from the Photos tab's own route so a
+  Settings Save cannot reset it; it is in config.json, so a Snapshot carries it and no
+  photo). Routes: `/admin/photos/albums[/rename|/delete]`, `/move`, `/remove`, `/removed`
+  `[/restore|/delete|/empty]`, `/retention`, all admin-only, as are thumbnails.
+  The Photos tab has multi-select on the thumbnails (a checkbox per tile) with a Move /
+  Remove bar, and a Removed panel with Restore, Delete forever, Empty removed and the
+  retention days. A scan racing a move can drop and re-add one index entry, which only
+  costs a re-process.
 - **Runtime state is in memory only**: the library's index is a cache file, and the
   page's place in the album is lost on reload (a reload starts a fresh Shuffle pass).
 
@@ -530,8 +557,8 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
   the album picker's ticks are unnamed and write one hidden JSON field, and the
   fieldset reports how many Display copies are ready, still processing, or could not
   be read, with the unreadable files named. Uploads, album management and Removed
-  come later.)
-- Four tabs - **Settings · Theme · Manual overrides · Snapshot** - plus an
+  live on the Photos tab, see "The photo album".)
+- Five tabs - **Settings · Theme · Manual overrides · Photos · Snapshot** - plus an
   always-visible status panel with **Sync Brewfather now**.
 - **Cross-tab saving via HTML `form=` association:** theme pickers, glassware, and
   the venue-logo height live outside `<form id="settings-form">` but carry
@@ -731,12 +758,14 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 892 tests, 27 files (the eleven page tests skip without a browser):
+- 935 tests, 29 files (the fourteen page tests skip without a browser):
   **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
   the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a
   Display P3 profile - upright, sRGB, 4K fit up and down, WebP q99, no metadata in
   the copy or the thumbnail - plus stale copies, failures, the cache being deleted,
-  and the guard that nothing else builds a photo path), **the album on the board and
+  and the guard that nothing else builds a photo path), **organising photos** (`test_photo_removed.py`: album create/rename/delete, profile
+  ticks following a rename, move, remove, restore, delete forever, the nightly purge,
+  login on every route), **the album on the board and
   in the Admin** (`test_album_board.py`: payload only with the album on, order,
   selection, clamping, no original referenced, the public copy route, the profile
   editor), and **the page tests** (`tests/browser/`, Playwright - see below), colours (incl. the single Colour resolution point -

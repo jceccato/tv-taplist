@@ -35,10 +35,15 @@ UPCOMING_DIR = DATA_DIR / "upcoming"
 # The photo album (ADR-0008). `photos/` holds the operator's untouched originals
 # (each Album a folder, loose files forming Unsorted); `photo_cache/` holds the
 # disposable Display copies, thumbnails and the index the box rebuilds from the
-# originals. Only app/photo_library.py builds a path under either - nothing else
+# originals. Only app/photo_library.py builds a path under any of the three - nothing else
 # in app/ may.
 PHOTOS_DIR = DATA_DIR / "photos"
 PHOTO_CACHE_DIR = DATA_DIR / "photo_cache"
+# Removed photos wait here (ADR-0008): each is a `<token>.<ext>` original beside a
+# `<token>.json` that remembers its album and when it was removed. Outside
+# `photos/`, so no scan, board or album listing ever sees it. Purged by the daily
+# cleanup once older than the retention setting.
+PHOTOS_REMOVED_DIR = DATA_DIR / "photos_removed"
 # Where an uploaded photo is streamed before the library files it (same disk as
 # `photos/`, so the final move is a rename). Dot-prefixed so no scan, Snapshot or
 # album listing ever sees it; emptied on every exit path and swept when stale.
@@ -65,7 +70,8 @@ BUNDLED_PLACEHOLDER = STATIC_DIR / "placeholder.svg"
 
 def ensure_dirs() -> None:
     """Create the data directory tree if it does not exist yet (first run)."""
-    for d in (DATA_DIR, TAPS_DIR, OLD_BEERS_DIR, UPCOMING_DIR, PHOTOS_DIR):
+    for d in (DATA_DIR, TAPS_DIR, OLD_BEERS_DIR, UPCOMING_DIR, PHOTOS_DIR,
+              PHOTOS_REMOVED_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
 

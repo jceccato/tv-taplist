@@ -26,6 +26,15 @@ Merged to `main` and shipping in the next release.
 
 ### Added
 
+- **Manage photo albums, and a Removed bin.** On the Photos tab you can now create,
+  rename and delete albums, tick many photos and move them to another album or
+  remove them. Renaming an album in the Admin updates every screen that shows it
+  (a folder renamed by hand still appears as a new, unticked album). Deleting an
+  album, or removing photos, moves them to Removed, which keeps each photo's album:
+  Restore puts it back, Delete forever and Empty removed free the space, and the
+  nightly cleanup deletes anything removed longer ago than the days you set there
+  (30 by default). Removed photos stop showing on every screen at once. Snapshots
+  carry the days setting, never the photos.
 - **Photo album, first version.** Drop JPEG, PNG or WebP photos into the
   `photos` folder of your data directory (loose files form the album
   "Unsorted"; each folder is an album, and folders inside it count as part of

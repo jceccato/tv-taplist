@@ -41,6 +41,8 @@ def clean_state():
     shutil.rmtree(paths.PHOTOS_DIR, ignore_errors=True)
     shutil.rmtree(paths.PHOTO_CACHE_DIR, ignore_errors=True)
     shutil.rmtree(paths.PHOTO_UPLOAD_STAGING_DIR, ignore_errors=True)
+    shutil.rmtree(paths.PHOTOS_REMOVED_DIR, ignore_errors=True)
+    paths.PHOTOS_REMOVED_DIR.mkdir(parents=True, exist_ok=True)
     paths.PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
     photo_library.reset_state()
     for logo in paths.DATA_DIR.glob("venue_logo.*"):     # the browser tests' venue fixture writes one

@@ -11,6 +11,10 @@ Public display:
   POST /admin/photos/upload  -> one photo, streamed to the photo library (admin)
   GET  /admin/photos/status  -> the Photos tab's counts and per-photo states (admin)
   GET  /admin/photos/thumb/{filename} -> a photo's thumbnail (admin only)
+  POST /admin/photos/albums, /albums/rename, /albums/delete -> album create, rename, delete (admin)
+  POST /admin/photos/move, /remove -> move or remove a selection of photos (admin)
+  GET  /admin/photos/removed; POST /removed/restore, /removed/delete, /removed/empty -> the Removed bin (admin)
+  POST /admin/photos/retention -> days before Removed photos are purged (admin)
   GET  /img/photo/{filename} -> a photo's Display copy from the photo cache (never an original)
   GET  /img/placeholder -> fallback image
   GET  /healthz         -> lightweight healthcheck
@@ -889,6 +893,9 @@ class SettingsForm(BaseModel):
 SETTINGS_NOT_ON_THE_FORM = frozenset({
     # Arrives as separate theme_<key> colour fields; assembled by the route.
     "theme_custom",
+    # Set from the Photos tab (its own route), beside the Removed bin it governs.
+    # A field on this model would take its default on every Settings Save.
+    "photo_removed_retention_days",
     # Written by the venue-logo upload route, not typed by anyone.
     "venue_logo",
     # No control on the Settings tab: an air-gapped deploy turns the update
@@ -1031,12 +1038,90 @@ async def photos_status(album: str = photo_library.UNSORTED,
         albums = [photo_library.UNSORTED, *albums]
     return {
         "total": st.total, "ready": st.ready, "pending": st.pending, "failed": st.failed,
+        "removed": len(photo_library.list_removed()),
+        "retention_days": load_config()["photo_removed_retention_days"],
         "albums": albums,
         "album": album,
         "photos": [{"id": r.photo_id, "name": r.name, "state": r.state, "reason": r.reason,
                     "thumb": f"/admin/photos/thumb/{r.copy_id}.webp" if r.copy_id else None}
                    for r in photo_library.photos_in(album)],
     }
+
+
+def _library_call(operation, *args):
+    """Run a photo library operation, turning a refusal into the status the Admin shows."""
+    try:
+        return operation(*args)
+    except (photo_library.AlbumRejected, photo_library.UploadRejected) as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@app.post("/admin/photos/albums")
+async def create_album(name: Annotated[str, Form()], _: None = Depends(auth.require_admin)):
+    return {"ok": True, "name": _library_call(photo_library.create_album, name)}
+
+
+@app.post("/admin/photos/albums/rename")
+async def rename_album(old: Annotated[str, Form()], new: Annotated[str, Form()],
+                       _: None = Depends(auth.require_admin)):
+    """Rename an album; every profile that ticked it follows (a by-hand rename does not)."""
+    return {"ok": True, "name": _library_call(admin_ops.rename_album, old, new)}
+
+
+@app.post("/admin/photos/albums/delete")
+async def delete_album(name: Annotated[str, Form()], _: None = Depends(auth.require_admin)):
+    """Delete an album: its photos go to Removed, from where they can be restored."""
+    return {"ok": True, "removed": _library_call(photo_library.delete_album, name)}
+
+
+@app.post("/admin/photos/move")
+async def move_photos(ids: Annotated[list[str], Form()], album: Annotated[str, Form()],
+                      _: None = Depends(auth.require_admin)):
+    return {"ok": True, "moved": _library_call(photo_library.move_photos, ids, album)}
+
+
+@app.post("/admin/photos/remove")
+async def remove_photos(ids: Annotated[list[str], Form()], _: None = Depends(auth.require_admin)):
+    return {"ok": True, "removed": _library_call(photo_library.remove_photos, ids)}
+
+
+@app.get("/admin/photos/removed")
+async def removed_photos(_: None = Depends(auth.require_admin)):
+    """The Removed view: each photo, its remembered album, and how long until it is purged."""
+    days = load_config()["photo_removed_retention_days"]
+    now = time.time()
+    return {
+        "retention_days": days,
+        "photos": [{"id": r.removed_id, "name": r.name, "album": r.album,
+                    "days_left": max(0, int((r.removed_at + days * 86400 - now) // 86400)),
+                    "thumb": f"/admin/photos/thumb/{r.copy_id}.webp" if r.copy_id else None}
+                   for r in photo_library.list_removed()],
+    }
+
+
+@app.post("/admin/photos/removed/restore")
+async def restore_removed(ids: Annotated[list[str], Form()], _: None = Depends(auth.require_admin)):
+    n = _library_call(photo_library.restore_removed, ids)
+    if n:
+        photo_library.kick_processing()
+    return {"ok": True, "restored": n}
+
+
+@app.post("/admin/photos/removed/delete")
+async def delete_removed(ids: Annotated[list[str], Form()], _: None = Depends(auth.require_admin)):
+    return {"ok": True, "deleted": _library_call(photo_library.delete_removed, ids)}
+
+
+@app.post("/admin/photos/removed/empty")
+async def empty_removed(_: None = Depends(auth.require_admin)):
+    return {"ok": True, "deleted": _library_call(photo_library.empty_removed)}
+
+
+@app.post("/admin/photos/retention")
+async def set_removed_retention(photo_removed_retention_days: Annotated[int, Form()], _: None = Depends(auth.require_admin)):
+    """Days a removed photo waits before the daily cleanup purges it (clamped by the store)."""
+    saved = update_config(photo_removed_retention_days=photo_removed_retention_days)
+    return {"ok": True, "days": saved["photo_removed_retention_days"]}
 
 
 @app.get("/admin/photos/thumb/{filename}")

@@ -800,7 +800,13 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
         <h2>Photos</h2>
         <p class="hint">Photos you add are kept as they are in the album you are viewing; each screen is sent a processed copy, never the original. JPEG, PNG and WebP, up to 250 MB each.</p>
         <label for="photos-album">Album</label>
-        <select id="photos-album"><option value="Unsorted">Unsorted</option></select>
+        <div class="album-bar">
+          <select id="photos-album"><option value="Unsorted">Unsorted</option></select>
+          <button type="button" class="btn" id="album-new">New album</button>
+          <button type="button" class="btn" id="album-rename">Rename</button>
+          <button type="button" class="btn" id="album-delete">Delete album</button>
+        </div>
+        <p class="hint">Deleting an album moves its photos to Removed. Renaming one here updates every screen that shows it; a folder renamed by hand on disk appears as a new album, and screens that showed the old name skip it.</p>
         <div id="photos-drop" class="photos-drop" tabindex="0">
           <p>Drag photos here, or</p>
           <label class="btn primary photos-add" for="photos-file">Add photos</label>
@@ -808,8 +814,36 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
         </div>
         <ul id="photos-uploads" class="photos-uploads" aria-live="polite"></ul>
         <p id="photos-progress" class="hint" role="status"></p>
+        <div id="photos-selbar" class="selbar" hidden>
+          <strong id="photos-selcount">0 selected</strong>
+          <label for="photos-moveto" class="sr-only">Move to album</label>
+          <select id="photos-moveto"></select>
+          <button type="button" class="btn" id="photos-move">Move</button>
+          <button type="button" class="btn" id="photos-remove">Remove</button>
+          <button type="button" class="btn" id="photos-clear">Clear selection</button>
+        </div>
         <ul id="photos-grid" class="photos-grid"></ul>
         <p id="photos-empty" class="muted" hidden>No photos in this album yet.</p>
+      </section>
+
+      <!-- Removed (issue #58): photos wait here, with their album remembered,
+           until restored, deleted for good, or purged by the nightly cleanup. -->
+      <section class="card-panel" id="removed-panel">
+        <h2>Removed <span class="muted" id="removed-count"></span></h2>
+        <p class="hint">Removed photos stop showing on every screen. Restore puts one back in the album it came from. The nightly cleanup deletes them for good once they are older than the days set here.</p>
+        <form id="retention-form" class="inline-form">
+          <label for="retention-days">Purge removed photos after (days)</label>
+          <input id="retention-days" name="photo_removed_retention_days" type="number" {{ bounds_for('photo_removed_retention_days') }} step="1" value="{{ cfg.photo_removed_retention_days }}">
+          <button type="submit" class="btn">Save</button>
+        </form>
+        <div id="removed-bar" class="selbar" hidden>
+          <strong id="removed-selcount">0 selected</strong>
+          <button type="button" class="btn" id="removed-restore">Restore</button>
+          <button type="button" class="btn" id="removed-delete">Delete forever</button>
+        </div>
+        <ul id="removed-grid" class="photos-grid"></ul>
+        <p id="removed-empty" class="muted">Nothing has been removed.</p>
+        <button type="button" class="btn" id="removed-empty-all" hidden>Empty removed</button>
       </section>
     </div>
 

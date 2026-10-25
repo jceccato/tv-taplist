@@ -876,6 +876,8 @@
     const grid = document.getElementById("photos-grid");
     const empty = document.getElementById("photos-empty");
     const queue = [];
+    const picked = new Set();          // ids of the selected photos in the grid
+    const removedPicked = new Set();   // ids of the selected photos in Removed
     let active = 0;
     let pollTimer = null;
     let pending = 0;
@@ -903,11 +905,19 @@
           albumSel.value = st.albums.includes(wanted) ? wanted : st.album;
           pending = st.pending;
           setProgressText(st);
+          const present = new Set(st.photos.map((p) => p.id));
+          for (const id of Array.from(picked)) if (!present.has(id)) picked.delete(id);
           grid.replaceChildren(...st.photos.map((p) => {
             const li = document.createElement("li");
-            li.className = "photo-tile " + p.state;
+            li.className = "photo-tile " + p.state + (picked.has(p.id) ? " picked" : "");
             li.dataset.state = p.state;
             li.dataset.name = p.name;
+            li.dataset.id = p.id;
+            li.append(pickBox(p.name, picked.has(p.id), (on) => {
+              if (on) picked.add(p.id); else picked.delete(p.id);
+              li.classList.toggle("picked", on);
+              updateSelection();
+            }));
             if (p.thumb) {
               const img = document.createElement("img");
               img.src = p.thumb; img.alt = p.name; img.loading = "lazy";
@@ -928,11 +938,181 @@
             li.append(cap, state);
             return li;
           }));
+          moveTo.replaceChildren(...st.albums.filter((a) => a !== albumSel.value).map((a) => {
+            const o = document.createElement("option");
+            o.value = o.textContent = a;
+            return o;
+          }));
+          updateSelection();
           empty.hidden = st.photos.length > 0;
         }
       } catch (_) { /* offline: keep the last view */ }
+      refreshRemoved();
       schedulePoll();
     }
+
+    // ---- organising (issue #58): albums, multi-select, Removed ----
+    const selbar = document.getElementById("photos-selbar");
+    const selCount = document.getElementById("photos-selcount");
+    const moveTo = document.getElementById("photos-moveto");
+    const moveBtn = document.getElementById("photos-move");
+    const removedGrid = document.getElementById("removed-grid");
+    const removedBar = document.getElementById("removed-bar");
+    const removedSelCount = document.getElementById("removed-selcount");
+    const removedEmpty = document.getElementById("removed-empty");
+    const removedEmptyAll = document.getElementById("removed-empty-all");
+    const removedCount = document.getElementById("removed-count");
+
+    function pickBox(name, checked, onChange) {
+      const box = document.createElement("input");
+      box.type = "checkbox"; box.className = "photo-pick"; box.checked = checked;
+      box.setAttribute("aria-label", "Select " + name);
+      box.addEventListener("change", () => onChange(box.checked));
+      return box;
+    }
+
+    function updateSelection() {
+      selbar.hidden = picked.size === 0;
+      selCount.textContent = picked.size + " selected";
+      moveBtn.disabled = moveTo.options.length === 0;
+      moveTo.hidden = moveTo.options.length === 0;
+    }
+
+    function updateRemovedSelection() {
+      removedBar.hidden = removedPicked.size === 0;
+      removedSelCount.textContent = removedPicked.size + " selected";
+    }
+
+    function idsForm(set, extra) {
+      const fd = new FormData();
+      for (const id of set) fd.append("ids", id);
+      for (const [k, v] of Object.entries(extra || {})) fd.set(k, v);
+      return fd;
+    }
+
+    async function act(fn, failure) {
+      try { await fn(); } catch (err) { showToast(failure + ": " + err.message, "err"); }
+      await refreshPhotos();
+    }
+
+    async function refreshRemoved() {
+      try {
+        const resp = await fetch("/admin/photos/removed");
+        if (!resp.ok) return;
+        const st = await resp.json();
+        const present = new Set(st.photos.map((p) => p.id));
+        for (const id of Array.from(removedPicked)) if (!present.has(id)) removedPicked.delete(id);
+        removedGrid.replaceChildren(...st.photos.map((p) => {
+          const li = document.createElement("li");
+          li.className = "photo-tile removed" + (removedPicked.has(p.id) ? " picked" : "");
+          li.dataset.id = p.id;
+          li.dataset.name = p.name;
+          li.append(pickBox(p.name, removedPicked.has(p.id), (on) => {
+            if (on) removedPicked.add(p.id); else removedPicked.delete(p.id);
+            li.classList.toggle("picked", on);
+            updateRemovedSelection();
+          }));
+          if (p.thumb) {
+            const img = document.createElement("img");
+            img.src = p.thumb; img.alt = p.name; img.loading = "lazy";
+            li.append(img);
+          } else {
+            const ph = document.createElement("div");
+            ph.className = "photo-ph";
+            li.append(ph);
+          }
+          const cap = document.createElement("span");
+          cap.className = "photo-name";
+          cap.textContent = p.name;
+          const note = document.createElement("span");
+          note.className = "photo-state";
+          note.textContent = "From " + p.album + ", "
+            + (p.days_left === 0 ? "purged tonight" : p.days_left + " day" + (p.days_left === 1 ? "" : "s") + " left");
+          li.append(cap, note);
+          return li;
+        }));
+        removedEmpty.hidden = st.photos.length > 0;
+        removedEmptyAll.hidden = st.photos.length === 0;
+        removedCount.textContent = st.photos.length ? "(" + st.photos.length + ")" : "";
+        updateRemovedSelection();
+      } catch (_) { /* offline: keep the last view */ }
+    }
+
+    document.getElementById("album-new").addEventListener("click", () => {
+      const name = window.prompt("Name for the new album:");
+      if (name === null || name.trim() === "") return;
+      act(async () => {
+        const fd = new FormData(); fd.set("name", name);
+        const res = await postForm("/admin/photos/albums", fd);
+        await refreshPhotos();
+        albumSel.value = res.name;
+      }, "Could not create the album");
+    });
+    document.getElementById("album-rename").addEventListener("click", () => {
+      const old = albumSel.value;
+      if (old === "Unsorted") { showToast("Unsorted is for loose photos and cannot be renamed.", "err"); return; }
+      const name = window.prompt("New name for " + old + ":", old);
+      if (name === null || name.trim() === "" || name.trim() === old) return;
+      act(async () => {
+        const fd = new FormData(); fd.set("old", old); fd.set("new", name);
+        const res = await postForm("/admin/photos/albums/rename", fd);
+        await refreshPhotos();
+        albumSel.value = res.name;
+      }, "Rename failed");
+    });
+    document.getElementById("album-delete").addEventListener("click", () => {
+      const name = albumSel.value;
+      if (name === "Unsorted") { showToast("Unsorted holds the loose photos and cannot be deleted. Select its photos and Remove them instead.", "err"); return; }
+      if (!window.confirm("Delete the album " + name + "? Its photos move to Removed, where you can restore them.")) return;
+      act(async () => {
+        const fd = new FormData(); fd.set("name", name);
+        await postForm("/admin/photos/albums/delete", fd);
+        albumSel.value = "Unsorted";
+        picked.clear();
+      }, "Delete failed");
+    });
+    moveBtn.addEventListener("click", () => act(async () => {
+      const res = await postForm("/admin/photos/move", idsForm(picked, { album: moveTo.value }));
+      picked.clear();
+      showToast("Moved " + res.moved + " photo" + (res.moved === 1 ? "" : "s") + " to " + moveTo.value + ".");
+    }, "Move failed"));
+    document.getElementById("photos-remove").addEventListener("click", () => {
+      if (!window.confirm("Remove " + picked.size + " photo" + (picked.size === 1 ? "" : "s")
+        + "? They move to Removed, where you can restore them.")) return;
+      act(async () => {
+        await postForm("/admin/photos/remove", idsForm(picked));
+        picked.clear();
+      }, "Remove failed");
+    });
+    document.getElementById("photos-clear").addEventListener("click", () => { picked.clear(); refreshPhotos(); });
+    document.getElementById("removed-restore").addEventListener("click", () => act(async () => {
+      await postForm("/admin/photos/removed/restore", idsForm(removedPicked));
+      removedPicked.clear();
+    }, "Restore failed"));
+    document.getElementById("removed-delete").addEventListener("click", () => {
+      if (!window.confirm("Delete " + removedPicked.size + " photo" + (removedPicked.size === 1 ? "" : "s")
+        + " forever? This cannot be undone.")) return;
+      act(async () => {
+        await postForm("/admin/photos/removed/delete", idsForm(removedPicked));
+        removedPicked.clear();
+      }, "Delete failed");
+    });
+    removedEmptyAll.addEventListener("click", () => {
+      if (!window.confirm("Delete everything in Removed forever? This cannot be undone.")) return;
+      act(async () => {
+        await postForm("/admin/photos/removed/empty", new FormData());
+        removedPicked.clear();
+      }, "Empty failed");
+    });
+    document.getElementById("retention-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        const res = await postForm("/admin/photos/retention", new FormData(e.target));
+        document.getElementById("retention-days").value = res.days;
+        showToast("Removed photos are purged after " + res.days + " day" + (res.days === 1 ? "" : "s") + ".");
+        refreshRemoved();
+      } catch (err) { showToast("Could not save: " + err.message, "err"); }
+    });
 
     function schedulePoll() {
       clearTimeout(pollTimer);
@@ -1038,7 +1218,7 @@
       e.preventDefault(); drop.classList.remove("over");
     }));
     drop.addEventListener("drop", (e) => addFiles(Array.from(e.dataTransfer.files)));
-    albumSel.addEventListener("change", refreshPhotos);
+    albumSel.addEventListener("change", () => { picked.clear(); refreshPhotos(); });
     document.querySelectorAll('.tab[data-tab="photos"]').forEach((t) => t.addEventListener("click", refreshPhotos));
     if (!photosPanel.hidden) refreshPhotos();
   }

@@ -462,7 +462,7 @@ def test_nothing_outside_the_photo_library_builds_a_photo_path():
                 names.append(node.id)
             elif isinstance(node, ast.ImportFrom):
                 names += [a.name for a in node.names]
-            if {"PHOTOS_DIR", "PHOTO_CACHE_DIR"} & set(names):
+            if {"PHOTOS_DIR", "PHOTO_CACHE_DIR", "PHOTOS_REMOVED_DIR"} & set(names):
                 offenders.append(f"{py.name}:{node.lineno}")
     assert offenders == []
 

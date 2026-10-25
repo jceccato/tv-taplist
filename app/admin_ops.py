@@ -19,7 +19,7 @@ import threading
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from . import config_store
+from . import config_store, photo_library
 from . import tap_store as taps
 from .archive import archive_tap
 from .atomic import JOB_LOCK
@@ -304,3 +304,36 @@ def save_profile(name: Any, *, customise: Iterable[str],
     log.info("profile saved: %s (%d customised unit(s))",
              key, len(customised_units(stored)))
     return stored
+
+
+# ---- photo albums ---------------------------------------------------------------
+
+def rename_album(old: str, new: str) -> str:
+    """Rename an album and every tick of it, in the Default profile and in each profile.
+
+    The folder moves first; if that is refused nothing in the config changes. A
+    folder renamed by hand never comes through here, so its old name just stops
+    matching anything (the Admin lists it as "no such folder now").
+    """
+    with _PROFILES_LOCK:
+        clean = photo_library.rename_album(old, new)
+        if clean == old:
+            return clean
+
+        def swap(names: list[str]) -> list[str]:
+            out: list[str] = []
+            for name in names:
+                name = clean if name == old else name
+                if name not in out:
+                    out.append(name)
+            return out
+
+        cfg = config_store.load_config()
+        profiles = {name: dict(values) for name, values in cfg["profiles"].items()}
+        for values in profiles.values():
+            if "album_selection" in values:
+                values["album_selection"] = swap(values["album_selection"])
+        config_store.apply_settings(album_selection=swap(cfg["album_selection"]),
+                                    profiles=profiles)
+    log.info("album renamed in the config: profiles that ticked it follow")
+    return clean

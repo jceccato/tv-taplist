@@ -4,7 +4,10 @@ Each archived beer is a *pair*: a markdown file and its image, sharing a stem
 like 'bf_tap_3_20260624T153000'. Both are deleted together and both count toward
 the folder total.
 
-Two conditions, applied in order:
+It also purges the photo album's Removed bin: photos removed longer ago than
+the retention setting (days, Photos tab) are deleted for good.
+
+Two conditions, applied in order for the archive:
   1. Age: delete any pair whose markdown mtime is older than Max Archive Age
      (days), measured against the configured local timezone.
   2. Size: if the folder still exceeds Max Archive Storage Limit (MB), delete
@@ -16,6 +19,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from . import photo_library
 from .atomic import JOB_LOCK, safe_unlink
 from .config_store import load_config
 from .paths import OLD_BEERS_DIR, ensure_dirs
@@ -86,6 +90,13 @@ def run_cleanup() -> dict[str, Any]:
         log.info("cleanup starting (max_age=%dd max_size=%dMB)", max_age_days, max_size_mb)
         deleted_by_age = 0
         deleted_by_size = 0
+        purged_photos = 0
+        try:
+            purged_photos = photo_library.purge_removed(
+                int(cfg.get("photo_removed_retention_days", 30)))
+        except OSError as exc:        # independent of the archive: neither's trouble stops the other
+            log.error("cleanup could not purge Removed photos: %s", exc)
+
         try:
             pairs = _collect_pairs()
 
@@ -117,7 +128,8 @@ def run_cleanup() -> dict[str, Any]:
             return {"ok": False, "message": str(exc)}
 
         log.info(
-            "cleanup finished: %d deleted by age, %d deleted by size",
-            deleted_by_age, deleted_by_size,
+            "cleanup finished: %d deleted by age, %d deleted by size, %d Removed photos purged",
+            deleted_by_age, deleted_by_size, purged_photos,
         )
-        return {"ok": True, "deleted_by_age": deleted_by_age, "deleted_by_size": deleted_by_size}
+        return {"ok": True, "deleted_by_age": deleted_by_age, "deleted_by_size": deleted_by_size,
+                "purged_photos": purged_photos}

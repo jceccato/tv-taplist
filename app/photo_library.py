@@ -319,17 +319,22 @@ def scan(settle_seconds: float = SETTLE_SECONDS) -> ScanResult:
     return ScanResult(added, changed, len(gone))
 
 
-def _referenced_ids() -> set[str]:
+def _referenced_ids(thumbs: bool = False) -> set[str]:
+    """Copy ids some photo still needs: Display copies of the index, plus, for
+    thumbnails, those of Removed photos (the Removed view shows them)."""
     with _LOCK:
-        return {e["copy"]["id"] for e in _load_index().values()
-                if isinstance(e.get("copy"), dict) and "id" in e["copy"]}
+        ids = {e["copy"]["id"] for e in _load_index().values()
+               if isinstance(e.get("copy"), dict) and "id" in e["copy"]}
+    if thumbs:
+        ids |= {m["copy_id"] for m in _removed_metas().values() if m.get("copy_id")}
+    return ids
 
 
 def _sweep_orphans() -> None:
     """Delete cache files no index entry points at (once past a grace period)."""
-    keep = _referenced_ids()
     cutoff = time.time() - ORPHAN_GRACE_SECONDS
-    for directory in (_display_dir(), _thumb_dir()):
+    for directory, keep in ((_display_dir(), _referenced_ids()),
+                            (_thumb_dir(), _referenced_ids(thumbs=True))):
         try:
             names = os.listdir(directory)
         except OSError:
@@ -537,10 +542,8 @@ def process_next() -> bool:
             entry["taken"] = taken
             entry["date"] = _epoch(taken) if taken else _mtime_seconds(entry)
             _save_index()
-            if isinstance(old, dict) and old.get("id") and old["id"] != copy_id \
-                    and old["id"] not in _referenced_ids():
-                for d, ext in ((_display_dir(), _copy_extension()), (_thumb_dir(), ".webp")):
-                    safe_unlink(d / f"{old['id']}{ext}")
+            if isinstance(old, dict) and old.get("id") and old["id"] != copy_id:
+                _drop_copy_files_if_unused(old["id"])
         return True
 
 
@@ -752,6 +755,19 @@ def _album_dir(album: str) -> Path:
     raise UnknownAlbum(f"There is no album called “{album}”.")
 
 
+def _unique_name(folder: Path, stem: str, ext: str) -> tuple[str, int]:
+    """`stem+ext`, or `stem (2)+ext`, `stem (3)+ext`... the first free in `folder`.
+
+    Returns the name and the number tried (1 when the name was free).
+    """
+    taken = {n.casefold() for n in os.listdir(folder)}
+    name, n = f"{stem}{ext}", 1
+    while name.casefold() in taken:
+        n += 1
+        name = f"{stem} ({n}){ext}"
+    return name, n
+
+
 class Upload:
     """One file being received: streamed to a staging file, hashed as it goes.
 
@@ -808,11 +824,7 @@ class Upload:
             for rel, e in idx.items():
                 if e.get("hash") == digest and _album_of(rel) == album:
                     return StoredUpload("duplicate", _album_of(rel), _name_of(rel))
-            taken = {n.casefold() for n in os.listdir(folder)}
-            name, n = f"{stem}{ext}", 1
-            while name.casefold() in taken:
-                n += 1
-                name = f"{stem} ({n}){ext}"
+            name, n = _unique_name(folder, stem, ext)
             dest = folder / name
             os.replace(self._path, dest)
             st = dest.stat()
@@ -912,7 +924,7 @@ def photos_in(album: str) -> list[PhotoRow]:
             state, reason = "ready", None      # a stale copy is still served until replaced
         else:
             state, reason = "waiting", None
-        out.append(PhotoRow(hashlib.sha256(rel.encode()).hexdigest()[:16], album, _name_of(rel),
+        out.append(PhotoRow(_photo_id(rel), album, _name_of(rel),
                             state, reason, copy["id"] if copy else None))
     out.sort(key=lambda r: _natural_key(r.name))
     return out
@@ -925,3 +937,313 @@ def thumb_file(filename: str) -> Path | None:
         return None
     path = _thumb_dir() / f"{stem}.webp"
     return path if path.is_file() else None
+
+
+# ---- organising: albums, moving, Removed (issue #58) --------------------------------------
+#
+# Removing, restoring, moving and renaming go through here so the state changes
+# at once, without waiting for the minute's scan. Every operation holds
+# `_STORE_LOCK`, the same lock an upload takes to file a photo.
+
+class AlbumRejected(Exception):
+    """An album change the library will not make; the message is for the operator."""
+    status_code = 422
+
+
+class AlbumExists(AlbumRejected):
+    status_code = 409
+
+
+MAX_ALBUM_NAME_LEN = 100
+_REMOVED_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _photo_id(rel: str) -> str:
+    return hashlib.sha256(rel.encode()).hexdigest()[:16]
+
+
+def _rel_in(album: str, name: str) -> str:
+    return name if album == UNSORTED else f"{album}/{name}"
+
+
+def _valid_album_name(raw: Any) -> str:
+    """A folder name that is safe to create and to type, or AlbumRejected."""
+    name = unicodedata.normalize("NFC", str(raw if raw is not None else "")).strip()
+    if not name:
+        raise AlbumRejected("Give the album a name.")
+    if len(name) > MAX_ALBUM_NAME_LEN:
+        raise AlbumRejected(f"An album name can be at most {MAX_ALBUM_NAME_LEN} characters.")
+    if any(not c.isprintable() or c in '/\\<>:"|?*' for c in name):
+        raise AlbumRejected("An album name cannot contain / \\ < > : \" | ? * or control characters.")
+    if name.startswith(".") or name.endswith("."):
+        raise AlbumRejected("An album name cannot start or end with a dot.")
+    if name.casefold() == UNSORTED.casefold():
+        raise AlbumRejected(f"“{UNSORTED}” is the album for loose photos and is already there.")
+    return name
+
+
+def _drop_copy_files_if_unused(copy_id: str) -> None:
+    """Delete a copy's Display copy and thumbnail once no photo, removed or not, needs them."""
+    if copy_id not in _referenced_ids():
+        safe_unlink(_display_dir() / f"{copy_id}{_copy_extension()}")
+    if copy_id not in _referenced_ids(thumbs=True):
+        safe_unlink(_thumb_dir() / f"{copy_id}.webp")
+
+
+def create_album(name: str) -> str:
+    """Create an empty album (a folder). Names clash regardless of case."""
+    clean = _valid_album_name(name)
+    with _STORE_LOCK:
+        if any(a.casefold() == clean.casefold() for a in list_albums()):
+            raise AlbumExists(f"There is already an album called “{clean}”.")
+        (paths.PHOTOS_DIR / clean).mkdir(parents=True, exist_ok=False)
+    log.info("album created")
+    return clean
+
+
+def rename_album(old: str, new: str) -> str:
+    """Rename an album's folder, keeping every photo's state (copies, dates).
+
+    Profiles that ticked the old name are the caller's to update (config lives a
+    layer above this module): `admin_ops.rename_album` does both.
+    """
+    if old == UNSORTED:
+        raise AlbumRejected(f"“{UNSORTED}” cannot be renamed.")
+    clean = _valid_album_name(new)
+    src = _album_dir(old)
+    with _STORE_LOCK:
+        if any(a.casefold() == clean.casefold() and a != old for a in list_albums()):
+            raise AlbumExists(f"There is already an album called “{clean}”.")
+        if clean == old:
+            return clean
+        os.rename(src, paths.PHOTOS_DIR / clean)
+        with _LOCK:
+            idx = _load_index()
+            prefix = old + "/"
+            for rel in [r for r in idx if r.startswith(prefix)]:
+                idx[f"{clean}/{rel[len(prefix):]}"] = idx.pop(rel)
+            _save_index()
+        for token, meta in _removed_metas().items():
+            if meta.get("album") == old:
+                _write_removed_meta(token, {**meta, "album": clean})
+    log.info("album renamed")
+    return clean
+
+
+def delete_album(album: str) -> int:
+    """Move every photo of an album to Removed, then drop its (now empty) folder.
+
+    Returns how many photos moved. Files the library does not treat as photos
+    stay where they are, and keep the folder alive: they are the operator's.
+    """
+    if album == UNSORTED:
+        raise AlbumRejected(
+            f"“{UNSORTED}” holds the loose photos and cannot be deleted. Remove its photos instead.")
+    folder = _album_dir(album)
+    with _STORE_LOCK:
+        rels = [rel for rel in sorted(_walk_photos() or {}) if _album_of(rel) == album]
+        moved = len(_remove_rels(rels))
+        for root, _dirs, _files in os.walk(folder, topdown=False):
+            try:
+                os.rmdir(root)       # only succeeds when empty
+            except OSError:
+                pass
+    log.info("album deleted: %d photo(s) to Removed", moved)
+    return moved
+
+
+def _rels_for(photo_ids: Iterable[str]) -> list[str]:
+    with _LOCK:
+        by_id = {_photo_id(rel): rel for rel in _load_index()}
+    return [by_id[i] for i in dict.fromkeys(photo_ids) if i in by_id]
+
+
+def move_photos(photo_ids: Iterable[str], album: str) -> int:
+    """Move photos (by the ids the Photos tab lists) to the top of another album."""
+    dest = _album_dir(album)
+    moved = 0
+    with _STORE_LOCK:
+        for rel in _rels_for(photo_ids):
+            if _album_of(rel) == album:
+                continue
+            src = paths.PHOTOS_DIR / rel
+            if not src.is_file():
+                continue
+            stem, ext = _clean_name(_name_of(rel))
+            name, _ = _unique_name(dest, stem, ext)
+            shutil.move(str(src), str(dest / name))
+            with _LOCK:
+                idx = _load_index()
+                idx[_rel_in(album, name)] = idx.pop(rel)
+                _save_index()
+            moved += 1
+    return moved
+
+
+# -- Removed ---------------------------------------------------------------------------
+
+def _removed_meta_path(token: str) -> Path:
+    return paths.PHOTOS_REMOVED_DIR / f"{token}.json"
+
+
+def _write_removed_meta(token: str, meta: dict[str, Any]) -> None:
+    atomic_write_text(_removed_meta_path(token), json.dumps(meta, separators=(",", ":")))
+
+
+def _removed_metas() -> dict[str, dict[str, Any]]:
+    """Every removed photo's record, by token. Unreadable records are skipped."""
+    out: dict[str, dict[str, Any]] = {}
+    try:
+        names = os.listdir(paths.PHOTOS_REMOVED_DIR)
+    except OSError:
+        return out
+    for name in names:
+        token, dot, ext = name.rpartition(".")
+        if not dot or ext != "json" or not _REMOVED_ID_RE.match(token):
+            continue
+        try:
+            meta = json.loads(_removed_meta_path(token).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(meta, dict) and meta.get("ext") in PHOTO_EXTENSIONS:
+            out[token] = meta
+    return out
+
+
+def _remove_rels(rels: Iterable[str]) -> list[str]:
+    """Move originals (by path under `photos/`) into Removed; returns their tokens.
+
+    The caller holds `_STORE_LOCK`. The record is written before the file moves
+    and withdrawn if the move fails, so a photo is never in the bin unrecorded.
+    """
+    paths.PHOTOS_REMOVED_DIR.mkdir(parents=True, exist_ok=True)
+    tokens = []
+    for rel in rels:
+        src = paths.PHOTOS_DIR / rel
+        if not src.is_file() or src.is_symlink():
+            continue
+        token = uuid.uuid4().hex
+        ext = src.suffix.lower()
+        with _LOCK:
+            entry = _load_index().get(rel) or {}
+        copy = entry.get("copy")
+        meta = {"album": _album_of(rel), "name": _name_of(rel), "ext": ext,
+                "removed_at": time.time(),
+                "copy_id": copy.get("id") if isinstance(copy, dict) else None}
+        _write_removed_meta(token, meta)
+        try:
+            shutil.move(str(src), str(paths.PHOTOS_REMOVED_DIR / f"{token}{ext}"))
+        except OSError:
+            safe_unlink(_removed_meta_path(token))
+            raise
+        with _LOCK:
+            _load_index().pop(rel, None)
+            _save_index()
+        tokens.append(token)
+        if meta["copy_id"]:
+            # The new Removed record keeps the thumbnail alive; the Display copy
+            # (served on a public route) goes unless another photo shares it.
+            _drop_copy_files_if_unused(meta["copy_id"])
+    return tokens
+
+
+def remove_photos(photo_ids: Iterable[str]) -> int:
+    """Move photos to Removed. They stop showing at once and remember their album."""
+    with _STORE_LOCK:
+        return len(_remove_rels(_rels_for(photo_ids)))
+
+
+@dataclass(frozen=True)
+class RemovedPhoto:
+    removed_id: str
+    album: str
+    name: str
+    removed_at: float
+    copy_id: str | None      # names the thumbnail, when it still exists
+
+
+def list_removed() -> list[RemovedPhoto]:
+    """The Removed view's photos, newest removal first."""
+    out = []
+    for token, m in _removed_metas().items():
+        cid = m.get("copy_id")
+        out.append(RemovedPhoto(
+            token, str(m.get("album") or UNSORTED), str(m.get("name") or token),
+            float(m.get("removed_at") or 0.0),
+            cid if isinstance(cid, str) and thumb_file(f"{cid}.webp") else None))
+    out.sort(key=lambda r: (-r.removed_at, r.removed_id))
+    return out
+
+
+def _tokens(removed_ids: Iterable[str]) -> list[str]:
+    metas = _removed_metas()
+    return [t for t in dict.fromkeys(removed_ids) if t in metas]
+
+
+def restore_removed(removed_ids: Iterable[str]) -> int:
+    """Put removed photos back in the album they came from (recreating its folder).
+
+    A name already taken there gets a suffix, as in an upload. The restored
+    files are picked up and given Display copies like any new photo.
+    """
+    restored = 0
+    with _STORE_LOCK:
+        metas = _removed_metas()
+        for token in _tokens(removed_ids):
+            meta = metas[token]
+            src = paths.PHOTOS_REMOVED_DIR / f"{token}{meta['ext']}"
+            if not src.is_file():
+                continue
+            album = str(meta.get("album") or UNSORTED)
+            if album != UNSORTED:
+                try:
+                    album = _valid_album_name(album)
+                except AlbumRejected:
+                    album = UNSORTED           # a hand-edited record: never leave the library
+            folder = paths.PHOTOS_DIR if album == UNSORTED else paths.PHOTOS_DIR / album
+            folder.mkdir(parents=True, exist_ok=True)
+            stem, ext = _clean_name(str(meta.get("name") or token))
+            name, _ = _unique_name(folder, stem, meta["ext"])
+            shutil.move(str(src), str(folder / name))
+            safe_unlink(_removed_meta_path(token))
+            restored += 1
+    if restored:
+        scan(settle_seconds=0)
+    return restored
+
+
+def _delete_removed(token: str, meta: dict[str, Any]) -> None:
+    safe_unlink(paths.PHOTOS_REMOVED_DIR / f"{token}{meta['ext']}")
+    safe_unlink(_removed_meta_path(token))
+    if meta.get("copy_id"):
+        _drop_copy_files_if_unused(meta["copy_id"])
+
+
+def delete_removed(removed_ids: Iterable[str]) -> int:
+    """Delete removed photos for good."""
+    with _STORE_LOCK:
+        metas = _removed_metas()
+        tokens = _tokens(removed_ids)
+        for token in tokens:
+            _delete_removed(token, metas[token])
+    return len(tokens)
+
+
+def empty_removed() -> int:
+    """Delete everything in Removed for good."""
+    with _STORE_LOCK:
+        metas = _removed_metas()
+        for token, meta in metas.items():
+            _delete_removed(token, meta)
+    return len(metas)
+
+
+def purge_removed(retention_days: int, now: float | None = None) -> int:
+    """Delete removed photos older than `retention_days`; the daily cleanup's job."""
+    cutoff = (time.time() if now is None else now) - retention_days * 86400
+    with _STORE_LOCK:
+        old = {t: m for t, m in _removed_metas().items()
+               if float(m.get("removed_at") or 0.0) < cutoff}
+        for token, meta in old.items():
+            _delete_removed(token, meta)
+    return len(old)

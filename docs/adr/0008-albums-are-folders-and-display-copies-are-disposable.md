@@ -34,3 +34,20 @@ the operator already owns it as files.
   quality nearest 40 % of the lossless size for most of them (0.6-3.8 MB per
   copy). Changing the format or size setting rebuilds every copy in the
   background.
+
+## Note, 2026-10-25: other ways in besides the folder
+
+The operator no longer only changes albums by hand on disk. The Admin's Photos tab
+uploads photos (issue #57) and creates, renames and deletes albums, moves photos
+between albums, removes and restores them, and sets the Removed retention
+(issue #58). The decision stands: the folders remain the source of truth and
+hand-made changes are still picked up within a minute. Two consequences of the
+Admin being a second writer:
+
+- An Admin rename updates the ticked album names in the Default profile and every
+  profile; a rename by hand cannot, so it appears as a new, unticked album.
+- Removing, restoring, moving and renaming go through the photo library, so they
+  take effect at once instead of waiting for the scan. A removed photo is a
+  `<token>.<ext>` original beside a `<token>.json` record (album, name, removal
+  time) in `photos_removed/`; its thumbnail stays in the cache so the Removed
+  view can show it, but its Display copy is deleted at once.
