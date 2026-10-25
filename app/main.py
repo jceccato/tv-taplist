@@ -433,7 +433,7 @@ async def admin_page(request: Request):
             # itself uses rather than a second implementation. An operator who
             # enables a surface and sees no change needs a reason, not a
             # second guess.
-            "upcoming_summary": resolve_upcoming_summary(),
+            "upcoming_summary": resolve_upcoming_summary(effective_settings()),
             # Which Brewfather fetch-scope toggles are off, named for the
             # admin's hint (issue #42): show_upcoming_previews deliberately
             # does not widen the fetch (CLAUDE.md/GLOSSARY.md), so a Batch

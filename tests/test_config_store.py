@@ -561,18 +561,3 @@ def test_the_never_customisable_settings_are_the_venue_wide_ones():
         "max_archive_storage_mb", "venue_logo", "color_unit",
         "update_check_enabled",
     }
-
-
-def test_board_takes_its_settings_from_the_effective_input(write_tap):
-    """build_board resolves from what it is handed, not from config.json."""
-    from app.board import build_board
-    config_store.update_config(num_taps=2, rotation_seconds=30)
-    fed = {**config_store.effective_settings(), "rotation_seconds": 77}
-    assert build_board(fed)["rotation_seconds"] == 77
-    assert build_board()["rotation_seconds"] == 30
-
-
-def test_board_module_does_not_read_settings_directly():
-    import inspect
-    from app import board
-    assert "load_config" not in inspect.getsource(board)

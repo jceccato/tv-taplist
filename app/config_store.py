@@ -156,8 +156,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
 # ---- Display profiles: what can be customised (ADR-0007) ---------------------
 #
 # The ONE declaration of which Settings a Display profile may customise. The
-# board resolution, the admin form, the save path and the guard tests all read
-# it; nothing else lists these keys.
+# guard tests read it now; the profile resolution, the admin form and the save
+# path will read it (and nothing else may list these keys).
 #
 # NEVER_CUSTOMISABLE are venue-wide: they change what the sync fetches or
 # stores, or are one venue's one fact (credentials, tap count, the logo image,
@@ -178,7 +178,7 @@ NEVER_CUSTOMISABLE: frozenset[str] = frozenset({
 
 # Each customisable unit: unit name mapped to the keys customised (or followed) together,
 # so a profile can never hold half a Theme. A setting with no partner is a unit
-# of one. Insertion order is the order the admin will list them.
+# of one.
 CUSTOMISABLE_UNITS: dict[str, tuple[str, ...]] = {
     "theme": ("theme", "theme_custom"),
     "pagination": ("paginate", "page_size"),

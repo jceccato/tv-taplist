@@ -1294,3 +1294,18 @@ def test_resolve_status_marker_is_the_one_place_the_rule_lives():
     assert resolve_status_marker(None, on) is None
     assert resolve_status_marker("unknown", on) is None
     assert resolve_status_marker("conditioning", off) is None
+
+
+def test_board_takes_its_settings_from_the_effective_input(write_tap):
+    """build_board resolves from what it is handed, not from config.json."""
+    from app.board import build_board
+    config_store.update_config(num_taps=2, rotation_seconds=30)
+    fed = {**config_store.effective_settings(), "rotation_seconds": 77}
+    assert build_board(fed)["rotation_seconds"] == 77
+    assert build_board()["rotation_seconds"] == 30
+
+
+def test_board_module_does_not_read_settings_directly():
+    import inspect
+    from app import board
+    assert "load_config" not in inspect.getsource(board)

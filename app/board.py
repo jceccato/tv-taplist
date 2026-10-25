@@ -706,7 +706,7 @@ def build_board(effective: dict[str, Any] | None = None) -> dict[str, Any]:
     return board
 
 
-def resolve_upcoming_summary() -> dict[str, int]:
+def resolve_upcoming_summary(effective: dict[str, Any] | None = None) -> dict[str, int]:
     """Counts of resolved Upcoming Beers, for the admin (issue #42).
 
     Reads through `build_board()` - the same resolution the TV consumes -
@@ -723,7 +723,7 @@ def resolve_upcoming_summary() -> dict[str, int]:
     (its own toggle contract), so every count is zero - which is also the
     correct thing to tell an operator who has not turned the feature on yet.
     """
-    upcoming = build_board().get("upcoming") or []
+    upcoming = build_board(effective).get("upcoming") or []
     return {
         "total": len(upcoming),
         "pinned": sum(1 for u in upcoming if u["pinned"]),
