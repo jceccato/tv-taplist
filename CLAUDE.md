@@ -409,7 +409,7 @@ burns, dust, creases, strength}`, the strength as 0.01-1.
   removed_at, copy_id}` (and `album_deleted: true` once the album it names is gone); the
   record is written before the move. A rename retags only the records of photos removed
   from that folder, never those marked `album_deleted` (an earlier album of the same name),
-  and its rollback restores exactly the tokens the rename retagged (issue #71). Removing deletes the
+  and its rollback restores exactly the tokens the rename retagged (issue #71). Records from albums deleted before #71 carry no flag, so they still follow a rename of a live album of that name; a kept folder (non-photo files) is not flagged until it is really gone and `delete_album` runs again. Removing deletes the
   public Display copy at once (unless an identical photo shares it) but keeps the thumbnail,
   which the orphan sweep also spares while a record names it. Restore recreates the album
   folder if needed (a hand-edited bad album falls back to Unsorted), suffixes a taken

@@ -57,20 +57,25 @@ def test_a_failed_config_write_puts_the_folder_back_under_its_old_name(monkeypat
     assert config_store.load_config()["album_selection"] == ["Events"]
 
 
-def _removed_albums():
-    return {r.name: r.album for r in lib.list_removed()}
-
-
-def test_a_failed_rename_leaves_every_removed_records_album_as_it_was(monkeypatch):
-    """A deleted namesake's Removed photos must not be retagged by the rollback."""
+def _namesake_in_removed():
+    """Parties/old.jpg sits in Removed from a deleted album; Events/b.jpg was removed from Events."""
     from photo_fixtures import halves, write_image
     for n, rel in enumerate(("Parties/old.jpg", "Events/a.jpg", "Events/b.jpg")):
         write_image(paths.PHOTOS_DIR / rel, halves(left=(10 + n * 60, 40, 90)))
     lib.scan()
     lib.process_pending()
     pid = {r.name: r.photo_id for r in lib.photos_in("Events")}
-    lib.delete_album("Parties")                 # old.jpg now sits in Removed as "Parties"
-    lib.remove_photos([pid["b.jpg"]])           # removed from Events itself
+    lib.delete_album("Parties")
+    lib.remove_photos([pid["b.jpg"]])
+
+
+def _removed_albums():
+    return {r.name: r.album for r in lib.list_removed()}
+
+
+def test_a_failed_rename_leaves_every_removed_records_album_as_it_was(monkeypatch):
+    """A deleted namesake's Removed photos must not be retagged by the rollback."""
+    _namesake_in_removed()
     before = _removed_albums()
     assert before == {"old.jpg": "Parties", "b.jpg": "Events"}
     _fail_the_write(monkeypatch)
@@ -81,14 +86,7 @@ def test_a_failed_rename_leaves_every_removed_records_album_as_it_was(monkeypatc
 
 
 def test_a_successful_rename_retags_its_own_removed_photos_but_not_a_namesakes():
-    from photo_fixtures import halves, write_image
-    for n, rel in enumerate(("Parties/old.jpg", "Events/a.jpg", "Events/b.jpg")):
-        write_image(paths.PHOTOS_DIR / rel, halves(left=(10 + n * 60, 40, 90)))
-    lib.scan()
-    lib.process_pending()
-    pid = {r.name: r.photo_id for r in lib.photos_in("Events")}
-    lib.delete_album("Parties")
-    lib.remove_photos([pid["b.jpg"]])
+    _namesake_in_removed()
     admin_ops.rename_album("Events", "Parties")
     assert _removed_albums() == {"old.jpg": "Parties", "b.jpg": "Parties"}
     admin_ops.rename_album("Parties", "Gala")   # old.jpg is flagged, so it stays put
