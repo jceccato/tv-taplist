@@ -221,3 +221,14 @@ def test_the_kiosk_script_and_the_server_agree_on_the_profile_name_rule():
     found = re.findall(r'=~\s*(\^\[a-z0-9-\]\{1,\d+\}\$)', script)
     assert found, "pi-kiosk.sh no longer has the profile-name pattern this test reads"
     assert set(found) == {config_store._PROFILE_NAME_RE.pattern}
+
+
+def test_an_empty_display_parameter_falls_through_to_the_user_agent():
+    # A kiosk URL ending in `?display=` names nothing, so the User-Agent may pick
+    # the profile, and the empty name is not recorded as an unknown one (#54).
+    _profiles({"lounge": {"rotation_seconds": 11, PROFILE_UA_KEY: "Web0S"}})
+    r = client.get("/api/board?display=", headers={"User-Agent": LG})
+    assert r.json()["rotation_seconds"] == 11
+    other = client.get("/api/board?display=", headers={"User-Agent": TIZEN})
+    assert other.json()["rotation_seconds"] == config_store.DEFAULT_CONFIG["rotation_seconds"]
+    assert config_store.unknown_profile_names() == []

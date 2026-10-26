@@ -59,7 +59,7 @@ app/                FastAPI app + all logic
   snapshot.py       Snapshot export/import: streamed zip, layout validation, credential gate
   photo_library.py  The photo album: /data/photos, the Display copy cache, the scan and the one-at-a-time pipeline (Pillow, pillow-heif, rawpy); owns every photo path
   seen_screens.py   In-memory list of recently seen screens (User-Agent, profile, how chosen); lost on restart
-  admin_ops.py      Manual-override domain ops (save/clear) and Display profile ops (create/rename/delete/save) behind the admin write routes
+  admin_ops.py      Manual-override domain ops (save/clear), Display profile ops (create/rename/delete/save), and the album-aware `save_settings` and `rename_album`, behind the admin write routes
   persistence.py    startup durability checks: is /data mapped, and is it the same /data (DDI)
   archive.py        move retired beers to old_beers/ (md+image as a pair)
   cleanup.py        daily age/size archive pruning (03:30 local)
@@ -70,7 +70,7 @@ app/                FastAPI app + all logic
   timezone.py       TZ-aware iso_now()
 static/             css/display.css, css/admin.css, js/display.js, js/admin.js, placeholder.svg
 templates/          display.html, admin.html (tabbed), login.html
-tests/              pytest suite (996 tests, 30 files) + conftest.py fixtures; tests/browser = Playwright page tests
+tests/              pytest suite (see Testing for the count) + conftest.py fixtures; tests/browser = Playwright page tests
 Dockerfile · entrypoint.sh · docker-compose.yml · scripts/docker_test.sh
 scripts/setup.sh (guided installer / .env wizard)
 README.md           root landing page (embeds docs/venue_logo.png + docs/screenshot.png)
@@ -205,7 +205,9 @@ followed settings track the Default live. `effective_settings()` (no arguments)
 is the Default profile's, for callers with no screen in hand. `GET
 /api/board?display=<name>` resolves and records unknown names in memory
 (`config_store.unknown_profile_names()`, bounded to 50, most recent last, lost on
-restart); `display.js` only forwards its own `?display=` on each poll.
+restart); `display.js` only forwards its own `?display=` on each poll. An empty
+`?display=` names nothing, so it falls through to User-Agent matching like a
+missing one and is never recorded as unknown (pinned in `test_user_agent_profiles.py`).
 
 **User-Agent fallback.** A profile may carry `match_user_agent` (a plain,
 case-insensitive substring, trimmed, up to 200 characters) in its `profiles`
@@ -772,7 +774,7 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
   customisable unit sits in a `unit(...)` wrapper in `admin.html` with a
   `customise_<unit>` checkbox, and a test fails if a unit in
   `CUSTOMISABLE_UNITS` has no wrapper or no label in `PROFILE_UNIT_LABELS`.
-  `POST /admin/settings` with a `profile` field calls `admin_ops.save_profile`
+  `POST /admin/settings` without one goes through `admin_ops.save_settings`; with a `profile` field it calls `admin_ops.save_profile`
   (only customised units are stored; Follow drops the value; the Default profile
   and venue-wide settings cannot be written this way) through `apply_settings`,
   so the upcoming cache is cleared the same way. Global-only blocks stay in the
@@ -899,7 +901,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 1112 tests, 33 files (the 83 page tests skip without a browser, and the HEIC
+- 1128 tests, 34 files (the 85 page tests skip without a browser, and the HEIC
   tests without pillow-heif):
   **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
   the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a
@@ -912,10 +914,12 @@ inside it (it would land as a stray file in `/data`).
   copies - format, dimensions, no metadata - rebuilt in the background with the old copy served, and removal during and
   after a format change), **organising photos** (`test_photo_removed.py`: album create/rename/delete, profile
   ticks following a rename, move, remove, restore, delete forever, the nightly purge,
-  login on every route), **the album on the board and
+  login on every route), **album edge cases** (`test_album_edges.py`: rename rollback, Save
+  serialised with a rename, retagging only the folder's own Removed photos, the kept
+  folder named), **the album on the board and
   in the Admin** (`test_album_board.py`: payload only with the album on, order,
   selection, clamping, no original referenced, the public copy route, the profile
-  editor, the print settings), and **the page tests** (`tests/browser/`, Playwright - see below), colours (incl. the single Colour resolution point -
+  editor, the print settings), and **the page tests** (`tests/browser/`, Playwright - see below; `test_photo_organise.py` includes the kept-folder explanation), colours (incl. the single Colour resolution point -
   swatch-vs-Placeholder agreement, preview-vs-board equivalence, Unknown
   fallbacks, `display_color_to_ebc`), beer-glass, themes, storage, the Tap file
   store (precedence walk, unreadable-file handling, the four on-disk filenames),
