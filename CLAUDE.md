@@ -847,7 +847,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 1049 tests, 31 files (the 0 page tests skip without a browser, and the HEIC
+- 1049 tests, 31 files (the 47 page tests skip without a browser, and the HEIC
   tests without pillow-heif):
   **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
   the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a
@@ -915,7 +915,7 @@ inside it (it would land as a stray file in `/data`).
   provenance in `photo_fixtures.py`), since nothing in CI can encode HEVC; a RAW is
   generated as a minimal linear DNG (`dng_bytes`). The board-update test uses Playwright's fake
   clock to reach the 30 s poll; the others run in real time with 3 s pages and 2 s
-  photos (about three minutes for the 0). `test_framed_print.py` opens a photos-only
+  photos (about three minutes for the 47). `test_framed_print.py` opens a photos-only
   profile (the visit starts at once) for each mount style, mount colour and frame
   (each realistic frame too, from its art),
   Random, a resize, and asserts that every request stays on the app; CI keeps every
