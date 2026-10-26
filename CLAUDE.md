@@ -662,8 +662,9 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
   never touch the mount, and the slow zoom moves the photo under them while they stay
   put. Grain is one 192 px noise tile made once on a canvas (a data: URL, no fetch),
   still at a random offset. Burns are radial gradients (a leak with `screen`, a burnt corner with
-  `multiply`); a burn hole (one per photo, asked for by the maintainer at the TV) is an
-  inline SVG of four ragged polygons (scorch, char, melt rim, white-hot core) from one
+  `multiply`); a burn hole (asked for by the maintainer at the TV: small, towards an edge,
+  on about one photo in three, `HOLE_CHANCE`; placed inside the part of the "slice"-fitted
+  field the photo's aspect shows) is an inline SVG of four ragged polygons (scorch, char, melt rim, white-hot core) from one
   random sine-wobbled outline; dust is an inline SVG whose blur filter has a page-unique id (two
   layers and a spread's prints share one document). Creases are an `.overlay-crease`
   box: in the window over the photo ("photo"), or on the space inside the frame

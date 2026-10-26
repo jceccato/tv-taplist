@@ -1367,9 +1367,9 @@
     // will not load is skipped (and the visit gives up if none will).
     // The look is chosen now, per photo, so a realistic frame's art loads with
     // the photo and never pops in after it.
-    const choices = spread.map(() => {
+    const choices = spread.map((photo) => {
       const c = choosePrint(album.plan.print);
-      c.overlays = chooseOverlays(album.plan.overlays);
+      c.overlays = chooseOverlays(album.plan.overlays, photo.aspect);
       return c;
     });
     choices.forEach((c) => {
@@ -1783,6 +1783,7 @@
   const CREASES = ["crease-fold", "crease-cross", "crease-crumpled"];
   const creaseUrl = (key) => `/static/creases/${key}.webp`;
   const GRAIN_TILE = 192;       // px, the noise tile's side
+  const HOLE_CHANCE = 1 / 3;    // burn holes happen to some photos, not all (the maintainer)
   const LEAK_COLORS = ["255, 122, 40", "255, 186, 70", "255, 78, 96", "255, 150, 60"];
   let grainTile = null;
   let overlaySeq = 0;           // a page-unique id for each dust overlay's blur filter
@@ -1810,9 +1811,10 @@
 
   const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 
-  // One photo's overlays: which are on and where each mark goes. Null when
-  // none is on (the common case, and what an older server's board means).
-  function chooseOverlays(cfg) {
+  // One photo's overlays: which are on and where each mark goes (the photo's
+  // shape keeps a burn hole on it). Null when none is on (the common case, and
+  // what an older server's board means).
+  function chooseOverlays(cfg, aspect) {
     const c = cfg && typeof cfg === "object" ? cfg : {};
     const strength = Math.min(1, Math.max(0.01, Number(c.strength) || 0.25));
     const o = { strength };
@@ -1839,13 +1841,20 @@
       })() : null;
       o.burns = { leaks: leaks.join(", "), burn };
     }
-    if (c.burn_holes === true) {
+    if (c.burn_holes === true && Math.random() < HOLE_CHANCE) {
       // A hole the projector's lamp melted through the film: a ragged outline
       // (a few sine waves of random phase round a circle), white-hot inside,
       // an orange melt rim, charred film round that and a brown scorch beyond.
-      // Placed in a 100 x 100 field that covers the photo; 25-75 keeps it on a
-      // photo up to 2:1 either way round.
-      const cx = rand(25, 75), cy = rand(25, 75), r = rand(2.2, 4.5);
+      // Off to one side, towards an edge, never dead centre. The 100 x 100
+      // field is "slice"-fitted to the photo, so only the middle of its short
+      // way across shows: the place is chosen inside the part that shows.
+      const a = Number(aspect) > 0 ? Number(aspect) : 1.5;
+      const seen = (wide) => (wide ? [0, 100] : [50 - 50 * Math.min(a, 1 / a), 50 + 50 * Math.min(a, 1 / a)]);
+      const [x0, x1] = seen(a >= 1), [y0, y1] = seen(a < 1);
+      const edge = () => (Math.random() < 0.5 ? rand(0.08, 0.3) : rand(0.7, 0.92));
+      const across = () => rand(0.12, 0.88);
+      const [u, v] = Math.random() < 0.5 ? [edge(), across()] : [across(), edge()];
+      const cx = x0 + (x1 - x0) * u, cy = y0 + (y1 - y0) * v, r = rand(1.1, 2.25);
       const waves = [2, 3, 5, 7].map((k) => ({ k, a: rand(0.04, 0.16) / Math.sqrt(k), p: rand(0, 6.283) }));
       const outline = (scale, rough) => {
         const pts = [];

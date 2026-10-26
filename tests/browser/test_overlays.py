@@ -126,7 +126,7 @@ def test_an_overlay_on_with_the_mount_untouched(venue, serve, page):
     assert info["crease"] is None
 
 
-@pytest.mark.parametrize("kind", list(KINDS))
+@pytest.mark.parametrize("kind", [k for k in KINDS if k != "holes"])   # holes: some photos only
 def test_each_overlay_kind_switches_on_by_itself(venue, serve, page, kind):
     make_prints()
     _profile(**KINDS[kind])
@@ -141,6 +141,44 @@ def test_each_overlay_kind_switches_on_by_itself(venue, serve, page, kind):
         assert info["parts"] and info["crease"] is None
     # Nothing moves: grain is a still texture (moving grain read as odd on a photo).
     assert all(p["anim"] == "none" for p in info["parts"])
+
+
+def test_a_burn_hole_is_on_some_photos_not_all(venue, serve, page):
+    # About one photo in three gets a hole (the maintainer), so step through
+    # photos until both kinds of photo have been seen: the odds of 30 photos
+    # all alike are about one in fifty thousand.
+    make_prints()
+    _profile(**KINDS["holes"])
+    base = serve()
+    _open(page, base)
+    seen, info = set(), _settled(page)
+    for _ in range(30):
+        seen.add(info["overlays"])
+        if {"", "holes"} <= seen:
+            break
+        page.keyboard.press("Enter")
+        info = _settled(page, info["id"])
+    assert seen == {"", "holes"}
+    holed = info if info["overlays"] == "holes" else None
+    while holed is None:
+        page.keyboard.press("Enter")
+        info = _settled(page, info["id"])
+        holed = info if info["overlays"] == "holes" else None
+    _shot(page, "kind-holes")
+    # In the photo's window, and its shape is on the photo (not cut off by it).
+    hole = page.evaluate("""() => {
+      const layer = document.querySelector('.album-layer.shown');
+      const win = layer.querySelector('.print-window').getBoundingClientRect();
+      const core = layer.querySelector('.overlay-hole polygon:last-of-type').getBoundingClientRect();
+      return {inWindow: layer.querySelector('.overlay-hole').parentElement.classList.contains('print-window'),
+              core: [core.left, core.top, core.right, core.bottom],
+              win: [win.left, win.top, win.right, win.bottom]};
+    }""")
+    assert hole["inWindow"]
+    (l, t, r, b), (wl, wt, wr, wb) = hole["core"], hole["win"]
+    assert wl <= l and r <= wr and wt <= t and b <= wb, hole
+    # Small: the white-hot core is a few percent of the photo across.
+    assert (r - l) < 0.08 * (wr - wl), hole
 
 
 def test_all_off_draws_no_overlay(venue, serve, page):
@@ -200,10 +238,12 @@ def test_placement_differs_between_photos(venue, serve, page):
         return {"grain": by["grain"]["bgPos"], "leak": by["leak"]["bg"],
                 "dust": by["dust"]["html"], "crease": (info["creaseKey"], info["texTransform"]),
                 # the hole's shape and place, less its page-unique filter ids
-                "hole": re.findall(r'points="([^"]+)"', by["hole"]["html"])}
+                "hole": re.findall(r'points="([^"]+)"', by["hole"]["html"]) if "hole" in by else None}
 
     a, b = marks(first), marks(second)
     for kind in a:
+        if kind == "hole" and None in (a[kind], b[kind]):
+            continue                       # only some photos have one
         assert a[kind] != b[kind], kind
 
 
@@ -219,9 +259,9 @@ def test_strength_scales_every_overlay(venue, serve, page):
         _shot(page, f"strength-{name}")
         seen[name] = {**{_kind_of(p["cls"]): p["opacity"] for p in info["parts"]},
                       "crease": info["texOpacity"]}
-    # A burnt corner is drawn on about two photos in three, so it is compared
-    # only when both have one; the other kinds are always there.
-    assert {"grain", "leak", "hole", "dust", "crease"} <= set(seen["faint"]) & set(seen["heavy"])
+    # A burnt corner (about two photos in three) and a burn hole (about one in
+    # three) are compared only when both photos have one; the rest always show.
+    assert {"grain", "leak", "dust", "crease"} <= set(seen["faint"]) & set(seen["heavy"])
     for kind in set(seen["faint"]) & set(seen["heavy"]):
         assert 0 < seen["faint"][kind] < seen["heavy"][kind], kind
 
