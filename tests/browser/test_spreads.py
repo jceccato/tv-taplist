@@ -257,7 +257,8 @@ def test_a_kept_ticker_sits_in_a_band_under_a_spread(venue, serve, page):
     visit(album_keep_ticker=True, album_frame="oak")
     open_visit(page, serve())
     info = on_screen(page)
-    page.wait_for_timeout(500)
+    page.wait_for_function("() => { const t = document.querySelector('.album-ticker');"
+                           " return t && t.getBoundingClientRect().width >= innerWidth - 1; }")
     ticker = page.evaluate("""() => { const t = document.querySelector('.album-ticker');
         const r = t.getBoundingClientRect(); return {x: r.x, y: r.y, w: r.width, h: r.height,
         text: t.innerText}; }""")
@@ -340,7 +341,7 @@ def test_the_slow_zoom_moves_the_photo_inside_its_mount_only(venue, serve, page)
     visit(album_ken_burns=True, album_frame="real-oak-limed", album_seconds_per_photo=40)
     open_visit(page, serve())
     before = on_screen(page)
-    page.wait_for_timeout(1500)
+    page.wait_for_function(f"() => ({PRINTS})().prints.every((p) => p.transform !== 'none')")
     after = page.evaluate(PRINTS)
     shot(page, "slow-zoom")
     for b, a in zip(before["prints"], after["prints"]):
@@ -357,7 +358,8 @@ def test_the_slow_zoom_keeps_the_photo_covering_its_window(venue, serve, page):
     visit(album_ken_burns=True, album_seconds_per_photo=10)
     open_visit(page, serve())
     on_screen(page)
-    page.wait_for_timeout(1200)
+    page.wait_for_function("() => getComputedStyle(document.querySelector("
+                           "'.album-layer.shown .album-photo')).transform !== 'none'")
     ok = page.evaluate("""() => {
         const layer = document.querySelector('.album-layer.shown');
         const win = layer.querySelector('.print-window').getBoundingClientRect();
@@ -365,3 +367,13 @@ def test_the_slow_zoom_keeps_the_photo_covering_its_window(venue, serve, page):
         return img.left <= win.left + 0.5 && img.top <= win.top + 0.5 &&
                img.right >= win.right - 0.5 && img.bottom >= win.bottom - 0.5; }""")
     assert ok
+
+
+def test_three_up_captions_still_fit_on_each_mount(venue, serve, page):
+    make(["a1", "a2", "a3"], a1="2025:03:04 05:06:07", a2="2025:03:05 05:06:07",
+         a3="2025:03:06 05:06:07")
+    visit(album_three_up=True, album_caption_date=True, album_caption_album=True)
+    open_visit(page, serve())
+    info = on_screen(page)
+    assert info["count"] == "3"
+    assert all(p["caption"] and p["captionShown"] for p in info["prints"])

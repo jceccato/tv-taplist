@@ -1644,10 +1644,10 @@
     const W = albumEl.clientWidth || window.innerWidth;
     const H = albumEl.clientHeight || window.innerHeight;
     const n = prints.length;
-    if (n === 1) { layoutOne(prints[0], W, H, album.ticker ? album.tickerH + album.tickerGap : 0); return; }
+    const th = album.ticker ? album.tickerH + album.tickerGap : 0;
+    if (n === 1) { layoutOne(prints[0], W, H, th); return; }
     // A spread: the cells side by side, with a kept ticker in a band of its own
     // under all of them (one ticker cannot sit inside three frames).
-    const th = album.ticker ? album.tickerH + album.tickerGap : 0;
     const gap = Math.round(SPREAD_GAP * Math.min(W, H));
     const cw = Math.floor((W - gap * (n - 1)) / n);
     prints.forEach((p, i) => {
