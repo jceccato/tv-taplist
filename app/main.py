@@ -78,7 +78,6 @@ from .config_store import (
     normalize_profile_name,
     SETTINGS_BOUNDS,
     UPCOMING_LABEL_PRESETS,
-    apply_settings,
     brewfather_credentials,
     CHOSEN_DEFAULT,
     CHOSEN_UNKNOWN,
@@ -986,7 +985,7 @@ async def save_settings(
         log.info("admin saved profile %s (%d key(s))", asked[:32], len(stored))
         return {"ok": True}
 
-    saved = apply_settings(**settings.model_dump(), theme_custom=theme_custom)
+    saved = admin_ops.save_settings(**settings.model_dump(), theme_custom=theme_custom)
     # Log what was *saved*, not what was posted: the two differ whenever a bound
     # clamped, and the log is the only trace of that an operator can consult.
     log.info("admin saved settings (num_taps=%d color_unit=%s)",
@@ -1081,6 +1080,9 @@ async def photos_status(album: str = photo_library.UNSORTED,
         "size": load_config()["photo_size"],
         "albums": albums,
         "album": album,
+        # Files in the album's folder that are not photos: they keep the folder
+        # alive when the album is deleted, so the tab says so (issue #69).
+        "non_photo_files": photo_library.non_photo_files(album),
         "photos": [{"id": r.photo_id, "name": r.name, "state": r.state, "reason": r.reason,
                     "low_res": r.low_res,
                     "thumb": f"/admin/photos/thumb/{r.copy_id}.webp" if r.copy_id else None}
@@ -1094,6 +1096,8 @@ def _library_call(operation, *args):
         return operation(*args)
     except (photo_library.AlbumRejected, photo_library.UploadRejected) as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except admin_ops.AlbumRenameFailed as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/admin/photos/albums")
@@ -1111,7 +1115,9 @@ async def rename_album(old: Annotated[str, Form()], new: Annotated[str, Form()],
 @app.post("/admin/photos/albums/delete")
 async def delete_album(name: Annotated[str, Form()], _: None = Depends(auth.require_admin)):
     """Delete an album: its photos go to Removed, from where they can be restored."""
-    return {"ok": True, "removed": _library_call(photo_library.delete_album, name)}
+    removed = _library_call(photo_library.delete_album, name)
+    return {"ok": True, "removed": removed,
+            "kept_files": photo_library.non_photo_files(name)}
 
 
 @app.post("/admin/photos/move")

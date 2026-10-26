@@ -23,7 +23,7 @@ os.environ.setdefault("DEMO_MODE", "false")
 import pytest  # noqa: E402
 import yaml  # noqa: E402
 
-from app import auth, config_store, paths, photo_library, seen_screens  # noqa: E402
+from app import admin_ops, auth, config_store, paths, photo_library, seen_screens  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -45,6 +45,7 @@ def clean_state():
     paths.PHOTOS_REMOVED_DIR.mkdir(parents=True, exist_ok=True)
     paths.PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
     photo_library.reset_state()
+    admin_ops._RENAMED_ALBUMS.clear()
     for logo in paths.DATA_DIR.glob("venue_logo.*"):     # the browser tests' venue fixture writes one
         logo.unlink()
     if paths.CONFIG_PATH.exists():

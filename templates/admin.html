@@ -924,6 +924,7 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
           <button type="button" class="btn" id="album-rename">Rename</button>
           <button type="button" class="btn" id="album-delete">Delete album</button>
         </div>
+        <p class="hint" id="album-kept" role="status" hidden></p>
         <p class="hint">Deleting an album moves its photos to Removed. Renaming one here updates every screen that shows it; a folder renamed by hand on disk appears as a new album, and screens that showed the old name skip it.</p>
         <div id="photos-drop" class="photos-drop" tabindex="0">
           <p>Drag photos here, or</p>

@@ -165,3 +165,21 @@ def test_the_display_copies_panel_saves_format_and_size_and_survives_a_reload(se
     page.click('.tab[data-tab="photos"]')
     assert page.input_value("#photo-format") == "jpeg"
     assert page.input_value("#photo-size") == "1080p"
+
+
+def test_a_deleted_album_kept_by_a_non_photo_file_stays_in_view_and_says_why(serve, page):
+    _photos()
+    (paths.PHOTOS_DIR / "Events" / "notes.txt").write_text("keep me")
+    _open(page, serve)
+    page.on("dialog", lambda d: d.accept())
+    page.select_option("#photos-album", "Events")
+    page.wait_for_selector("#photos-grid .photo-tile[data-name='d.jpg']")
+    assert "notes.txt" in page.inner_text("#album-kept")      # said before it is deleted
+
+    page.click("#album-delete")
+    page.wait_for_selector("#removed-grid .photo-tile[data-name='d.jpg']")
+    page.wait_for_selector("#photos-grid .photo-tile", state="detached")
+    assert page.input_value("#photos-album") == "Events"
+    assert page.is_visible("#album-kept") and "notes.txt" in page.inner_text("#album-kept")
+    assert "not photos" in page.inner_text("#toast")
+    assert (paths.PHOTOS_DIR / "Events" / "notes.txt").is_file()

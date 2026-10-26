@@ -895,6 +895,7 @@
     const list = document.getElementById("photos-uploads");
     const progress = document.getElementById("photos-progress");
     const grid = document.getElementById("photos-grid");
+    const keptNote = document.getElementById("album-kept");
     const empty = document.getElementById("photos-empty");
     const queue = [];
     const picked = new Set();          // ids of the selected photos in the grid
@@ -925,6 +926,12 @@
           }));
           albumSel.value = st.albums.includes(wanted) ? wanted : st.album;
           pending = st.pending;
+          const kept = st.non_photo_files || [];
+          keptNote.hidden = kept.length === 0;
+          keptNote.textContent = kept.length === 0 ? "" : "This album holds files that are not photos, "
+            + "so deleting it would keep the folder: " + kept.slice(0, 5).join(", ")
+            + (kept.length > 5 ? " and " + (kept.length - 5) + " more" : "")
+            + ". Remove them from the folder on disk to let it go.";
           setProgressText(st);
           const present = new Set(st.photos.map((p) => p.id));
           for (const id of Array.from(picked)) if (!present.has(id)) picked.delete(id);
@@ -1093,9 +1100,16 @@
       if (!window.confirm("Delete the album " + name + "? Its photos move to Removed, where you can restore them.")) return;
       act(async () => {
         const fd = new FormData(); fd.set("name", name);
-        await postForm("/admin/photos/albums/delete", fd);
-        albumSel.value = "Unsorted";
+        const res = await postForm("/admin/photos/albums/delete", fd);
         picked.clear();
+        if (res.kept_files && res.kept_files.length) {
+          // The folder stays because of files that are not photos: stay on it, where
+          // the note under the album bar names them.
+          albumSel.value = name;
+          showToast("The photos moved to Removed. The album stays because it holds files that are not photos.");
+        } else {
+          albumSel.value = "Unsorted";
+        }
       }, "Delete failed");
     });
     moveBtn.addEventListener("click", () => act(async () => {

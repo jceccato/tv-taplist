@@ -169,9 +169,43 @@ class ProfileRejected(ValueError):
     """
 
 
-# Profile saves are read-modify-write on one mapping, so two at once would lose
-# one. (A Settings Save never touches `profiles`, so it needs no part in this.)
+# Every write of the config's profiles or its album selection takes this lock: a
+# profile save, a Settings Save and an album rename are all read-modify-write on
+# the same file, so two at once would lose one (and a Save could write an album's
+# old name back over a rename; issue #69).
 _PROFILES_LOCK = threading.Lock()
+
+# Album renames made since the app started, old name to new. A Settings page that
+# was open across a rename still posts the old name; `_follow_renames` maps it on.
+# Held under `_PROFILES_LOCK`, bounded so it cannot grow without end.
+_RENAMED_ALBUMS: dict[str, str] = {}
+_RENAMED_ALBUMS_MAX = 200
+
+
+class AlbumRenameFailed(RuntimeError):
+    """An album rename could not finish; the message says what state it left."""
+
+
+def _follow_renames(names: Iterable[str]) -> list[str]:
+    """Ticked album names with any album renamed since start-up followed to its new name.
+
+    Only a name that is no longer a folder is followed, so an album made again
+    under an old name keeps meaning itself. The caller holds `_PROFILES_LOCK`.
+    """
+    if not _RENAMED_ALBUMS:
+        return list(names)
+    existing = set(photo_library.list_albums())
+    out: list[str] = []
+    for name in names:
+        seen = {name}
+        while name not in existing and name in _RENAMED_ALBUMS:
+            name = _RENAMED_ALBUMS[name]
+            if name in seen:
+                break
+            seen.add(name)
+        if name not in out:
+            out.append(name)
+    return out
 
 
 def _name(raw: Any) -> str:
@@ -202,6 +236,19 @@ def _write_profiles(change) -> dict[str, Any]:
         profiles = {name: dict(values)
                     for name, values in config_store.load_config()["profiles"].items()}
         return config_store.apply_settings(profiles=change(profiles))
+
+
+def save_settings(**fields: Any) -> dict[str, Any]:
+    """The Settings Save for the Default profile, serialised with profile saves and renames.
+
+    Waits for an album rename in progress and then follows it: the page that
+    posted this may still carry an album's old name, and writing it back would
+    leave a screen quietly skipping the album. Returns the Settings as saved.
+    """
+    with _PROFILES_LOCK:
+        if "album_selection" in fields:
+            fields["album_selection"] = _follow_renames(fields["album_selection"])
+        return config_store.apply_settings(**fields)
 
 
 def customised_units(values: Mapping[str, Any]) -> list[str]:
@@ -280,9 +327,12 @@ def save_profile(name: Any, *, customise: Iterable[str],
     def save(profiles):
         _existing(key, profiles)
         mine: dict[str, Any] = {}
+        submitted = dict(values)
+        if "album_selection" in submitted:
+            submitted["album_selection"] = _follow_renames(submitted["album_selection"])
         for unit, keys in config_store.CUSTOMISABLE_UNITS.items():
-            if unit in wanted and all(k in values for k in keys):
-                mine.update({k: values[k] for k in keys})
+            if unit in wanted and all(k in submitted for k in keys):
+                mine.update({k: submitted[k] for k in keys})
         if "tap_photo_preset" in mine:
             mine["tap_photo_preset"], mine["tap_image_scale"] = (
                 config_store.resolve_tap_photo_preset(
@@ -311,8 +361,10 @@ def save_profile(name: Any, *, customise: Iterable[str],
 def rename_album(old: str, new: str) -> str:
     """Rename an album and every tick of it, in the Default profile and in each profile.
 
-    The folder moves first; if that is refused nothing in the config changes. A
-    folder renamed by hand never comes through here, so its old name just stops
+    The folder moves first; if that is refused nothing in the config changes. If
+    the config write then fails, the folder is moved back, so the profiles never
+    keep a name that no folder has, and `AlbumRenameFailed` says so. A folder
+    renamed by hand never comes through here, so its old name just stops
     matching anything (the Admin lists it as "no such folder now").
     """
     with _PROFILES_LOCK:
@@ -328,12 +380,28 @@ def rename_album(old: str, new: str) -> str:
                     out.append(name)
             return out
 
-        cfg = config_store.load_config()
-        profiles = {name: dict(values) for name, values in cfg["profiles"].items()}
-        for values in profiles.values():
-            if "album_selection" in values:
-                values["album_selection"] = swap(values["album_selection"])
-        config_store.apply_settings(album_selection=swap(cfg["album_selection"]),
-                                    profiles=profiles)
+        try:
+            cfg = config_store.load_config()
+            profiles = {name: dict(values) for name, values in cfg["profiles"].items()}
+            for values in profiles.values():
+                if "album_selection" in values:
+                    values["album_selection"] = swap(values["album_selection"])
+            config_store.apply_settings(album_selection=swap(cfg["album_selection"]),
+                                        profiles=profiles)
+        except Exception as exc:
+            log.error("album rename: the config write failed (%s); moving the folder back", exc)
+            try:
+                photo_library.rename_album(clean, old)
+            except Exception as back:
+                log.error("album rename: could not move the folder back (%s)", back)
+                raise AlbumRenameFailed(
+                    f"The album folder was renamed to “{clean}” but the profiles could not be "
+                    f"updated, and the folder could not be moved back. Rename it to “{old}” "
+                    "again, or tick it afresh in the profiles.") from exc
+            raise AlbumRenameFailed(
+                f"The settings could not be saved, so “{old}” was not renamed.") from exc
+        _RENAMED_ALBUMS[old] = clean
+        while len(_RENAMED_ALBUMS) > _RENAMED_ALBUMS_MAX:
+            del _RENAMED_ALBUMS[next(iter(_RENAMED_ALBUMS))]
     log.info("album renamed in the config: profiles that ticked it follow")
     return clean

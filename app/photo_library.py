@@ -1382,6 +1382,39 @@ def delete_album(album: str) -> int:
     return moved
 
 
+def non_photo_files(album: str) -> list[str]:
+    """Paths (relative to the album) of files in its folder that are not photos.
+
+    These are the operator's own files (a note, a RAW the library does not read).
+    They are why a deleted album's folder can stay: the Photos tab names them so
+    an album that keeps showing is explained. Hidden entries and symlinks are
+    skipped, as the scan skips them. Unsorted and a missing folder give none.
+    """
+    if album == UNSORTED:
+        return []
+    try:
+        folder = _album_dir(album)
+    except UnknownAlbum:
+        return []
+    found: list[str] = []
+
+    def visit(directory: Path, prefix: str) -> None:
+        with os.scandir(directory) as it:
+            for entry in it:
+                if entry.name.startswith(".") or entry.is_symlink():
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    visit(Path(entry.path), prefix + entry.name + "/")
+                elif not entry.name.lower().endswith(PHOTO_EXTENSIONS):
+                    found.append(prefix + entry.name)
+
+    try:
+        visit(folder, "")
+    except OSError:
+        return []
+    return sorted(found, key=str.casefold)
+
+
 def _rels_for(photo_ids: Iterable[str]) -> list[str]:
     with _LOCK:
         by_id = {_photo_id(rel): rel for rel in _load_index()}
