@@ -149,11 +149,17 @@
 
     wireAxis("tap_photo_preset", "tap_image_scale", TAP_PHOTO_PRESETS);
     wireAxis("tap_text_preset", "tap_text_scale", TAP_TEXT_PRESETS);
+  }
 
-    // A slider with no preset (the overlay strength, issue #63) only needs its
-    // readout kept up.
+  // The overlay strength (issue #63): a slider with no preset, so it only needs
+  // its readout kept up.
+  function setupOverlayStrength(form) {
     const strength = form.querySelector('input[name="album_overlay_strength"]');
-    if (strength) strength.addEventListener("input", () => showValue(strength));
+    const out = form.querySelector('[data-range-val-for="album_overlay_strength"]');
+    if (!strength || !out) return;
+    strength.addEventListener("input", () => {
+      out.textContent = Number(strength.value).toFixed(digits(out));
+    });
   }
 
   // ---- teaser label (issue #39): preset dropdown + custom text + counter ----
@@ -244,6 +250,7 @@
     }
 
     setupCardSizing(settingsForm);
+    setupOverlayStrength(settingsForm);
 
     // ---- Display profile: Follow / Customise per unit ----
     // Only present while a profile other than Default is being edited. A unit

@@ -214,13 +214,14 @@ def test_strength_scales_every_overlay(venue, serve, page):
 
 def test_the_slow_zoom_moves_the_photo_under_still_overlays(venue, serve, page):
     make_prints()
-    _profile(album_burns=True, album_dust=True, album_ken_burns=True)
+    _profile(album_grain="still", album_burns=True, album_dust=True, album_ken_burns=True)
     base = serve()
     _open(page, base)
-    _settled(page)
-    page.wait_for_timeout(1500)
+    start = _settled(page)["imgTransform"]
+    page.wait_for_function(f"(prev) => {{ const i = ({INFO})(); return i && i.imgTransform !== 'none' "
+                           f"&& i.imgTransform !== prev; }}", arg=start)
     info = page.evaluate(INFO)
-    assert info["imgTransform"] != "none"
+    assert info["overlays"].split() == ["grain", "burns", "dust"]
     assert all(p["transform"] == "none" for p in info["parts"]), info["parts"]
 
 
@@ -233,15 +234,23 @@ def test_each_print_of_a_spread_gets_its_own_overlays(venue, serve, page):
     _profile(album_photos_per_visit=2, album_burns=True, album_dust=True, album_creases=True)
     base = serve()
     _open(page, base)
-    page.wait_for_function("document.querySelectorAll('.album-layer.shown .album-cell').length === 2")
-    page.wait_for_timeout(500)
+    page.wait_for_function("""() => {
+      const layer = document.querySelector('.album-layer.shown');
+      return layer && layer.querySelectorAll('.album-cell').length === 2 &&
+        getComputedStyle(layer).opacity === '1' &&
+        getComputedStyle(document.getElementById('album')).opacity === '1';
+    }""")
     _shot(page, "spread")
     cells = page.evaluate("""() => Array.from(document.querySelectorAll('.album-layer.shown .album-cell')).map((c) => ({
       overlays: c.querySelector('.print-window').dataset.overlays,
       leak: (c.querySelector('.overlay-leak') || {style: {}}).style.backgroundImage,
       crease: !!c.querySelector('.overlay-crease'),
+      filters: Array.from(c.querySelectorAll('.overlay-dust filter')).map((f) => f.id),
       inCell: Array.from(c.querySelectorAll('.overlay')).every((e) => e.parentElement.classList.contains('print-window')),
     }))""")
     assert [c["overlays"] for c in cells] == ["burns dust creases"] * 2
     assert all(c["crease"] and c["inCell"] for c in cells)
     assert cells[0]["leak"] != cells[1]["leak"]
+    # Each print's floaties blur through their own filter, never another print's.
+    ids = [i for c in cells for i in c["filters"]]
+    assert len(ids) == 2 and len(set(ids)) == 2

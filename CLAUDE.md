@@ -653,7 +653,7 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
   the screen is just a tap board. **display.js never reads a raw album Setting** (a
   guard test fails if it does); it runs the `album` block it is given.
 - **Overlays (issue #63, `chooseOverlays`/`buildOverlays`).** Chosen per photo with
-  its print look (so a crease texture preloads with it) and drawn by `buildPrint`.
+  its print look (so a crease texture loads alongside the photo, as frame art does) and drawn by `buildPrint`.
   Grain, burns/light leaks and dust/floaties are `.overlay` children of the
   `.print-window`, beside the `<img>`: the window clips them to the photo, so they
   never touch the mount, and the slow zoom moves the photo under them while they stay
@@ -661,7 +661,8 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
   "animated" moves it with a stepped `transform` keyframe (eight jumps a second, done
   by the compositor, off under `prefers-reduced-motion`), never re-rasterised
   `feTurbulence`. Burns are radial gradients (a leak with `screen`, a burnt corner with
-  `multiply`); dust is an inline SVG. Creases are the one kind over the mount: an
+  `multiply`); dust is an inline SVG whose blur filter has a page-unique id (two
+  layers and a spread's prints share one document). Creases are the one kind over the mount: an
   `.overlay-crease` box laid out on the space inside the frame (`layoutCrease`), under
   the caption and the frame, holding a square texture bigger than its diagonal, turned
   and shifted within its spare margin so it always covers the box. The textures are

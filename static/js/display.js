@@ -1783,6 +1783,7 @@
   const GRAIN_TILE = 192;       // px, the noise tile's side
   const LEAK_COLORS = ["255, 122, 40", "255, 186, 70", "255, 78, 96", "255, 150, 60"];
   let grainTile = null;
+  let overlaySeq = 0;           // a page-unique id for each dust overlay's blur filter
 
   // The noise tile, made once: black and white specks of mostly faint alpha.
   function grainUrl() {
@@ -1813,7 +1814,7 @@
     const c = cfg && typeof cfg === "object" ? cfg : {};
     const strength = Math.min(1, Math.max(0.01, Number(c.strength) || 0.25));
     const o = { strength };
-    if (c.grain === "still" || c.grain === "animated") {
+    if (GRAIN_MODES.includes(c.grain) && c.grain !== "off") {
       o.grain = { animated: c.grain === "animated", x: rand(0, GRAIN_TILE), y: rand(0, GRAIN_TILE),
         delay: rand(0, 1) };
     }
@@ -1841,6 +1842,7 @@
       // Specks and a few hairs, and soft amber floaties, in a 100 x 100 field
       // that covers the photo (round whatever the photo's shape).
       const marks = [];
+      const blur = `album-floaty-${++overlaySeq}`;
       const specks = Math.round(rand(18, 34) + 50 * strength);
       for (let i = 0; i < specks; i++) {
         const light = Math.random() < 0.6;
@@ -1857,10 +1859,12 @@
       }
       for (let i = 0, n = Math.floor(rand(2, 6)); i < n; i++) {
         marks.push(`<circle cx="${rand(0, 100).toFixed(2)}" cy="${rand(0, 100).toFixed(2)}" ` +
-          `r="${rand(0.6, 2.4).toFixed(2)}" fill="rgba(255,170,64,${rand(0.25, 0.5).toFixed(2)})" filter="url(#f)"/>`);
+          `r="${rand(0.6, 2.4).toFixed(2)}" fill="rgba(255,170,64,${rand(0.25, 0.5).toFixed(2)})" filter="url(#${blur})"/>`);
       }
+      // Its own filter id: two layers and a spread's prints share one document, and
+      // a repeated id would point every floaty at whichever copy came first.
       o.dust = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" ' +
-        'preserveAspectRatio="xMidYMid slice"><defs><filter id="f" x="-50%" y="-50%" width="200%" ' +
+        `preserveAspectRatio="xMidYMid slice"><defs><filter id="${blur}" x="-50%" y="-50%" width="200%" ` +
         'height="200%"><feGaussianBlur stdDeviation="0.5"/></filter></defs>' + marks.join("") + "</svg>";
     }
     if (c.creases === true) {
@@ -1881,36 +1885,30 @@
 
   function buildOverlays(layer, parts, o) {
     if (!o) return;
-    const marks = [];
+    const kinds = [];
+    // One overlay in the photo's window, at its kind's opacity for the strength.
+    const inWindow = (cls, top) => {
+      const node = printPart("overlay " + cls);
+      node.style.opacity = reach(o.strength, top).toFixed(3);
+      parts.window.appendChild(node);
+      return node;
+    };
     if (o.grain && grainUrl()) {
-      const g = printPart("overlay overlay-grain" + (o.grain.animated ? " overlay-grain-animated" : ""));
-      g.style.backgroundImage = `url("${grainUrl()}")`;
-      g.style.backgroundPosition = `${o.grain.x.toFixed(0)}px ${o.grain.y.toFixed(0)}px`;
-      g.style.setProperty("--grain-tile", GRAIN_TILE + "px");
-      if (o.grain.animated) g.style.animationDelay = `-${o.grain.delay.toFixed(2)}s`;
-      g.style.opacity = reach(o.strength, 0.9).toFixed(3);
-      marks.push("grain");
-      parts.window.appendChild(g);
+      const grain = inWindow("overlay-grain" + (o.grain.animated ? " overlay-grain-animated" : ""), 0.9);
+      grain.style.backgroundImage = `url("${grainUrl()}")`;
+      grain.style.backgroundPosition = `${o.grain.x.toFixed(0)}px ${o.grain.y.toFixed(0)}px`;
+      grain.style.setProperty("--grain-tile", GRAIN_TILE + "px");
+      if (o.grain.animated) grain.style.animationDelay = `-${o.grain.delay.toFixed(2)}s`;
+      kinds.push("grain");
     }
     if (o.burns) {
-      const leak = printPart("overlay overlay-leak");
-      leak.style.backgroundImage = o.burns.leaks;
-      leak.style.opacity = reach(o.strength, 1).toFixed(3);
-      parts.window.appendChild(leak);
-      if (o.burns.burn) {
-        const burn = printPart("overlay overlay-burn");
-        burn.style.backgroundImage = o.burns.burn;
-        burn.style.opacity = reach(o.strength, 1).toFixed(3);
-        parts.window.appendChild(burn);
-      }
-      marks.push("burns");
+      inWindow("overlay-leak", 1).style.backgroundImage = o.burns.leaks;
+      if (o.burns.burn) inWindow("overlay-burn", 1).style.backgroundImage = o.burns.burn;
+      kinds.push("burns");
     }
     if (o.dust) {
-      const dust = printPart("overlay overlay-dust");
-      dust.innerHTML = o.dust;
-      dust.style.opacity = reach(o.strength, 1).toFixed(3);
-      parts.window.appendChild(dust);
-      marks.push("dust");
+      inWindow("overlay-dust", 1).innerHTML = o.dust;
+      kinds.push("dust");
     }
     if (o.crease) {
       // Over the mount and the photo, under the caption and the frame.
@@ -1922,9 +1920,9 @@
       parts.crease.dataset.crease = o.crease.key;
       parts.crease._pose = o.crease;
       layer.appendChild(parts.crease);
-      marks.push("creases");
+      kinds.push("creases");
     }
-    parts.window.dataset.overlays = marks.join(" ");
+    parts.window.dataset.overlays = kinds.join(" ");
   }
 
   // The crease box covers the space inside the frame; its texture is a square
