@@ -740,7 +740,8 @@ body.album-visit #ticker { visibility: hidden; }
 }
 .overlay-leak { mix-blend-mode: screen; }
 .overlay-burn { mix-blend-mode: multiply; }
-.overlay-dust > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.overlay-dust > svg,
+.overlay-hole > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .overlay-crease { position: absolute; overflow: hidden; pointer-events: none; }
 .overlay-crease-tex {
   position: absolute;

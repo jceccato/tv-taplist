@@ -29,8 +29,8 @@ a screen pointed at it.
     date taken and album name can be set on the mount's bottom edge (off until you
     switch them on in the Photo album settings). An optional slow zoom drifts the
     photo inside its mount.
-  - **Old scanned photo overlays.** Optional grain, burns and light leaks, dust and
-    creases, each switched on by itself with one strength for all, placed afresh on
+  - **Old scanned photo overlays.** Optional grain, burns and light leaks, burn holes,
+    dust and creases, each switched on by itself with one strength for all, placed afresh on
     every photo.
   - **Any phone photo.** HEIC, RAW and the usual formats; a compatibility mode serves
     JPEG to TVs that cannot show WebP. Photos are stripped of location data and kept

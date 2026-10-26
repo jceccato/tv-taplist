@@ -27,8 +27,8 @@ Merged to `main` and shipping in the next release.
 ### Added
 
 - **Old scanned photo overlays.** Photos in an album visit can be aged like an
-  old print: film grain, burns and light leaks, dust and amber floaties, and
-  creases. Each switches on by itself, per screen, in the Settings tab's Photo
+  old print: film grain, burns and light leaks, burn holes (as film melts
+  through in a projector), dust and amber floaties, and creases. Each switches on by itself, per screen, in the Settings tab's Photo
   album section, and one **Overlay strength** slider sets how strong they all
   are (low by default). They are all off until you switch one on. Every photo
   gets its own marks. They age the photo, never the mount; creases can fold the

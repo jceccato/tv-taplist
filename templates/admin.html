@@ -666,6 +666,13 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             </label>
             {% endcall %}
 
+            {% call unit('album_burn_holes') %}
+            <label class="checkbox">
+              <input type="checkbox" name="album_burn_holes" {{ 'checked' if cfg.album_burn_holes else '' }}>
+              Burn holes (one melted hole per photo, as film burns through in a projector)
+            </label>
+            {% endcall %}
+
             {% call unit('album_dust') %}
             <label class="checkbox">
               <input type="checkbox" name="album_dust" {{ 'checked' if cfg.album_dust else '' }}>

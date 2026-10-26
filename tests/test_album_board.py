@@ -481,13 +481,13 @@ def test_a_default_save_posts_the_spread_settings_and_the_admin_labels_them():
 
 # ---- the "old scanned photo" overlays (issue #63) -------------------------------------------
 
-OVERLAY_KEYS = ("album_grain", "album_burns", "album_dust", "album_creases",
+OVERLAY_KEYS = ("album_grain", "album_burns", "album_burn_holes", "album_dust", "album_creases",
                 "album_overlay_strength")
 
 
 def test_every_overlay_is_off_by_default_at_a_low_strength():
     cfg = config_store.load_config()
-    assert [cfg[k] for k in OVERLAY_KEYS] == [False, False, False, "off", 25]
+    assert [cfg[k] for k in OVERLAY_KEYS] == [False, False, False, False, "off", 25]
     assert config_store.CREASE_MODES == ("off", "photo", "mount")
     assert config_store.SETTINGS_BOUNDS["album_overlay_strength"] == (1, 100)
 
@@ -512,9 +512,11 @@ def test_overlay_settings_are_coerced_never_rejected(key, bad, expected):
 
 def test_the_album_block_carries_the_overlay_switches_and_strength():
     _photos("a.jpg")
-    _album_profile(album_grain=True, album_dust=True, album_creases="mount", album_overlay_strength=60)
+    _album_profile(album_grain=True, album_burn_holes=True, album_dust=True, album_creases="mount",
+                   album_overlay_strength=60)
     assert _board()["album"]["overlays"] == {
-        "grain": True, "burns": False, "dust": True, "creases": "mount", "strength": 0.6}
+        "grain": True, "burns": False, "burn_holes": True, "dust": True, "creases": "mount",
+        "strength": 0.6}
 
 
 def test_a_profile_follows_the_default_overlays_until_it_customises_them():
@@ -528,11 +530,12 @@ def test_a_profile_follows_the_default_overlays_until_it_customises_them():
 def test_a_default_save_posts_the_overlay_settings_and_the_admin_labels_them():
     c = _admin()
     r = c.post("/admin/settings", data={
-        **REQUIRED, "album_grain": "true", "album_burns": "true", "album_dust": "true",
+        **REQUIRED, "album_grain": "true", "album_burns": "true", "album_burn_holes": "true",
+        "album_dust": "true",
         "album_creases": "mount", "album_overlay_strength": "70"})
     assert r.status_code == 200
     saved = config_store.load_config()
-    assert [saved[k] for k in OVERLAY_KEYS] == [True, True, True, "mount", 70]
+    assert [saved[k] for k in OVERLAY_KEYS] == [True, True, True, True, "mount", 70]
     html = c.get("/admin").text
     for name in OVERLAY_KEYS:
         assert f'name="{name}"' in html

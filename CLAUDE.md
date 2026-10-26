@@ -263,7 +263,7 @@ entry's `taken` is the EXIF date, else the file's date (`_file_date`), and its
 printing under a photo). Captions are never file names. They are switched on in the
 Settings tab's Photo album section ("Captions on the mount's bottom edge").
 **The "old scanned photo" overlays (issue #63)** add five units, one per key, all off:
-`album_grain`, `album_burns`, `album_dust` (booleans; grain is still, as moving grain
+`album_grain`, `album_burns`, `album_burn_holes`, `album_dust` (booleans; grain is still, as moving grain
 read as odd on a still photo, the maintainer 2026-10-26, and a draft config's
 "still"/"animated" string coerces to on), `album_creases` (`CREASE_MODES`:
 off/photo/mount, default off; a draft config's True reads as "photo"; the frame is
@@ -662,7 +662,9 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
   never touch the mount, and the slow zoom moves the photo under them while they stay
   put. Grain is one 192 px noise tile made once on a canvas (a data: URL, no fetch),
   still at a random offset. Burns are radial gradients (a leak with `screen`, a burnt corner with
-  `multiply`); dust is an inline SVG whose blur filter has a page-unique id (two
+  `multiply`); a burn hole (one per photo, asked for by the maintainer at the TV) is an
+  inline SVG of four ragged polygons (scorch, char, melt rim, white-hot core) from one
+  random sine-wobbled outline; dust is an inline SVG whose blur filter has a page-unique id (two
   layers and a spread's prints share one document). Creases are an `.overlay-crease`
   box: in the window over the photo ("photo"), or on the space inside the frame
   ("mount", under the caption and the frame; never over the frame), laid out by
@@ -887,7 +889,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 1111 tests, 33 files (the 83 page tests skip without a browser, and the HEIC
+- 1112 tests, 33 files (the 83 page tests skip without a browser, and the HEIC
   tests without pillow-heif):
   **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
   the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a

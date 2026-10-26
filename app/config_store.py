@@ -212,6 +212,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # (the maintainer, 2026-10-26).
     "album_grain": False,
     "album_burns": False,
+    "album_burn_holes": False,          # a melted hole, as film burns through in a projector
     "album_dust": False,
     "album_creases": "off",             # see CREASE_MODES
     "album_overlay_strength": 25,
@@ -298,6 +299,7 @@ CUSTOMISABLE_UNITS: dict[str, tuple[str, ...]] = {
     "album_ken_burns": ("album_ken_burns",),
     "album_grain": ("album_grain",),
     "album_burns": ("album_burns",),
+    "album_burn_holes": ("album_burn_holes",),
     "album_dust": ("album_dust",),
     "album_creases": ("album_creases",),
     "album_overlay_strength": ("album_overlay_strength",),
@@ -778,7 +780,7 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     # The photo album. Unrecognised order coerces to Shuffle, never rejected.
     for flag in ("album_enabled", "album_all", "album_keep_ticker", "album_pair_portraits",
                  "album_three_up", "album_caption_date", "album_caption_album", "album_ken_burns",
-                 "album_burns", "album_dust"):
+                 "album_burns", "album_burn_holes", "album_dust"):
         merged[flag] = bool(merged[flag])
     order = str(merged["album_order"] or "").strip().lower()
     merged["album_order"] = order if order in ALBUM_ORDERS else ORDER_SHUFFLE

@@ -638,6 +638,7 @@ def resolve_album(cfg: dict[str, Any]) -> dict[str, Any] | None:
         "overlays": {
             "grain": bool(cfg.get("album_grain", DEFAULT_CONFIG["album_grain"])),
             "burns": bool(cfg.get("album_burns", DEFAULT_CONFIG["album_burns"])),
+            "burn_holes": bool(cfg.get("album_burn_holes", DEFAULT_CONFIG["album_burn_holes"])),
             "dust": bool(cfg.get("album_dust", DEFAULT_CONFIG["album_dust"])),
             "creases": cfg.get("album_creases", DEFAULT_CONFIG["album_creases"]),
             "strength": int(cfg.get("album_overlay_strength",

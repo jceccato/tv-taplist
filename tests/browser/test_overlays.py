@@ -8,6 +8,7 @@ scales them all; every photo gets fresh placement. These tests assert DOM state
 and geometry, never pixels; `ALBUM_SHOTS` keeps screenshots to judge by eye.
 """
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -20,8 +21,10 @@ from test_framed_print import _scene, make_prints
 
 SHOTS = os.environ.get("ALBUM_SHOTS")
 KINDS = {"grain": {"album_grain": True}, "burns": {"album_burns": True},
+         "holes": {"album_burn_holes": True},
          "dust": {"album_dust": True}, "creases": {"album_creases": "photo"}}
-ALL_ON = {"album_grain": True, "album_burns": True, "album_dust": True, "album_creases": "mount"}
+ALL_ON = {"album_grain": True, "album_burns": True, "album_burn_holes": True, "album_dust": True,
+          "album_creases": "mount"}
 
 
 def _profile(name="lounge", **settings):
@@ -92,7 +95,7 @@ def _shot(page, name):
 
 
 def _kind_of(cls):
-    return next(k for k in ("grain", "leak", "burn", "dust") if f"overlay-{k}" in cls)
+    return next(k for k in ("grain", "leak", "burn", "hole", "dust") if f"overlay-{k}" in cls)
 
 
 def test_an_overlay_on_with_the_mount_untouched(venue, serve, page):
@@ -195,7 +198,9 @@ def test_placement_differs_between_photos(venue, serve, page):
     def marks(info):
         by = {_kind_of(p["cls"]): p for p in info["parts"]}
         return {"grain": by["grain"]["bgPos"], "leak": by["leak"]["bg"],
-                "dust": by["dust"]["html"], "crease": (info["creaseKey"], info["texTransform"])}
+                "dust": by["dust"]["html"], "crease": (info["creaseKey"], info["texTransform"]),
+                # the hole's shape and place, less its page-unique filter ids
+                "hole": re.findall(r'points="([^"]+)"', by["hole"]["html"])}
 
     a, b = marks(first), marks(second)
     for kind in a:
@@ -216,7 +221,7 @@ def test_strength_scales_every_overlay(venue, serve, page):
                       "crease": info["texOpacity"]}
     # A burnt corner is drawn on about two photos in three, so it is compared
     # only when both have one; the other kinds are always there.
-    assert {"grain", "leak", "dust", "crease"} <= set(seen["faint"]) & set(seen["heavy"])
+    assert {"grain", "leak", "hole", "dust", "crease"} <= set(seen["faint"]) & set(seen["heavy"])
     for kind in set(seen["faint"]) & set(seen["heavy"]):
         assert 0 < seen["faint"][kind] < seen["heavy"][kind], kind
 

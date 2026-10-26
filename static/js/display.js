@@ -1839,6 +1839,35 @@
       })() : null;
       o.burns = { leaks: leaks.join(", "), burn };
     }
+    if (c.burn_holes === true) {
+      // A hole the projector's lamp melted through the film: a ragged outline
+      // (a few sine waves of random phase round a circle), white-hot inside,
+      // an orange melt rim, charred film round that and a brown scorch beyond.
+      // Placed in a 100 x 100 field that covers the photo; 25-75 keeps it on a
+      // photo up to 2:1 either way round.
+      const cx = rand(25, 75), cy = rand(25, 75), r = rand(2.2, 4.5);
+      const waves = [2, 3, 5, 7].map((k) => ({ k, a: rand(0.04, 0.16) / Math.sqrt(k), p: rand(0, 6.283) }));
+      const outline = (scale, rough) => {
+        const pts = [];
+        for (let i = 0; i < 36; i++) {
+          const t = (i / 36) * 6.283;
+          const wobble = waves.reduce((sum, w) => sum + w.a * Math.sin(w.k * t + w.p), 0) * rough;
+          const rr = r * scale * (1 + wobble);
+          pts.push(`${(cx + Math.cos(t) * rr).toFixed(2)},${(cy + Math.sin(t) * rr).toFixed(2)}`);
+        }
+        return pts.join(" ");
+      };
+      const id = `album-hole-${++overlaySeq}`;
+      o.hole = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" ' +
+        `preserveAspectRatio="xMidYMid slice"><defs>` +
+        `<filter id="${id}-s" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${(r * 0.45).toFixed(2)}"/></filter>` +
+        `<filter id="${id}-c" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${(r * 0.12).toFixed(2)}"/></filter>` +
+        `<filter id="${id}-g" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${(r * 0.06).toFixed(2)}"/></filter></defs>` +
+        `<polygon points="${outline(2.3, 1.4)}" fill="rgba(92,44,10,0.55)" filter="url(#${id}-s)"/>` +
+        `<polygon points="${outline(1.45, 1.6)}" fill="rgba(24,12,4,0.95)" filter="url(#${id}-c)"/>` +
+        `<polygon points="${outline(1.12, 1.8)}" fill="rgb(255,128,30)" filter="url(#${id}-g)"/>` +
+        `<polygon points="${outline(1, 2)}" fill="rgb(255,247,226)"/></svg>`;
+    }
     if (c.dust === true) {
       // Specks and a few hairs, and soft amber floaties, in a 100 x 100 field
       // that covers the photo (round whatever the photo's shape).
@@ -1877,7 +1906,7 @@
       o.crease = { over: c.creases, key, angle, flip: Math.random() < 0.5, scale: rand(1.05, 1.5),
         dx: rand(-0.25, 0.25), dy: rand(-0.25, 0.25) };
     }
-    return o.grain || o.burns || o.dust || o.crease ? o : null;
+    return o.grain || o.burns || o.hole || o.dust || o.crease ? o : null;
   }
 
   // How strongly each kind shows at a strength: low (0.25) is plainly there
@@ -1905,6 +1934,11 @@
       inWindow("overlay-leak", 1.6).style.backgroundImage = o.burns.leaks;
       if (o.burns.burn) inWindow("overlay-burn", 1.5).style.backgroundImage = o.burns.burn;
       kinds.push("burns");
+    }
+    if (o.hole) {
+      // Nearly opaque even at a low strength: a hole is a hole.
+      inWindow("overlay-hole", 2.2).innerHTML = o.hole;
+      kinds.push("holes");
     }
     if (o.dust) {
       inWindow("overlay-dust", 1).innerHTML = o.dust;

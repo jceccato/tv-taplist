@@ -493,6 +493,7 @@ PROFILE_UNIT_LABELS = {
     "album_ken_burns": "Slow zoom and pan",
     "album_grain": "Film grain",
     "album_burns": "Burns and light leaks",
+    "album_burn_holes": "Burn holes",
     "album_dust": "Dust and floaties",
     "album_creases": "Creases",
     "album_overlay_strength": "Overlay strength",
@@ -893,6 +894,7 @@ class SettingsForm(BaseModel):
     album_ken_burns: bool = False
     album_grain: bool = False
     album_burns: bool = False
+    album_burn_holes: bool = False
     album_dust: bool = False
     album_creases: str = "off"
     album_overlay_strength: int = 25
