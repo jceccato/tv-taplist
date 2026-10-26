@@ -29,6 +29,8 @@ from PIL import Image, ImageDraw, ImageOps
 
 KEY_DOMINANCE = 90       # min(R, B) - G above this is key
 LEFTOVER_DOMINANCE = 60  # an opaque pixel above this still reads as magenta
+TINT = 8                 # an edge line whose median is above this still carries the key's blend
+RIM_TINT = 20            # near the opening, an opaque pixel above this shows as a pink-red line
 MOSTLY = 0.5             # a row or column of the opening is at least this much key
 WEBP_QUALITY = 90
 
@@ -61,7 +63,23 @@ def cut(src: str, dst: str, inset: int = 3, width: int | None = None) -> dict:
     key = _dominance(rgb) > KEY_DOMINANCE
     y0, y1 = _span(key.mean(axis=1))
     x0, x1 = _span(key.mean(axis=0))
-    # Wider than the key reaches, so the blended rim goes with it.
+    # Grow each edge while the next line out is still tinted by the key: a soft
+    # edge (a downscale blends it further) reaches past the mostly-key lines,
+    # and despilling those pixels turns them red, not frame-coloured.
+    dom = _dominance(rgb)
+
+    def tinted(line: np.ndarray) -> bool:
+        return line.size > 0 and float(np.median(line)) > TINT
+
+    while x0 > 0 and tinted(dom[y0:y1 + 1, x0 - 1]):
+        x0 -= 1
+    while x1 < w - 1 and tinted(dom[y0:y1 + 1, x1 + 1]):
+        x1 += 1
+    while y0 > 0 and tinted(dom[y0 - 1, x0:x1 + 1]):
+        y0 -= 1
+    while y1 < h - 1 and tinted(dom[y1 + 1, x0:x1 + 1]):
+        y1 += 1
+    # Then wider still, so the blended rim goes with it.
     x0, y0, x1, y1 = max(0, x0 - inset), max(0, y0 - inset), min(w - 1, x1 + inset), min(h - 1, y1 + inset)
     alpha = np.full((h, w), 255, np.uint8)
     alpha[y0:y1 + 1, x0:x1 + 1] = 0
@@ -73,9 +91,17 @@ def cut(src: str, dst: str, inset: int = 3, width: int | None = None) -> dict:
     excess = np.clip(_dominance(rgb), 0, None)
     for c in (0, 2):
         rgb[..., c] = np.where(band, rgb[..., c] - excess, rgb[..., c])
+    # The opening is invisible, but WebP keeps colour at half resolution, so a
+    # magenta left under it bleeds a pink-red line into the frame's first pixels.
+    # Neutral grey bleeds nothing.
+    rgb[alpha == 0] = 128
+    after = _dominance(rgb)
+    leftover = int(((after > LEFTOVER_DOMINANCE) & (alpha > 0)).sum())
+    leftover += int(((after > RIM_TINT) & band).sum())    # the faint line the eye still sees
     out = np.dstack([np.clip(rgb, 0, 255).astype(np.uint8), alpha])
-    leftover = int(((_dominance(rgb) > LEFTOVER_DOMINANCE) & (alpha > 0)).sum())
     Image.fromarray(out, "RGBA").save(dst, "WEBP", quality=WEBP_QUALITY, method=6)
+    saved = np.asarray(Image.open(dst).convert("RGB")).astype(np.float64)
+    leftover += int(((_dominance(saved) > RIM_TINT) & band).sum())   # as encoded
     result = {"w": w, "h": h, "top": y0, "right": w - 1 - x1, "bottom": h - 1 - y1, "left": x0,
               "check": "PASS" if leftover == 0 else f"FAIL ({leftover} magenta pixels left)"}
     return result

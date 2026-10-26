@@ -165,16 +165,19 @@ def test_a_kept_ticker_shows_inside_the_frame_not_over_it(venue, serve, page):
         const top = document.elementFromPoint(c.x, c.y);
         return {ticker: r(t), mount: r(layer.querySelector('.print-mount')),
                 bottom: r(layer.querySelector('.frame-bottom')), left: r(layer.querySelector('.frame-left')),
-                text: t.innerText, onTop: !!top && !!top.closest('.album-ticker'),
+                text: t.innerText, textBox: r(t.querySelector('.ticker-text')), onTop: !!top && !!top.closest('.album-ticker'),
                 realH: document.getElementById('ticker').offsetHeight, vw: innerWidth};
     }""")
     t, m, b, l = geo["ticker"], geo["mount"], geo["bottom"], geo["left"]
     assert "Ticker text" in geo["text"] and geo["onTop"]
-    assert t["h"] == geo["realH"]
+    assert t["h"] > geo["realH"]                       # the real height, plus black below the text
     # Between the frame's sides, resting on its bottom edge, and below the mount.
     assert t["x"] == l["w"] and t["x"] + t["w"] == geo["vw"] - l["w"]
     assert t["y"] + t["h"] == b["y"]
     assert m["y"] + m["h"] <= t["y"] + 1
+    # Clear black between the text and the frame.
+    tb = geo["textBox"]
+    assert b["y"] - (tb["y"] + tb["h"]) >= 0.012 * 720
 
 
 def test_the_upcoming_surfaces_pause_for_the_visit_and_carry_on_after_it(venue, serve, page, write_tap):

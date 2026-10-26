@@ -1194,6 +1194,7 @@
     hideTimer: null,
     ticker: null,          // a kept ticker's copy, drawn inside the frame for the visit
     tickerH: 0,            // its height, taken from the real ticker
+    tickerGap: 0,          // black below its text, above the frame
     failures: 0,           // photos that would not load in a row
     stalled: false,        // every photo failed to load: wait for the next poll before retrying
   };
@@ -1374,18 +1375,19 @@
   // [top, right, bottom, left] (the art is 1376 px wide); the frame is drawn
   // ART_FRAME_WIDTH of the short side deep, whatever the art's own thickness.
   const FRAME_ART = {
-    "real-oak-limed": [159, 164, 160, 163],
-    "real-oak-honey": [148, 154, 148, 154],
-    "real-walnut": [130, 135, 130, 136],
-    "real-gilded-baroque": [170, 184, 169, 185],
-    "real-gilded-classic": [114, 118, 112, 118],
-    "real-black-ash": [139, 144, 138, 145],
-    "real-white-stepped": [180, 190, 178, 190],
-    "real-barnwood": [151, 154, 150, 156],
-    "real-farmhouse": [187, 209, 187, 209],
-    "real-dark-timber": [161, 166, 162, 166]
+    "real-oak-limed": [158, 163, 159, 162],
+    "real-oak-honey": [147, 153, 147, 152],
+    "real-walnut": [128, 134, 129, 134],
+    "real-gilded-baroque": [169, 183, 168, 184],
+    "real-gilded-classic": [113, 117, 112, 117],
+    "real-black-ash": [135, 139, 134, 142],
+    "real-white-stepped": [178, 186, 176, 187],
+    "real-barnwood": [150, 153, 148, 154],
+    "real-farmhouse": [186, 208, 185, 207],
+    "real-dark-timber": [160, 164, 160, 164]
   };
   const ART_FRAME_WIDTH = 0.06;
+  const TICKER_GAP = 0.012;       // a kept ticker's black below its text, of the short side
   const artUrl = (frame) => `/static/frames/${frame}.webp`;
   const MOUNT_HEX = { white: "#f3f2ee", cream: "#ebe3cf", black: "#1c1c1c" };
   // A copy made before the colour was sampled has none: a neutral card stands in.
@@ -1540,7 +1542,7 @@
     // The space inside the frame: the mount, or the photo itself with no mount.
     // A kept ticker sits inside the frame, along its bottom edge, so the mount
     // (or the photo, with no mount) stops above it.
-    const th = album.ticker ? album.tickerH : 0;
+    const th = album.ticker ? album.tickerH + album.tickerGap : 0;
     const ix = e.l, iy = e.t, iw = Math.max(1, W - e.l - e.r), ih = Math.max(1, H - e.t - e.b - th);
     const m = Math.round(MOUNT_WIDTH[choice.style] * S);
     const inner = choice.style === "double" ? Math.round(DOUBLE_INNER * S) : 0;
@@ -1588,6 +1590,10 @@
     if (album.ticker) { album.ticker.remove(); album.ticker = null; }
     if (!on || !tickerEl || tickerEl.hidden) return;
     album.tickerH = tickerEl.offsetHeight;
+    // Black below the text as well as above it, so the text never sits on the
+    // frame even where a TV draws the frame or the text a few pixels larger
+    // (the maintainer saw the realistic frames meet the text, 2026-10-26).
+    album.tickerGap = Math.max(4, Math.round(TICKER_GAP * Math.min(window.innerWidth, window.innerHeight)));
     album.ticker = tickerEl.cloneNode(true);
     album.ticker.removeAttribute("id");
     album.ticker.classList.add("album-ticker");
@@ -1602,7 +1608,10 @@
     const H = albumEl.clientHeight || window.innerHeight;
     const S = Math.min(W, H);
     const e = frameEdges(p.choice.frame, S);
-    box(album.ticker, e.l, H - e.b - album.tickerH, W - e.l - e.r, album.tickerH);
+    const h = album.tickerH + album.tickerGap;
+    box(album.ticker, e.l, H - e.b - h, W - e.l - e.r, h);
+    album.ticker.style.paddingBottom = album.tickerGap + "px";
+    album.ticker.style.boxSizing = "border-box";
   }
 
   window.addEventListener("resize", () => {

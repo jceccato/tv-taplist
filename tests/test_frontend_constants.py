@@ -466,3 +466,28 @@ def test_display_js_draws_exactly_the_print_choices_the_settings_offer():
     for frame in REALISTIC_FRAMES:
         assert (static / "frames" / f"{frame}.webp").is_file(), frame
     assert sorted(p.stem for p in (static / "frames").glob("*.webp")) == sorted(REALISTIC_FRAMES)
+
+
+def test_realistic_frame_art_has_no_key_colour_rim_and_matches_its_widths():
+    """The art's opening was generated as magenta. A rim of it left in the frame's
+    first pixels shows on a TV as a thin pink-red line (seen 2026-10-26, from WebP's
+    half-resolution colour bleeding a hidden magenta). And FRAME_ART must name the
+    widths the art really has, or the mount and the frame overlap or gap."""
+    import numpy as np
+    from PIL import Image
+    from app.config_store import REALISTIC_FRAMES
+    js = _display_js()
+    for frame in REALISTIC_FRAMES:
+        a = np.asarray(Image.open(_DISPLAY_JS.parent.parent / "frames" / f"{frame}.webp")
+                       .convert("RGBA")).astype(int)
+        h, w, _ = a.shape
+        clear = a[..., 3] == 0
+        ys, xs = np.where(clear)
+        top, bottom, left, right = ys.min(), h - 1 - ys.max(), xs.min(), w - 1 - xs.max()
+        m = re.search(rf'"{frame}": \[(\d+), (\d+), (\d+), (\d+)\]', js)
+        assert [int(g) for g in m.groups()] == [top, right, bottom, left], frame
+        near = np.zeros(clear.shape, bool)
+        near[ys.min() - 6:ys.max() + 7, xs.min() - 6:xs.max() + 7] = True
+        near &= ~clear
+        pink = np.minimum(a[..., 0], a[..., 2]) - a[..., 1]
+        assert int(((pink > 12) & near).sum()) == 0, f"{frame} has a magenta rim"
