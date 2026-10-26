@@ -1367,8 +1367,15 @@
     // will not load is skipped (and the visit gives up if none will).
     // The look is chosen now, per photo, so a realistic frame's art loads with
     // the photo and never pops in after it.
-    const choices = spread.map(() => choosePrint(album.plan.print));
-    choices.forEach((c) => { if (FRAME_ART[c.frame]) new Image().src = artUrl(c.frame); });
+    const choices = spread.map(() => {
+      const c = choosePrint(album.plan.print);
+      c.overlays = chooseOverlays(album.plan.overlays);
+      return c;
+    });
+    choices.forEach((c) => {
+      if (FRAME_ART[c.frame]) new Image().src = artUrl(c.frame);
+      if (c.overlays && c.overlays.crease) new Image().src = creaseUrl(c.overlays.crease.key);
+    });
     const loaded = spread.map(() => false);
     let waiting = spread.length;
     const settle = () => {
@@ -1598,6 +1605,7 @@
     img.src = photo.url;
     parts.window.appendChild(img);
     layer.appendChild(parts.window);
+    buildOverlays(layer, parts, choice.overlays);
     if (FRAME_ART[choice.frame]) {
       const art = FRAME_ART[choice.frame];
       parts.art = printPart("frame-art");
@@ -1683,6 +1691,7 @@
     if (parts.mat) box(parts.mat, px - inner - bevel, py - inner - bevel, pw + 2 * (inner + bevel), ph + 2 * (inner + bevel));
     box(parts.window, px, py, pw, ph);
     parts.window.style.setProperty("--bevel", bevel + "px");
+    if (parts.crease) layoutCrease(parts.crease, ix, iy, iw, ih);
     if (parts.art) {
       box(parts.art, 0, 0, W, H);
       parts.art.style.borderWidth = `${e.t}px ${e.r}px ${e.b}px ${e.l}px`;
@@ -1748,6 +1757,189 @@
     }
     album.ticker.style.paddingBottom = album.tickerGap + "px";
     album.ticker.style.boxSizing = "border-box";
+  }
+
+  /* ---- Old scanned photo overlays (issue #63) ----
+
+     Optional, each kind on its own switch, one strength for all (0.01-1 from
+     the board). Grain, burns and light leaks, dust and floaties age the photo:
+     they sit inside its window (which clips them), beside the photo rather
+     than in it, so the slow zoom moves the photo under them and they stay
+     put, like marks on the print's surface. Creases are folds in the print
+     itself and run across the photo and the mount (the frame stays whole).
+
+     Every placement is drawn at random when the photo's look is chosen, so no
+     two photos are aged alike and a resize keeps the same marks. Grain is one
+     small noise tile made once on a canvas; "animated" moves it a few times a
+     second with a stepped transform, which the compositor does without
+     redrawing anything (re-rasterising feTurbulence every frame would stutter
+     on a TV stick). The crease textures are CC0 photographs of folded paper,
+     reduced to their fine detail on neutral grey (static/creases/README.md),
+     laid over with an overlay blend so the grey vanishes and only the fold
+     shows. The lists are drift-guarded against config_store and the files. */
+  const GRAIN_MODES = ["off", "still", "animated"];
+  const CREASES = ["crease-fold", "crease-cross", "crease-crumpled"];
+  const creaseUrl = (key) => `/static/creases/${key}.webp`;
+  const GRAIN_TILE = 192;       // px, the noise tile's side
+  const LEAK_COLORS = ["255, 122, 40", "255, 186, 70", "255, 78, 96", "255, 150, 60"];
+  let grainTile = null;
+
+  // The noise tile, made once: black and white specks of mostly faint alpha.
+  function grainUrl() {
+    if (grainTile !== null) return grainTile;
+    grainTile = "";
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = GRAIN_TILE;
+      const ctx = canvas.getContext("2d");
+      const data = ctx.createImageData(GRAIN_TILE, GRAIN_TILE);
+      for (let i = 0; i < data.data.length; i += 4) {
+        const v = Math.random() < 0.5 ? 0 : 255;
+        const a = Math.random();
+        data.data[i] = data.data[i + 1] = data.data[i + 2] = v;
+        data.data[i + 3] = Math.round(a * a * 150);
+      }
+      ctx.putImageData(data, 0, 0);
+      grainTile = canvas.toDataURL("image/png");
+    } catch (e) { /* no canvas: no grain, never a broken print */ }
+    return grainTile;
+  }
+
+  const rand = (lo, hi) => lo + Math.random() * (hi - lo);
+
+  // One photo's overlays: which are on and where each mark goes. Null when
+  // none is on (the common case, and what an older server's board means).
+  function chooseOverlays(cfg) {
+    const c = cfg && typeof cfg === "object" ? cfg : {};
+    const strength = Math.min(1, Math.max(0.01, Number(c.strength) || 0.25));
+    const o = { strength };
+    if (c.grain === "still" || c.grain === "animated") {
+      o.grain = { animated: c.grain === "animated", x: rand(0, GRAIN_TILE), y: rand(0, GRAIN_TILE),
+        delay: rand(0, 1) };
+    }
+    if (c.burns === true) {
+      // A light leak or two from an edge, and maybe a darkened, burnt corner.
+      const leaks = [];
+      for (let i = 0, n = Math.random() < 0.5 ? 1 : 2; i < n; i++) {
+        const side = Math.floor(Math.random() * 4);
+        const along = rand(-10, 110);
+        const [x, y] = [[along, rand(-25, 5)], [rand(95, 125), along], [along, rand(95, 125)],
+          [rand(-25, 5), along]][side];
+        leaks.push(`radial-gradient(ellipse ${rand(35, 75).toFixed(1)}% ${rand(45, 90).toFixed(1)}% at ` +
+          `${x.toFixed(1)}% ${y.toFixed(1)}%, rgba(${pick(LEAK_COLORS)}, ${rand(0.55, 0.85).toFixed(2)}), ` +
+          `rgba(${pick(LEAK_COLORS)}, 0.18) 45%, transparent 75%)`);
+      }
+      const burn = Math.random() < 0.65 ? (() => {
+        const cx = Math.random() < 0.5 ? rand(-15, 10) : rand(90, 115);
+        const cy = Math.random() < 0.5 ? rand(-15, 10) : rand(90, 115);
+        return `radial-gradient(circle at ${cx.toFixed(1)}% ${cy.toFixed(1)}%, rgba(70, 32, 8, 0.85), ` +
+          `rgba(120, 66, 24, 0.35) ${rand(14, 24).toFixed(1)}%, transparent ${rand(30, 48).toFixed(1)}%)`;
+      })() : null;
+      o.burns = { leaks: leaks.join(", "), burn };
+    }
+    if (c.dust === true) {
+      // Specks and a few hairs, and soft amber floaties, in a 100 x 100 field
+      // that covers the photo (round whatever the photo's shape).
+      const marks = [];
+      const specks = Math.round(rand(18, 34) + 50 * strength);
+      for (let i = 0; i < specks; i++) {
+        const light = Math.random() < 0.6;
+        marks.push(`<circle cx="${rand(0, 100).toFixed(2)}" cy="${rand(0, 100).toFixed(2)}" ` +
+          `r="${(rand(0.05, 0.22) * (Math.random() < 0.1 ? 2.2 : 1)).toFixed(3)}" ` +
+          `fill="${light ? "rgba(255,252,240,0.85)" : "rgba(28,20,12,0.75)"}"/>`);
+      }
+      for (let i = 0, n = Math.floor(rand(1, 4)); i < n; i++) {
+        const x = rand(5, 95), y = rand(5, 95), a = rand(0, Math.PI * 2), l = rand(2, 6);
+        const ex = x + Math.cos(a) * l, ey = y + Math.sin(a) * l;
+        const qx = (x + ex) / 2 + rand(-1.5, 1.5), qy = (y + ey) / 2 + rand(-1.5, 1.5);
+        marks.push(`<path d="M${x.toFixed(2)} ${y.toFixed(2)} Q${qx.toFixed(2)} ${qy.toFixed(2)} ` +
+          `${ex.toFixed(2)} ${ey.toFixed(2)}" stroke="rgba(30,22,14,0.6)" stroke-width="0.07" fill="none"/>`);
+      }
+      for (let i = 0, n = Math.floor(rand(2, 6)); i < n; i++) {
+        marks.push(`<circle cx="${rand(0, 100).toFixed(2)}" cy="${rand(0, 100).toFixed(2)}" ` +
+          `r="${rand(0.6, 2.4).toFixed(2)}" fill="rgba(255,170,64,${rand(0.25, 0.5).toFixed(2)})" filter="url(#f)"/>`);
+      }
+      o.dust = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" ' +
+        'preserveAspectRatio="xMidYMid slice"><defs><filter id="f" x="-50%" y="-50%" width="200%" ' +
+        'height="200%"><feGaussianBlur stdDeviation="0.5"/></filter></defs>' + marks.join("") + "</svg>";
+    }
+    if (c.creases === true) {
+      const key = pick(CREASES);
+      // A fold runs near-straight across the print, along or across it; a
+      // crumple can sit any way round.
+      const angle = key === "crease-crumpled" ? rand(0, 360)
+        : Math.floor(Math.random() * 4) * 90 + rand(-14, 14);
+      o.crease = { key, angle, flip: Math.random() < 0.5, scale: rand(1.05, 1.5),
+        dx: rand(-0.25, 0.25), dy: rand(-0.25, 0.25) };
+    }
+    return o.grain || o.burns || o.dust || o.crease ? o : null;
+  }
+
+  // How strongly each kind shows at a strength: low (0.25) is plainly there
+  // but quiet, and the top end is heavy-handed on purpose.
+  const reach = (strength, top) => Math.min(1, top * Math.pow(strength, 0.6));
+
+  function buildOverlays(layer, parts, o) {
+    if (!o) return;
+    const marks = [];
+    if (o.grain && grainUrl()) {
+      const g = printPart("overlay overlay-grain" + (o.grain.animated ? " overlay-grain-animated" : ""));
+      g.style.backgroundImage = `url("${grainUrl()}")`;
+      g.style.backgroundPosition = `${o.grain.x.toFixed(0)}px ${o.grain.y.toFixed(0)}px`;
+      g.style.setProperty("--grain-tile", GRAIN_TILE + "px");
+      if (o.grain.animated) g.style.animationDelay = `-${o.grain.delay.toFixed(2)}s`;
+      g.style.opacity = reach(o.strength, 0.9).toFixed(3);
+      marks.push("grain");
+      parts.window.appendChild(g);
+    }
+    if (o.burns) {
+      const leak = printPart("overlay overlay-leak");
+      leak.style.backgroundImage = o.burns.leaks;
+      leak.style.opacity = reach(o.strength, 1).toFixed(3);
+      parts.window.appendChild(leak);
+      if (o.burns.burn) {
+        const burn = printPart("overlay overlay-burn");
+        burn.style.backgroundImage = o.burns.burn;
+        burn.style.opacity = reach(o.strength, 1).toFixed(3);
+        parts.window.appendChild(burn);
+      }
+      marks.push("burns");
+    }
+    if (o.dust) {
+      const dust = printPart("overlay overlay-dust");
+      dust.innerHTML = o.dust;
+      dust.style.opacity = reach(o.strength, 1).toFixed(3);
+      parts.window.appendChild(dust);
+      marks.push("dust");
+    }
+    if (o.crease) {
+      // Over the mount and the photo, under the caption and the frame.
+      parts.crease = printPart("overlay-crease");
+      const tex = printPart("overlay-crease-tex");
+      tex.style.backgroundImage = `url("${creaseUrl(o.crease.key)}")`;
+      tex.style.opacity = reach(o.strength, 0.75).toFixed(3);
+      parts.crease.appendChild(tex);
+      parts.crease.dataset.crease = o.crease.key;
+      parts.crease._pose = o.crease;
+      layer.appendChild(parts.crease);
+      marks.push("creases");
+    }
+    parts.window.dataset.overlays = marks.join(" ");
+  }
+
+  // The crease box covers the space inside the frame; its texture is a square
+  // bigger than the box's diagonal, turned and shifted as chosen. The shift
+  // stays inside the square's spare margin, so at any angle it still covers
+  // every corner of the box.
+  function layoutCrease(crease, x, y, w, h) {
+    box(crease, x, y, w, h);
+    const pose = crease._pose;
+    const tex = crease.firstChild;
+    const diag = Math.hypot(w, h);
+    const side = Math.ceil(diag * pose.scale);
+    const spare = (side - diag) / 2;                   // dx, dy are within +-0.25: half of it at most
+    box(tex, (w - side) / 2 + pose.dx * 1.4 * spare, (h - side) / 2 + pose.dy * 1.4 * spare, side, side);
+    tex.style.transform = `rotate(${pose.angle.toFixed(1)}deg)${pose.flip ? " scaleX(-1)" : ""}`;
   }
 
   /* The slow zoom and pan (issue #62). Only the photo moves, inside its window

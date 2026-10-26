@@ -633,6 +633,16 @@ def resolve_album(cfg: dict[str, Any]) -> dict[str, Any] | None:
             "album": bool(cfg.get("album_caption_album", DEFAULT_CONFIG["album_caption_album"])),
         },
         "ken_burns": bool(cfg.get("album_ken_burns", DEFAULT_CONFIG["album_ken_burns"])),
+        # The "old scanned photo" overlays (issue #63): which kinds are on and one
+        # strength for all, 0.01-1. The page places them afresh on every photo.
+        "overlays": {
+            "grain": cfg.get("album_grain", DEFAULT_CONFIG["album_grain"]),
+            "burns": bool(cfg.get("album_burns", DEFAULT_CONFIG["album_burns"])),
+            "dust": bool(cfg.get("album_dust", DEFAULT_CONFIG["album_dust"])),
+            "creases": bool(cfg.get("album_creases", DEFAULT_CONFIG["album_creases"])),
+            "strength": int(cfg.get("album_overlay_strength",
+                                    DEFAULT_CONFIG["album_overlay_strength"])) / 100,
+        },
         "photos": [
             {
                 "id": p.photo_id,

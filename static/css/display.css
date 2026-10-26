@@ -720,3 +720,52 @@ body.album-visit #ticker { visibility: hidden; }
   transition: left var(--album-fade, 1.5s) ease, width var(--album-fade, 1.5s) ease,
     top var(--album-fade, 1.5s) ease;
 }
+
+/* ---- Old scanned photo overlays (issue #63) ------------------------------------
+   Grain, burns and light leaks, dust and floaties sit inside the photo's window
+   (which clips them), beside the photo, so the slow zoom never moves them. Their
+   opacity is the strength, set by display.js. A crease covers the mount as well,
+   under the caption and the frame, blended so its neutral grey disappears. */
+.print-window > .overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.print-window > .overlay-grain {
+  /* a tile's margin all round, so the moving tile never shows an edge */
+  inset: calc(-1 * var(--grain-tile, 192px));
+  background-repeat: repeat;
+  image-rendering: pixelated;
+}
+.overlay-grain-animated {
+  /* eight jumps a second: a moved texture, nothing redrawn */
+  animation: album-grain 1s steps(1, end) infinite;
+  will-change: transform;
+}
+@keyframes album-grain {
+  0%     { transform: translate(0, 0); }
+  12.5%  { transform: translate(calc(var(--grain-tile) * -0.37), calc(var(--grain-tile) * 0.21)); }
+  25%    { transform: translate(calc(var(--grain-tile) * 0.52), calc(var(--grain-tile) * -0.44)); }
+  37.5%  { transform: translate(calc(var(--grain-tile) * -0.18), calc(var(--grain-tile) * -0.73)); }
+  50%    { transform: translate(calc(var(--grain-tile) * 0.81), calc(var(--grain-tile) * 0.33)); }
+  62.5%  { transform: translate(calc(var(--grain-tile) * -0.66), calc(var(--grain-tile) * 0.58)); }
+  75%    { transform: translate(calc(var(--grain-tile) * 0.29), calc(var(--grain-tile) * 0.87)); }
+  87.5%  { transform: translate(calc(var(--grain-tile) * -0.91), calc(var(--grain-tile) * -0.12)); }
+  100%   { transform: translate(0, 0); }
+}
+/* The layer faded out keeps its print until the next photo: its grain stops,
+   so a weak screen only ever moves the one it shows. */
+.album-layer:not(.shown) .overlay-grain-animated { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .overlay-grain-animated { animation: none; }
+}
+.overlay-leak { mix-blend-mode: screen; }
+.overlay-burn { mix-blend-mode: multiply; }
+.overlay-dust > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.overlay-crease { overflow: hidden; pointer-events: none; }
+.overlay-crease-tex {
+  position: absolute;
+  background-size: cover;
+  background-position: center;
+  mix-blend-mode: overlay;
+}

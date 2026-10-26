@@ -491,6 +491,11 @@ PROFILE_UNIT_LABELS = {
     "album_three_up": "Three portraits side by side",
     "album_captions": "Photo captions",
     "album_ken_burns": "Slow zoom and pan",
+    "album_grain": "Film grain",
+    "album_burns": "Burns and light leaks",
+    "album_dust": "Dust and floaties",
+    "album_creases": "Creases",
+    "album_overlay_strength": "Overlay strength",
 }
 
 
@@ -886,6 +891,11 @@ class SettingsForm(BaseModel):
     album_caption_date: bool = False
     album_caption_album: bool = False
     album_ken_burns: bool = False
+    album_grain: str = "off"
+    album_burns: bool = False
+    album_dust: bool = False
+    album_creases: bool = False
+    album_overlay_strength: int = 25
 
     @field_validator("album_selection", mode="before")
     @classmethod

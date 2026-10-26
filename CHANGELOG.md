@@ -26,6 +26,15 @@ Merged to `main` and shipping in the next release.
 
 ### Added
 
+- **Old scanned photo overlays.** Photos in an album visit can be aged like an
+  old print: film grain (still, or gently moving), burns and light leaks, dust
+  and amber floaties, and creases. Each switches on by itself, per screen, in
+  the Settings tab's Photo album section, and one **Overlay strength** slider
+  sets how strong they all are (low by default). They are all off until you
+  switch one on. Every photo gets its own marks. They age the photo, never the
+  mount, except creases, which fold across the photo and its mount. Moving grain
+  is the one that costs a slow TV stick anything: try it on the weakest screen
+  before leaving it on.
 - **Portraits side by side, captions and a slow zoom.** On a wide screen two
   portrait photos from the same album visit are now shown side by side, each in
   its own mount and frame, and each counts as a photo towards the visit's total.

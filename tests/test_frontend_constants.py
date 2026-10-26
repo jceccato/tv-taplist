@@ -439,7 +439,8 @@ def test_display_js_runs_the_album_it_is_told_and_never_reads_album_settings():
                 "album_every_turns", "album_photos_per_visit", "album_seconds_per_photo",
                 "album_keep_ticker", "album_fade_seconds", "album_pair_portraits",
                 "album_three_up", "album_caption_date", "album_caption_album",
-                "album_ken_burns"):
+                "album_ken_burns", "album_grain", "album_burns", "album_dust",
+                "album_creases", "album_overlay_strength"):
         assert raw not in js, f"display.js reads the raw Setting {raw}"
     assert "board.album" in js or "albumUpdate(board.album)" in js
     assert "/photos" not in js and "photo_cache" not in js
@@ -493,3 +494,31 @@ def test_realistic_frame_art_has_no_key_colour_rim_and_matches_its_widths():
         near &= ~clear
         pink = np.minimum(a[..., 0], a[..., 2]) - a[..., 1]
         assert int(((pink > 12) & near).sum()) == 0, f"{frame} has a magenta rim"
+
+
+def test_display_js_draws_the_grain_modes_and_creases_there_are():
+    """The overlays (issue #63): display.js names the grain modes the settings
+    offer, and its crease list is exactly the texture files, each recorded with
+    its source and CC0 licence in static/creases/README.md."""
+    from app.config_store import GRAIN_MODES
+    js = _display_js()
+    m = re.search(r"const GRAIN_MODES = \[([^\]]*)\]", js)
+    assert m and re.findall(r'"([^"]+)"', m.group(1)) == list(GRAIN_MODES)
+    creases = re.findall(r'"([^"]+)"', re.search(r"const CREASES = \[([^\]]*)\]", js).group(1))
+    folder = _DISPLAY_JS.parent.parent / "creases"
+    assert creases and sorted(p.stem for p in folder.glob("*.webp")) == sorted(creases)
+    readme = (folder / "README.md").read_text(encoding="utf-8")
+    for key in creases:
+        row = next((line for line in readme.splitlines() if f"`{key}.webp`" in line), "")
+        assert "CC0" in row and "https://" in row, f"{key}.webp has no source and licence row"
+
+
+def test_crease_textures_are_neutral_grey_where_there_is_no_fold():
+    """Laid over the print with an overlay blend, 128 grey changes nothing. A
+    texture whose middle grey drifted would tint every photo and mount."""
+    import numpy as np
+    from PIL import Image
+    for path in (_DISPLAY_JS.parent.parent / "creases").glob("*.webp"):
+        a = np.asarray(Image.open(path).convert("L"), dtype=float)
+        assert abs(float(np.median(a)) - 128) <= 3, path.name
+        assert float(np.quantile(a, 0.99) - np.quantile(a, 0.01)) > 40, f"{path.name} shows no fold"

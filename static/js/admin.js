@@ -101,6 +101,13 @@
     large: 1.4,
   };
 
+  // A slider's readout shows two decimals (the scales) unless it asks for
+  // fewer with data-range-digits (the overlay strength, a whole number).
+  function digits(out) {
+    const n = Number(out.dataset.rangeDigits);
+    return Number.isInteger(n) && n >= 0 ? n : 2;
+  }
+
   function setupCardSizing(form) {
     // The readout lives in the <label>, outside the slider row, so look it up by
     // the control's id rather than by DOM proximity.
@@ -109,7 +116,7 @@
     }
     function showValue(input) {
       const el = readout(input);
-      if (el) el.textContent = Number(input.value).toFixed(2);
+      if (el) el.textContent = Number(input.value).toFixed(digits(el));
     }
 
     // One axis: its picker, its slider, its preset map. Wiring them separately is
@@ -142,6 +149,11 @@
 
     wireAxis("tap_photo_preset", "tap_image_scale", TAP_PHOTO_PRESETS);
     wireAxis("tap_text_preset", "tap_text_scale", TAP_TEXT_PRESETS);
+
+    // A slider with no preset (the overlay strength, issue #63) only needs its
+    // readout kept up.
+    const strength = form.querySelector('input[name="album_overlay_strength"]');
+    if (strength) strength.addEventListener("input", () => showValue(strength));
   }
 
   // ---- teaser label (issue #39): preset dropdown + custom text + counter ----
@@ -250,7 +262,7 @@
       const refreshDerived = () => {
         document.querySelectorAll("[data-range-val-for]").forEach((out) => {
           const r = document.getElementById(out.dataset.rangeValFor);
-          if (r) out.textContent = Number(r.value).toFixed(2);
+          if (r) out.textContent = Number(r.value).toFixed(digits(out));
         });
         document.querySelectorAll(".color-field").forEach((f) => {
           const sw = f.querySelector('input[type="color"]');

@@ -341,7 +341,11 @@ def test_the_slow_zoom_moves_the_photo_inside_its_mount_only(venue, serve, page)
     visit(album_ken_burns=True, album_frame="real-oak-limed", album_seconds_per_photo=40)
     open_visit(page, serve())
     before = on_screen(page)
-    page.wait_for_function(f"() => ({PRINTS})().prints.every((p) => p.transform !== 'none')")
+    # Wait for the drift to have moved on from `before` (it may already be under
+    # way then, so "not none" alone can be met by the very same frame).
+    page.wait_for_function(
+        f"(prev) => ({PRINTS})().prints.every((p, i) => p.transform !== 'none' && p.transform !== prev[i])",
+        arg=[p["transform"] for p in before["prints"]])
     after = page.evaluate(PRINTS)
     shot(page, "slow-zoom")
     for b, a in zip(before["prints"], after["prints"]):

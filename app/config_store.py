@@ -203,6 +203,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "album_caption_date": False,
     "album_caption_album": False,
     "album_ken_burns": False,
+    # "Old scanned photo" overlays (issue #63), each kind switched on its own and
+    # all off by default: grain ("off", "still", or "animated" by moving a small
+    # noise tile), burns and light leaks, dust and amber floaties, and creases
+    # (CC0 textures in static/creases/). One strength, 1-100, for all of them;
+    # low by default so the effect stays tasteful when one is switched on.
+    "album_grain": "off",               # see GRAIN_MODES
+    "album_burns": False,
+    "album_dust": False,
+    "album_creases": False,
+    "album_overlay_strength": 25,
     # Display profiles (ADR-0007): name -> {customised key: value}. A profile
     # holds ONLY its Customised settings; everything else follows the Default
     # profile (the rest of this dict). Names are validated and values clamped by
@@ -284,6 +294,11 @@ CUSTOMISABLE_UNITS: dict[str, tuple[str, ...]] = {
     "album_three_up": ("album_three_up",),
     "album_captions": ("album_caption_date", "album_caption_album"),
     "album_ken_burns": ("album_ken_burns",),
+    "album_grain": ("album_grain",),
+    "album_burns": ("album_burns",),
+    "album_dust": ("album_dust",),
+    "album_creases": ("album_creases",),
+    "album_overlay_strength": ("album_overlay_strength",),
 }
 
 CUSTOMISABLE_KEYS: frozenset[str] = frozenset(
@@ -554,6 +569,7 @@ SETTINGS_BOUNDS: dict[str, tuple[float, float | None]] = {
     "album_photos_per_visit": (1, 50),
     "album_seconds_per_photo": (2, 600),
     "album_fade_seconds": (0, 10),
+    "album_overlay_strength": (1, 100),
 }
 
 # The fixed scale behind each named preset, one map per axis. "custom" is absent
@@ -657,6 +673,9 @@ REALISTIC_FRAMES = ("real-oak-limed", "real-oak-honey", "real-walnut", "real-gil
                     "real-gilded-classic", "real-black-ash", "real-white-stepped",
                     "real-barnwood", "real-farmhouse", "real-dark-timber")
 FRAMES = DRAWN_FRAMES + REALISTIC_FRAMES + ("random",)
+# Grain on the photo overlays (issue #63): none, a still noise tile, or the
+# tile moved a few times a second ("animated", the cost a cheap TV stick feels).
+GRAIN_MODES = ("off", "still", "animated")
 
 
 def _coerce_choice(value: Any, allowed: tuple[str, ...], default: str) -> str:
@@ -680,7 +699,8 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
                 "photo_removed_retention_days", "page_size",
                 "rotation_seconds", "venue_logo_height_vh",
                 "upcoming_panel_multiple", "album_every_turns",
-                "album_photos_per_visit", "album_seconds_per_photo"):
+                "album_photos_per_visit", "album_seconds_per_photo",
+                "album_overlay_strength"):
         lo, hi = SETTINGS_BOUNDS[key]
         merged[key] = _coerce_int(merged[key], lo, hi, DEFAULT_CONFIG[key])
 
@@ -755,13 +775,15 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
 
     # The photo album. Unrecognised order coerces to Shuffle, never rejected.
     for flag in ("album_enabled", "album_all", "album_keep_ticker", "album_pair_portraits",
-                 "album_three_up", "album_caption_date", "album_caption_album", "album_ken_burns"):
+                 "album_three_up", "album_caption_date", "album_caption_album", "album_ken_burns",
+                 "album_burns", "album_dust", "album_creases"):
         merged[flag] = bool(merged[flag])
     order = str(merged["album_order"] or "").strip().lower()
     merged["album_order"] = order if order in ALBUM_ORDERS else ORDER_SHUFFLE
     merged["album_selection"] = _coerce_album_selection(merged["album_selection"])
     for key, allowed in (("album_mount_style", MOUNT_STYLES),
-                         ("album_mount_color", MOUNT_COLORS), ("album_frame", FRAMES)):
+                         ("album_mount_color", MOUNT_COLORS), ("album_frame", FRAMES),
+                         ("album_grain", GRAIN_MODES)):
         merged[key] = _coerce_choice(merged[key], allowed, DEFAULT_CONFIG[key])
     merged["album_mount_custom"] = (parse_hex_color(merged["album_mount_custom"])
                                     or DEFAULT_CONFIG["album_mount_custom"])

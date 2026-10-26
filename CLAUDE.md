@@ -262,6 +262,12 @@ entry's `taken` is the EXIF date, else the file's date (`_file_date`), and its
 `caption_album` is the album name, or null for loose files ("Unsorted" is not worth
 printing under a photo). Captions are never file names. They are switched on in the
 Settings tab's Photo album section ("Captions on the mount's bottom edge").
+**The "old scanned photo" overlays (issue #63)** add five units, one per key, all off:
+`album_grain` (`GRAIN_MODES`: off/still/animated, default off), `album_burns`,
+`album_dust`, `album_creases` (booleans) and `album_overlay_strength` (1-100 in
+`SETTINGS_BOUNDS`, default 25, "low"; a range slider whose readout asks for whole
+numbers with `data-range-digits="0"`). The album block carries `overlays {grain,
+burns, dust, creases, strength}`, the strength as 0.01-1.
 
 ---
 
@@ -646,6 +652,26 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
   the visit gives up when none will. No ready photos means `albumPlan()` is null and
   the screen is just a tap board. **display.js never reads a raw album Setting** (a
   guard test fails if it does); it runs the `album` block it is given.
+- **Overlays (issue #63, `chooseOverlays`/`buildOverlays`).** Chosen per photo with
+  its print look (so a crease texture preloads with it) and drawn by `buildPrint`.
+  Grain, burns/light leaks and dust/floaties are `.overlay` children of the
+  `.print-window`, beside the `<img>`: the window clips them to the photo, so they
+  never touch the mount, and the slow zoom moves the photo under them while they stay
+  put. Grain is one 192 px noise tile made once on a canvas (a data: URL, no fetch);
+  "animated" moves it with a stepped `transform` keyframe (eight jumps a second, done
+  by the compositor, off under `prefers-reduced-motion`), never re-rasterised
+  `feTurbulence`. Burns are radial gradients (a leak with `screen`, a burnt corner with
+  `multiply`); dust is an inline SVG. Creases are the one kind over the mount: an
+  `.overlay-crease` box laid out on the space inside the frame (`layoutCrease`), under
+  the caption and the frame, holding a square texture bigger than its diagonal, turned
+  and shifted within its spare margin so it always covers the box. The textures are
+  CC0 photographs reduced to fine detail on neutral grey by `scripts/crease_textures.py`
+  and blended with `overlay`; sources and licences in `static/creases/README.md`. Each
+  kind's opacity is `top * strength^0.6`. **A blend mode only sees its stacking
+  context:** never give an overlay's parent an opacity or transform, or the blend
+  sees nothing. Placement is random per photo and kept across a resize. A guard ties
+  `GRAIN_MODES` and `CREASES` to config_store and the files, and checks every crease
+  file has a CC0 row and neutral grey.
 - **Auto-scroll marquee:** long `.name`/`.desc` text scrolls within its box
   instead of truncating (measured per card; off under `prefers-reduced-motion`).
 - **Layout = CSS grid** rows: venue header · stage · dots · ticker, so dots get
@@ -858,7 +884,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 1080 tests, 32 files (the 71 page tests skip without a browser, and the HEIC
+- 1107 tests, 33 files (the 83 page tests skip without a browser, and the HEIC
   tests without pillow-heif):
   **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
   the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a
@@ -926,7 +952,7 @@ inside it (it would land as a stray file in `/data`).
   provenance in `photo_fixtures.py`), since nothing in CI can encode HEVC; a RAW is
   generated as a minimal linear DNG (`dng_bytes`). The board-update test uses Playwright's fake
   clock to reach the 30 s poll; the others run in real time with 3 s pages and 2 s
-  photos (about four minutes for the 71). `test_framed_print.py` opens a photos-only
+  photos (about four and a half minutes for the 83). `test_framed_print.py` opens a photos-only
   profile (the visit starts at once) for each mount style, mount colour and frame
   (each realistic frame too, from its art),
   Random, a resize, and asserts that every request stays on the app; CI keeps every
@@ -934,7 +960,10 @@ inside it (it would land as a stray file in `/data`).
   portrait and landscape fixtures named so Name A-Z order is known: two-up, three-up,
   K counting, pairing off, a lone portrait's wider sides, Shuffle's look-ahead,
   advancing by a whole spread, captions (EXIF dates, never file names) and the slow
-  zoom (only the photo's transform moves).
+  zoom (only the photo's transform moves). `test_overlays.py` (issue #63) switches each
+  overlay kind on alone, checks the mount is untouched (overlays are hit-testable only
+  there, by an injected style), creases cover exactly the mount, placement differs per
+  photo, strength scales every kind, the zoom leaves them still, and a spread gets its own.
 - **The sync fixture fakes the httpx TRANSPORT, not `_list_batches`**, so the real
   listing, filtering, dedupe and pagination run in tests. Do not reintroduce a
   hand-written batch-list fake.
