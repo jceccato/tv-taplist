@@ -204,14 +204,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "album_caption_album": False,
     "album_ken_burns": False,
     # "Old scanned photo" overlays (issue #63), each kind switched on its own and
-    # all off by default: grain ("off", "still", or "animated" by moving a small
-    # noise tile), burns and light leaks, dust and amber floaties, and creases
-    # (CC0 textures in static/creases/). One strength, 1-100, for all of them;
-    # low by default so the effect stays tasteful when one is switched on.
-    "album_grain": "off",               # see GRAIN_MODES
+    # all off by default: grain, burns and light leaks, dust and amber floaties,
+    # and creases (CC0 textures in static/creases/), which fold the photo alone
+    # or the photo and its mount, never the frame. One strength, 1-100, for all
+    # of them; low by default so the effect stays tasteful when one is on.
+    # Grain is still: moving grain was tried and read as odd on a still photo
+    # (the maintainer, 2026-10-26).
+    "album_grain": False,
     "album_burns": False,
     "album_dust": False,
-    "album_creases": False,
+    "album_creases": "off",             # see CREASE_MODES
     "album_overlay_strength": 25,
     # Display profiles (ADR-0007): name -> {customised key: value}. A profile
     # holds ONLY its Customised settings; everything else follows the Default
@@ -673,9 +675,9 @@ REALISTIC_FRAMES = ("real-oak-limed", "real-oak-honey", "real-walnut", "real-gil
                     "real-gilded-classic", "real-black-ash", "real-white-stepped",
                     "real-barnwood", "real-farmhouse", "real-dark-timber")
 FRAMES = DRAWN_FRAMES + REALISTIC_FRAMES + ("random",)
-# Grain on the photo overlays (issue #63): none, a still noise tile, or the
-# tile moved a few times a second ("animated", the cost a cheap TV stick feels).
-GRAIN_MODES = ("off", "still", "animated")
+# Where a crease runs (issue #63): nowhere, across the photo only, or across
+# the photo and its mount. Never the frame: the print is old, the frame is not.
+CREASE_MODES = ("off", "photo", "mount")
 
 
 def _coerce_choice(value: Any, allowed: tuple[str, ...], default: str) -> str:
@@ -776,15 +778,22 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     # The photo album. Unrecognised order coerces to Shuffle, never rejected.
     for flag in ("album_enabled", "album_all", "album_keep_ticker", "album_pair_portraits",
                  "album_three_up", "album_caption_date", "album_caption_album", "album_ken_burns",
-                 "album_burns", "album_dust", "album_creases"):
+                 "album_burns", "album_dust"):
         merged[flag] = bool(merged[flag])
     order = str(merged["album_order"] or "").strip().lower()
     merged["album_order"] = order if order in ALBUM_ORDERS else ORDER_SHUFFLE
     merged["album_selection"] = _coerce_album_selection(merged["album_selection"])
     for key, allowed in (("album_mount_style", MOUNT_STYLES),
-                         ("album_mount_color", MOUNT_COLORS), ("album_frame", FRAMES),
-                         ("album_grain", GRAIN_MODES)):
+                         ("album_mount_color", MOUNT_COLORS), ("album_frame", FRAMES)):
         merged[key] = _coerce_choice(merged[key], allowed, DEFAULT_CONFIG[key])
+    # Grain was a mode before it was a switch, and creases a switch before they
+    # had a mode: a config from either draft reads the way it was meant.
+    grain = merged["album_grain"]
+    merged["album_grain"] = (str(grain).strip().lower() in ("still", "animated", "on", "true", "1")
+                             if isinstance(grain, str) else bool(grain))
+    creases = merged["album_creases"]
+    merged["album_creases"] = (("photo" if creases else "off") if isinstance(creases, bool) else
+                               _coerce_choice(creases, CREASE_MODES, DEFAULT_CONFIG["album_creases"]))
     merged["album_mount_custom"] = (parse_hex_color(merged["album_mount_custom"])
                                     or DEFAULT_CONFIG["album_mount_custom"])
 

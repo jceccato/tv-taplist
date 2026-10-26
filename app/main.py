@@ -891,10 +891,10 @@ class SettingsForm(BaseModel):
     album_caption_date: bool = False
     album_caption_album: bool = False
     album_ken_burns: bool = False
-    album_grain: str = "off"
+    album_grain: bool = False
     album_burns: bool = False
     album_dust: bool = False
-    album_creases: bool = False
+    album_creases: str = "off"
     album_overlay_strength: int = 25
 
     @field_validator("album_selection", mode="before")

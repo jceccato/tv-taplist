@@ -1691,7 +1691,10 @@
     if (parts.mat) box(parts.mat, px - inner - bevel, py - inner - bevel, pw + 2 * (inner + bevel), ph + 2 * (inner + bevel));
     box(parts.window, px, py, pw, ph);
     parts.window.style.setProperty("--bevel", bevel + "px");
-    if (parts.crease) layoutCrease(parts.crease, ix, iy, iw, ih);
+    if (parts.crease) {
+      if (parts.crease._pose.over === "mount") layoutCrease(parts.crease, ix, iy, iw, ih);
+      else layoutCrease(parts.crease, 0, 0, pw, ph);
+    }
     if (parts.art) {
       box(parts.art, 0, 0, W, H);
       parts.art.style.borderWidth = `${e.t}px ${e.r}px ${e.b}px ${e.l}px`;
@@ -1766,18 +1769,17 @@
      they sit inside its window (which clips them), beside the photo rather
      than in it, so the slow zoom moves the photo under them and they stay
      put, like marks on the print's surface. Creases are folds in the print
-     itself and run across the photo and the mount (the frame stays whole).
+     itself: across the photo alone (in its window, like the others), or across
+     the photo and its mount. The frame is never crossed.
 
      Every placement is drawn at random when the photo's look is chosen, so no
      two photos are aged alike and a resize keeps the same marks. Grain is one
-     small noise tile made once on a canvas; "animated" moves it a few times a
-     second with a stepped transform, which the compositor does without
-     redrawing anything (re-rasterising feTurbulence every frame would stutter
-     on a TV stick). The crease textures are CC0 photographs of folded paper,
+     small noise tile made once on a canvas, still (moving grain was tried and
+     read as odd on a still photo). The crease textures are CC0 photographs of folded paper,
      reduced to their fine detail on neutral grey (static/creases/README.md),
      laid over with an overlay blend so the grey vanishes and only the fold
      shows. The lists are drift-guarded against config_store and the files. */
-  const GRAIN_MODES = ["off", "still", "animated"];
+  const CREASE_MODES = ["off", "photo", "mount"];
   const CREASES = ["crease-fold", "crease-cross", "crease-crumpled"];
   const creaseUrl = (key) => `/static/creases/${key}.webp`;
   const GRAIN_TILE = 192;       // px, the noise tile's side
@@ -1814,10 +1816,7 @@
     const c = cfg && typeof cfg === "object" ? cfg : {};
     const strength = Math.min(1, Math.max(0.01, Number(c.strength) || 0.25));
     const o = { strength };
-    if (GRAIN_MODES.includes(c.grain) && c.grain !== "off") {
-      o.grain = { animated: c.grain === "animated", x: rand(0, GRAIN_TILE), y: rand(0, GRAIN_TILE),
-        delay: rand(0, 1) };
-    }
+    if (c.grain === true) o.grain = { x: rand(0, GRAIN_TILE), y: rand(0, GRAIN_TILE) };
     if (c.burns === true) {
       // A light leak or two from an edge, and maybe a darkened, burnt corner.
       const leaks = [];
@@ -1867,13 +1866,13 @@
         `preserveAspectRatio="xMidYMid slice"><defs><filter id="${blur}" x="-50%" y="-50%" width="200%" ` +
         'height="200%"><feGaussianBlur stdDeviation="0.5"/></filter></defs>' + marks.join("") + "</svg>";
     }
-    if (c.creases === true) {
+    if (CREASE_MODES.includes(c.creases) && c.creases !== "off") {
       const key = pick(CREASES);
       // A fold runs near-straight across the print, along or across it; a
       // crumple can sit any way round.
       const angle = key === "crease-crumpled" ? rand(0, 360)
         : Math.floor(Math.random() * 4) * 90 + rand(-14, 14);
-      o.crease = { key, angle, flip: Math.random() < 0.5, scale: rand(1.05, 1.5),
+      o.crease = { over: c.creases, key, angle, flip: Math.random() < 0.5, scale: rand(1.05, 1.5),
         dx: rand(-0.25, 0.25), dy: rand(-0.25, 0.25) };
     }
     return o.grain || o.burns || o.dust || o.crease ? o : null;
@@ -1894,11 +1893,9 @@
       return node;
     };
     if (o.grain && grainUrl()) {
-      const grain = inWindow("overlay-grain" + (o.grain.animated ? " overlay-grain-animated" : ""), 0.9);
+      const grain = inWindow("overlay-grain", 0.9);
       grain.style.backgroundImage = `url("${grainUrl()}")`;
       grain.style.backgroundPosition = `${o.grain.x.toFixed(0)}px ${o.grain.y.toFixed(0)}px`;
-      grain.style.setProperty("--grain-tile", GRAIN_TILE + "px");
-      if (o.grain.animated) grain.style.animationDelay = `-${o.grain.delay.toFixed(2)}s`;
       kinds.push("grain");
     }
     if (o.burns) {
@@ -1911,21 +1908,24 @@
       kinds.push("dust");
     }
     if (o.crease) {
-      // Over the mount and the photo, under the caption and the frame.
+      // In the photo's window like the others, or over the mount and the photo,
+      // under the caption and the frame.
       parts.crease = printPart("overlay-crease");
       const tex = printPart("overlay-crease-tex");
       tex.style.backgroundImage = `url("${creaseUrl(o.crease.key)}")`;
       tex.style.opacity = reach(o.strength, 0.75).toFixed(3);
       parts.crease.appendChild(tex);
       parts.crease.dataset.crease = o.crease.key;
+      parts.crease.dataset.over = o.crease.over;
       parts.crease._pose = o.crease;
-      layer.appendChild(parts.crease);
+      (o.crease.over === "mount" ? layer : parts.window).appendChild(parts.crease);
       kinds.push("creases");
     }
     parts.window.dataset.overlays = kinds.join(" ");
   }
 
-  // The crease box covers the space inside the frame; its texture is a square
+  // The crease box covers the photo (in its window), or the space inside the
+  // frame; its texture is a square
   // bigger than the box's diagonal, turned and shifted as chosen. The shift
   // stays inside the square's spare margin, so at any angle it still covers
   // every corner of the box.

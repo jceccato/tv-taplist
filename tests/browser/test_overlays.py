@@ -19,10 +19,9 @@ from photo_fixtures import write_image
 from test_framed_print import _scene, make_prints
 
 SHOTS = os.environ.get("ALBUM_SHOTS")
-KINDS = {"grain": {"album_grain": "still"}, "animated": {"album_grain": "animated"},
-         "burns": {"album_burns": True}, "dust": {"album_dust": True},
-         "creases": {"album_creases": True}}
-ALL_ON = {"album_grain": "still", "album_burns": True, "album_dust": True, "album_creases": True}
+KINDS = {"grain": {"album_grain": True}, "burns": {"album_burns": True},
+         "dust": {"album_dust": True}, "creases": {"album_creases": "photo"}}
+ALL_ON = {"album_grain": True, "album_burns": True, "album_dust": True, "album_creases": "mount"}
 
 
 def _profile(name="lounge", **settings):
@@ -62,6 +61,7 @@ INFO = """() => {
   return {
     id: a.dataset.photo, overlays: win.dataset.overlays || '',
     window: w, mount: m, crease: rect(crease), creaseKey: crease ? crease.dataset.crease : null,
+    creaseInWindow: crease ? crease.parentElement === win : null,
     texTransform: tex ? tex.style.transform : null, texBg: tex ? tex.style.backgroundImage : null,
     texOpacity: tex ? Number(getComputedStyle(tex).opacity) : null,
     texBlend: tex ? getComputedStyle(tex).mixBlendMode : null,
@@ -97,7 +97,7 @@ def _kind_of(cls):
 
 def test_an_overlay_on_with_the_mount_untouched(venue, serve, page):
     make_prints()
-    _profile(album_grain="still", album_burns=True, album_dust=True)
+    _profile(album_grain=True, album_burns=True, album_dust=True)
     base = serve()
     requests = []
     page.on("request", lambda r: requests.append(r.url))
@@ -131,14 +131,13 @@ def test_each_overlay_kind_switches_on_by_itself(venue, serve, page, kind):
     _open(page, base)
     info = _settled(page)
     _shot(page, f"kind-{kind}")
-    assert info["overlays"].split() == ["grain" if kind == "animated" else kind]
+    assert info["overlays"].split() == [kind]
     if kind == "creases":
         assert info["parts"] == [] and info["creaseKey"]
     else:
         assert info["parts"] and info["crease"] is None
-    if kind in ("grain", "animated"):
-        grain = info["parts"][0]
-        assert grain["anim"] == ("album-grain" if kind == "animated" else "none")
+    # Nothing moves: grain is a still texture (moving grain read as odd on a photo).
+    assert all(p["anim"] == "none" for p in info["parts"])
 
 
 def test_all_off_draws_no_overlay(venue, serve, page):
@@ -150,16 +149,23 @@ def test_all_off_draws_no_overlay(venue, serve, page):
     assert (info["overlays"], info["parts"], info["crease"]) == ("", [], None)
 
 
-def test_creases_cross_the_mount_inside_the_frame(venue, serve, page):
+@pytest.mark.parametrize("over", ["photo", "mount"])
+def test_creases_cross_the_photo_or_the_mount_never_the_frame(venue, serve, page, over):
     make_prints()
-    _profile(album_creases=True, album_overlay_strength=100)
+    _profile(album_creases=over, album_overlay_strength=100)
     base = serve()
     _open(page, base)
     info = _settled(page)
-    _shot(page, "creases")
-    # The crease covers exactly the mount (inside the frame), photo included.
-    c, m = info["crease"], info["mount"]
+    _shot(page, f"creases-{over}")
+    # "photo": exactly the photo, in its window like the other overlays.
+    # "mount": exactly the mount (the space inside the frame), photo included.
+    c, m = info["crease"], info["window" if over == "photo" else "mount"]
+    assert info["creaseInWindow"] is (over == "photo")
     assert (c["x"], c["y"], c["w"], c["h"]) == pytest.approx((m["x"], m["y"], m["w"], m["h"]), abs=1)
+    # Either way it stays inside the mount, so the frame is never crossed.
+    mt = info["mount"]
+    assert c["x"] >= mt["x"] - 1 and c["y"] >= mt["y"] - 1
+    assert c["x"] + c["w"] <= mt["x"] + mt["w"] + 1 and c["y"] + c["h"] <= mt["y"] + mt["h"] + 1
     assert info["texBlend"] == "overlay"
     assert info["creaseKey"] in info["texBg"] and "/static/creases/" in info["texBg"]
     # The turned texture still covers every corner of the box.
@@ -217,15 +223,20 @@ def test_strength_scales_every_overlay(venue, serve, page):
 
 def test_the_slow_zoom_moves_the_photo_under_still_overlays(venue, serve, page):
     make_prints()
-    _profile(album_grain="still", album_burns=True, album_dust=True, album_ken_burns=True)
+    _profile(album_grain=True, album_burns=True, album_dust=True, album_creases="photo",
+             album_ken_burns=True)
     base = serve()
     _open(page, base)
     start = _settled(page)["imgTransform"]
     page.wait_for_function(f"(prev) => {{ const i = ({INFO})(); return i && i.imgTransform !== 'none' "
                            f"&& i.imgTransform !== prev; }}", arg=start)
     info = page.evaluate(INFO)
-    assert info["overlays"].split() == ["grain", "burns", "dust"]
+    assert info["overlays"].split() == ["grain", "burns", "dust", "creases"]
     assert all(p["transform"] == "none" for p in info["parts"]), info["parts"]
+    # A crease on the photo is in its window too, and still.
+    still = page.evaluate("""() => getComputedStyle(document.querySelector(
+      '.album-layer.shown .print-window > .overlay-crease')).transform""")
+    assert still == "none"
 
 
 def test_each_print_of_a_spread_gets_its_own_overlays(venue, serve, page):
@@ -234,7 +245,7 @@ def test_each_print_of_a_spread_gets_its_own_overlays(venue, serve, page):
         write_image(paths.PHOTOS_DIR / f"{name}.jpg", _scene((900, 1200), sky, (70, 60, 40), (255, 240, 200)))
     lib.scan()
     lib.process_pending()
-    _profile(album_photos_per_visit=2, album_burns=True, album_dust=True, album_creases=True)
+    _profile(album_photos_per_visit=2, album_burns=True, album_dust=True, album_creases="mount")
     base = serve()
     _open(page, base)
     page.wait_for_function("""() => {

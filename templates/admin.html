@@ -650,15 +650,13 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             </label>
             {% endcall %}
 
-            <p class="hint"><strong>Old scanned photo overlays</strong> give each photo some age, placed afresh on every photo. Each is off by default and switches on by itself; one strength below applies to all of them. They age the photo, never the mount, except creases, which run across the photo and the mount.</p>
+            <p class="hint"><strong>Old scanned photo overlays</strong> give each photo some age, placed afresh on every photo. Each is off by default and switches on by itself; one strength below applies to all of them. They age the photo, never the mount, except creases when you let them cross it; nothing ever crosses the frame.</p>
 
             {% call unit('album_grain') %}
-            <label for="album_grain">Film grain</label>
-            <select id="album_grain" name="album_grain">
-              {% for value, label in [('off', 'Off'), ('still', 'Still'), ('animated', 'Animated (gently moving; try it on the slowest screen first)')] %}
-              <option value="{{ value }}" {{ 'selected' if cfg.album_grain == value else '' }}>{{ label }}</option>
-              {% endfor %}
-            </select>
+            <label class="checkbox">
+              <input type="checkbox" name="album_grain" {{ 'checked' if cfg.album_grain else '' }}>
+              Film grain (fine specks over the photo)
+            </label>
             {% endcall %}
 
             {% call unit('album_burns') %}
@@ -676,10 +674,12 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             {% endcall %}
 
             {% call unit('album_creases') %}
-            <label class="checkbox">
-              <input type="checkbox" name="album_creases" {{ 'checked' if cfg.album_creases else '' }}>
-              Creases (a fold or crumple across the photo and its mount)
-            </label>
+            <label for="album_creases">Creases (a fold or crumple in the print)</label>
+            <select id="album_creases" name="album_creases">
+              {% for value, label in [('off', 'Off'), ('photo', 'Across the photo'), ('mount', 'Across the photo and its mount (never the frame)')] %}
+              <option value="{{ value }}" {{ 'selected' if cfg.album_creases == value else '' }}>{{ label }}</option>
+              {% endfor %}
+            </select>
             {% endcall %}
 
             {% call unit('album_overlay_strength') %}

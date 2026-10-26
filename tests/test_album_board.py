@@ -487,8 +487,8 @@ OVERLAY_KEYS = ("album_grain", "album_burns", "album_dust", "album_creases",
 
 def test_every_overlay_is_off_by_default_at_a_low_strength():
     cfg = config_store.load_config()
-    assert [cfg[k] for k in OVERLAY_KEYS] == ["off", False, False, False, 25]
-    assert config_store.GRAIN_MODES == ("off", "still", "animated")
+    assert [cfg[k] for k in OVERLAY_KEYS] == [False, False, False, "off", 25]
+    assert config_store.CREASE_MODES == ("off", "photo", "mount")
     assert config_store.SETTINGS_BOUNDS["album_overlay_strength"] == (1, 100)
 
 
@@ -499,8 +499,10 @@ def test_each_overlay_kind_and_the_strength_is_its_own_customisable_unit():
 
 
 @pytest.mark.parametrize("key, bad, expected", [
-    ("album_grain", " Animated", "animated"), ("album_grain", "film", "off"),
-    ("album_grain", None, "off"), ("album_burns", 1, True), ("album_creases", 0, False),
+    ("album_grain", "still", True), ("album_grain", "off", False), ("album_grain", None, False),
+    ("album_grain", 1, True), ("album_burns", 1, True),
+    ("album_creases", " Mount", "mount"), ("album_creases", "frame", "off"),
+    ("album_creases", True, "photo"), ("album_creases", False, "off"),
     ("album_overlay_strength", 0, 1), ("album_overlay_strength", 250, 100),
     ("album_overlay_strength", "lots", 25),
 ])
@@ -510,33 +512,33 @@ def test_overlay_settings_are_coerced_never_rejected(key, bad, expected):
 
 def test_the_album_block_carries_the_overlay_switches_and_strength():
     _photos("a.jpg")
-    _album_profile(album_grain="animated", album_dust=True, album_overlay_strength=60)
+    _album_profile(album_grain=True, album_dust=True, album_creases="mount", album_overlay_strength=60)
     assert _board()["album"]["overlays"] == {
-        "grain": "animated", "burns": False, "dust": True, "creases": False, "strength": 0.6}
+        "grain": True, "burns": False, "dust": True, "creases": "mount", "strength": 0.6}
 
 
 def test_a_profile_follows_the_default_overlays_until_it_customises_them():
     _photos("a.jpg")
-    config_store.update_config(album_creases=True, album_overlay_strength=40)
+    config_store.update_config(album_creases="photo", album_overlay_strength=40)
     _album_profile(album_burns=True)
     overlays = _board()["album"]["overlays"]
-    assert (overlays["burns"], overlays["creases"], overlays["strength"]) == (True, True, 0.4)
+    assert (overlays["burns"], overlays["creases"], overlays["strength"]) == (True, "photo", 0.4)
 
 
 def test_a_default_save_posts_the_overlay_settings_and_the_admin_labels_them():
     c = _admin()
     r = c.post("/admin/settings", data={
-        **REQUIRED, "album_grain": "still", "album_burns": "true", "album_dust": "true",
-        "album_creases": "true", "album_overlay_strength": "70"})
+        **REQUIRED, "album_grain": "true", "album_burns": "true", "album_dust": "true",
+        "album_creases": "mount", "album_overlay_strength": "70"})
     assert r.status_code == 200
     saved = config_store.load_config()
-    assert [saved[k] for k in OVERLAY_KEYS] == ["still", True, True, True, 70]
+    assert [saved[k] for k in OVERLAY_KEYS] == [True, True, True, "mount", 70]
     html = c.get("/admin").text
     for name in OVERLAY_KEYS:
         assert f'name="{name}"' in html
-    select = html.split('name="album_grain"', 1)[1].split("</select>", 1)[0]
-    assert [m for m in config_store.GRAIN_MODES if f'value="{m}"' in select] == list(
-        config_store.GRAIN_MODES)
+    select = html.split('name="album_creases"', 1)[1].split("</select>", 1)[0]
+    assert [m for m in config_store.CREASE_MODES if f'value="{m}"' in select] == list(
+        config_store.CREASE_MODES)
     assert 'min="1" max="100"' in html.split('name="album_overlay_strength"', 1)[1].split(">", 1)[0]
     from app import main
     assert set(OVERLAY_KEYS) <= set(main.SettingsForm.model_fields)
