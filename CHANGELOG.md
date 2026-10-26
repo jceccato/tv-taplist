@@ -41,8 +41,8 @@ Merged to `main` and shipping in the next release.
   drawn by the screen itself, with nothing fetched from the internet. Every
   photo's screen copy is rebuilt once after the upgrade to pick up its mount
   colour; photos stay on screen meanwhile. A kept ticker now sits inside the
-  frame, and swiping or pressing Enter through the taps reaches the photos as
-  the page timer does.
+  frame, and tapping, swiping or pressing Enter through the taps reaches the
+  photos as the page timer does.
 - **Every phone and camera photo format.** The photo album now reads GIF (the
   first frame), TIFF, BMP, AVIF, iPhone HEIC photos and camera RAW files (CR2,
   CR3, NEF, ARW, RAF, ORF and DNG) as well as JPEG, PNG and WebP, from the Photos

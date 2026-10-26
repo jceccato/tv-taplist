@@ -591,7 +591,9 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
 - **Carousel timer is separate** from the poll timer so a poll never resets the
   page position. Rotation is `rotation_seconds`; restarted on manual nav.
 - **Pagination:** up to 8 cards/page; or a fixed `page_size` when `paginate`.
-  **Page dots are clickable** and **Enter/Space advances a page** (resets timer).
+  **Page dots are clickable** and **Enter/Space, a swipe or a tap on the board advances a
+  page** (resets timer); each counts as a tap-page turn towards the next Album visit
+  and starts it when due (`turnOrVisit`, shared with the timer).
 - **Album visits** (`album` state, `startVisit`/`endVisit`): the board's `album`
   block exists only for a profile with the album on. A tap-page turn is one tick of
   the carousel timer (single-page boards count too); once `album.turnsShown >=
@@ -847,7 +849,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 1050 tests, 31 files (the 47 page tests skip without a browser, and the HEIC
+- 1051 tests, 31 files (the 48 page tests skip without a browser, and the HEIC
   tests without pillow-heif):
   **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
   the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a
@@ -915,7 +917,7 @@ inside it (it would land as a stray file in `/data`).
   provenance in `photo_fixtures.py`), since nothing in CI can encode HEVC; a RAW is
   generated as a minimal linear DNG (`dng_bytes`). The board-update test uses Playwright's fake
   clock to reach the 30 s poll; the others run in real time with 3 s pages and 2 s
-  photos (about three minutes for the 47). `test_framed_print.py` opens a photos-only
+  photos (about three minutes for the 48). `test_framed_print.py` opens a photos-only
   profile (the visit starts at once) for each mount style, mount colour and frame
   (each realistic frame too, from its art),
   Random, a resize, and asserts that every request stays on the app; CI keeps every

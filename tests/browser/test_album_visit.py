@@ -269,3 +269,21 @@ def test_swiping_or_enter_through_the_taps_reaches_the_photos(venue, serve, page
     assert not _log(page)[-1]["visiting"]
     page.keyboard.press("Enter")
     _wait_state(page, "visiting", timeout=3000)
+
+
+def test_tapping_the_taps_reaches_the_photos_and_tapping_a_photo_skips_it(venue, serve, page):
+    make_photos()
+    config_store.update_config(rotation_seconds=60)   # pages that will not turn by themselves
+    album_profile(album_every_turns=1, album_photos_per_visit=2, album_seconds_per_photo=120)
+    _open(page, serve())
+    page.mouse.click(640, 360)                        # a tap on the taps: the visit is due
+    _wait_state(page, "visiting", timeout=3000)
+    page.wait_for_function("document.getElementById('album').dataset.photo")
+    first = page.evaluate("document.getElementById('album').dataset.photo")
+    page.mouse.click(640, 360)                        # a tap on a photo skips to the next
+    page.wait_for_function("old => document.getElementById('album').dataset.photo !== old", arg=first)
+    page.mouse.click(640, 360)                        # the last photo: back to the taps
+    _wait_state(page, "idle", timeout=3000)
+    page.wait_for_function("document.getElementById('album').hidden")
+    page.mouse.click(640, 360)                        # and tapping the taps goes on again
+    _wait_state(page, "visiting", timeout=3000)

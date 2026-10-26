@@ -1668,6 +1668,18 @@
     albumEl.addEventListener("click", advancePhoto);
   }
 
+  // A tap (or a click) on the taps moves on as Enter does: the next page, or the
+  // photos when a visit is due. A tap on a photo already skips it, so without
+  // this a touch screen could reach the taps but never leave them again (the
+  // maintainer, 2026-10-26). A swipe does not also tap: the browser sends no
+  // click after a finger has moved. The page dots keep their own jump.
+  if (board) {
+    board.addEventListener("click", (e) => {
+      if (e.target.closest("#dots, a, button, input, select, textarea")) return;
+      nextPage();
+    });
+  }
+
   // ---- keyboard navigation: Enter / Space advance a page ----
   document.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " " || e.code === "Space" || e.key === "Spacebar") {
