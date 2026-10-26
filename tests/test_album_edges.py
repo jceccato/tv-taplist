@@ -57,6 +57,44 @@ def test_a_failed_config_write_puts_the_folder_back_under_its_old_name(monkeypat
     assert config_store.load_config()["album_selection"] == ["Events"]
 
 
+def _removed_albums():
+    return {r.name: r.album for r in lib.list_removed()}
+
+
+def test_a_failed_rename_leaves_every_removed_records_album_as_it_was(monkeypatch):
+    """A deleted namesake's Removed photos must not be retagged by the rollback."""
+    from photo_fixtures import halves, write_image
+    for n, rel in enumerate(("Parties/old.jpg", "Events/a.jpg", "Events/b.jpg")):
+        write_image(paths.PHOTOS_DIR / rel, halves(left=(10 + n * 60, 40, 90)))
+    lib.scan()
+    lib.process_pending()
+    pid = {r.name: r.photo_id for r in lib.photos_in("Events")}
+    lib.delete_album("Parties")                 # old.jpg now sits in Removed as "Parties"
+    lib.remove_photos([pid["b.jpg"]])           # removed from Events itself
+    before = _removed_albums()
+    assert before == {"old.jpg": "Parties", "b.jpg": "Events"}
+    _fail_the_write(monkeypatch)
+    with pytest.raises(admin_ops.AlbumRenameFailed, match="not renamed"):
+        admin_ops.rename_album("Events", "Parties")
+    assert _removed_albums() == before
+    assert lib.list_albums() == ["Events"]
+
+
+def test_a_successful_rename_retags_its_own_removed_photos_but_not_a_namesakes():
+    from photo_fixtures import halves, write_image
+    for n, rel in enumerate(("Parties/old.jpg", "Events/a.jpg", "Events/b.jpg")):
+        write_image(paths.PHOTOS_DIR / rel, halves(left=(10 + n * 60, 40, 90)))
+    lib.scan()
+    lib.process_pending()
+    pid = {r.name: r.photo_id for r in lib.photos_in("Events")}
+    lib.delete_album("Parties")
+    lib.remove_photos([pid["b.jpg"]])
+    admin_ops.rename_album("Events", "Parties")
+    assert _removed_albums() == {"old.jpg": "Parties", "b.jpg": "Parties"}
+    admin_ops.rename_album("Parties", "Gala")   # old.jpg is flagged, so it stays put
+    assert _removed_albums() == {"old.jpg": "Parties", "b.jpg": "Gala"}
+
+
 def test_a_failed_rename_is_not_remembered_for_later_saves(monkeypatch):
     lib.create_album("Events")
     _fail_the_write(monkeypatch)
@@ -83,11 +121,11 @@ def test_when_the_folder_cannot_be_moved_back_the_error_says_where_it_is(monkeyp
     real = lib.rename_album
     calls = []
 
-    def flaky(old, new):
+    def flaky(old, new, **kw):
         calls.append((old, new))
         if len(calls) > 1:
             raise OSError("busy")
-        return real(old, new)
+        return real(old, new, **kw)
     monkeypatch.setattr(lib, "rename_album", flaky)
     with pytest.raises(admin_ops.AlbumRenameFailed, match="could not be moved back") as exc:
         admin_ops.rename_album("Events", "Parties")
@@ -104,8 +142,8 @@ def test_a_save_that_arrives_during_a_rename_waits_and_keeps_the_new_name(monkey
     real = lib.rename_album
     renamed, go = threading.Event(), threading.Event()
 
-    def slow(old, new):
-        out = real(old, new)
+    def slow(old, new, **kw):
+        out = real(old, new, **kw)
         renamed.set()
         assert go.wait(5)
         return out

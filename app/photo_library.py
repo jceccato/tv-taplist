@@ -1331,11 +1331,19 @@ def create_album(name: str) -> str:
     return clean
 
 
-def rename_album(old: str, new: str) -> str:
+def rename_album(old: str, new: str, *, retagged: list[str] | None = None,
+                 only_tokens: Iterable[str] | None = None) -> str:
     """Rename an album's folder, keeping every photo's state (copies, dates).
 
     Profiles that ticked the old name are the caller's to update (config lives a
     layer above this module): `admin_ops.rename_album` does both.
+
+    Removed records keep the album name a photo came from. A rename retags the
+    records of photos removed from this folder, not those of an earlier album of
+    the same name that was deleted (`delete_album` marks its records
+    `album_deleted`). `retagged`, when given, collects the tokens it retagged;
+    `only_tokens`, when given, retags exactly those records instead (the undo of
+    a rename whose config write failed).
     """
     if old == UNSORTED:
         raise AlbumRejected(f"“{UNSORTED}” cannot be renamed.")
@@ -1353,9 +1361,17 @@ def rename_album(old: str, new: str) -> str:
             for rel in [r for r in idx if r.startswith(prefix)]:
                 idx[f"{clean}/{rel[len(prefix):]}"] = idx.pop(rel)
             _save_index()
+        only = None if only_tokens is None else set(only_tokens)
         for token, meta in _removed_metas().items():
-            if meta.get("album") == old:
-                _write_removed_meta(token, {**meta, "album": clean})
+            if meta.get("album") != old:
+                continue
+            if only is None and meta.get("album_deleted"):
+                continue                      # a deleted namesake's photo, not this folder's
+            if only is not None and token not in only:
+                continue
+            _write_removed_meta(token, {**meta, "album": clean})
+            if retagged is not None:
+                retagged.append(token)
     log.info("album renamed")
     return clean
 
@@ -1378,6 +1394,13 @@ def delete_album(album: str) -> int:
                 os.rmdir(root)       # only succeeds when empty
             except OSError:
                 pass
+        if not folder.exists():
+            # The album is gone: every record naming it (these photos and any removed
+            # earlier) now belongs to a deleted album, which a later album of the
+            # same name must not claim on a rename. A kept folder is still the album.
+            for token, meta in _removed_metas().items():
+                if meta.get("album") == album and not meta.get("album_deleted"):
+                    _write_removed_meta(token, {**meta, "album_deleted": True})
     log.info("album deleted: %d photo(s) to Removed", moved)
     return moved
 

@@ -368,7 +368,8 @@ def rename_album(old: str, new: str) -> str:
     matching anything (the Admin lists it as "no such folder now").
     """
     with _PROFILES_LOCK:
-        clean = photo_library.rename_album(old, new)
+        retagged: list[str] = []
+        clean = photo_library.rename_album(old, new, retagged=retagged)
         if clean == old:
             return clean
 
@@ -391,7 +392,7 @@ def rename_album(old: str, new: str) -> str:
         except Exception as exc:
             log.error("album rename: the config write failed (%s); moving the folder back", exc)
             try:
-                photo_library.rename_album(clean, old)
+                photo_library.rename_album(clean, old, only_tokens=retagged)
             except Exception as back:
                 log.error("album rename: could not move the folder back (%s)", back)
                 raise AlbumRenameFailed(

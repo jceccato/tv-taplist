@@ -406,7 +406,10 @@ burns, dust, creases, strength}`, the strength as 0.01-1.
   non-photo file keeps its folder, and the Photos tab names those files
   (`photo_library.non_photo_files`, returned as `non_photo_files` by the status route and as `kept_files` by delete).
   **Removed** is `photos_removed/<token>.<ext>` plus `<token>.json` `{album, name, ext,
-  removed_at, copy_id}`; the record is written before the move. Removing deletes the
+  removed_at, copy_id}` (and `album_deleted: true` once the album it names is gone); the
+  record is written before the move. A rename retags only the records of photos removed
+  from that folder, never those marked `album_deleted` (an earlier album of the same name),
+  and its rollback restores exactly the tokens the rename retagged (issue #71). Removing deletes the
   public Display copy at once (unless an identical photo shares it) but keeps the thumbnail,
   which the orphan sweep also spares while a record names it. Restore recreates the album
   folder if needed (a hand-edited bad album falls back to Unsorted), suffixes a taken
