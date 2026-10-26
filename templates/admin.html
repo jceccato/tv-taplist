@@ -617,7 +617,40 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             </select>
             {% endcall %}
 
-            <p class="hint">During a visit the venue logo, the ticker (unless kept) and the page dots are hidden, and Enter, Space or a click moves to the next photo. A screen whose albums hold no ready photos just shows the taps. The album is off in the Default profile; switch it on for one screen by customising it in that screen&rsquo;s profile.</p>
+            {% call unit('album_pair_portraits') %}
+            <label class="checkbox">
+              <input type="checkbox" name="album_pair_portraits" {{ 'checked' if cfg.album_pair_portraits else '' }}>
+              Show two portrait photos side by side, each in its own mount (each counts as a photo towards the visit)
+            </label>
+            {% endcall %}
+
+            {% call unit('album_three_up') %}
+            <label class="checkbox">
+              <input type="checkbox" name="album_three_up" {{ 'checked' if cfg.album_three_up else '' }}>
+              Show up to three portrait photos side by side (needs the switch above)
+            </label>
+            {% endcall %}
+
+            {% call unit('album_captions') %}
+            <strong>Captions on the mount&rsquo;s bottom edge (off by default)</strong>
+            <label class="checkbox">
+              <input type="checkbox" name="album_caption_date" {{ 'checked' if cfg.album_caption_date else '' }}>
+              Date taken (the file&rsquo;s date when the photo has none)
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="album_caption_album" {{ 'checked' if cfg.album_caption_album else '' }}>
+              Album name
+            </label>
+            {% endcall %}
+
+            {% call unit('album_ken_burns') %}
+            <label class="checkbox">
+              <input type="checkbox" name="album_ken_burns" {{ 'checked' if cfg.album_ken_burns else '' }}>
+              Slow zoom and pan (the photo drifts inside its mount; the mount and frame stay still)
+            </label>
+            {% endcall %}
+
+            <p class="hint">During a visit the venue logo, the ticker (unless kept) and the page dots are hidden, and Enter, Space or a click moves to the next photo. Captions need a mount (a photo with no mount has no bottom edge to put them on). Two or three portraits side by side apply only on a screen wider than it is tall. A screen whose albums hold no ready photos just shows the taps. The album is off in the Default profile; switch it on for one screen by customising it in that screen&rsquo;s profile.</p>
           </fieldset>
 
           <fieldset {{ 'hidden' if editing else '' }} data-global-only>

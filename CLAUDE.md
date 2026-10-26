@@ -253,6 +253,15 @@ none/thin-black/thin-white/oak/walnut/gilded/polaroid, then `REALISTIC_FRAMES` (
 `real-*` generated frames, `static/frames/`), then random; default thin-black).
 Unknown values coerce to the default. The board's `album.print` carries the four
 as chosen; "random" travels as it is and the page picks per photo.
+**Portraits, captions and the slow zoom (issue #62)** add four more units, all
+off but pairing: `album_pair_portraits` (on), `album_three_up` (off; sent to the page
+as false while pairing is off), `album_captions` (ONE unit of `album_caption_date` and
+`album_caption_album`, both off) and `album_ken_burns` (off). The album block carries
+`pair_portraits`, `three_up`, `captions {date, album}` and `ken_burns`; each photo
+entry's `taken` is the EXIF date, else the file's date (`_file_date`), and its
+`caption_album` is the album name, or null for loose files ("Unsorted" is not worth
+printing under a photo). Captions are never file names. They are switched on in the
+Settings tab's Photo album section ("Captions on the mount's bottom edge").
 
 ---
 
@@ -849,7 +858,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 1051 tests, 31 files (the 48 page tests skip without a browser, and the HEIC
+- 1079 tests, 32 files (the 70 page tests skip without a browser, and the HEIC
   tests without pillow-heif):
   **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
   the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a
@@ -917,11 +926,15 @@ inside it (it would land as a stray file in `/data`).
   provenance in `photo_fixtures.py`), since nothing in CI can encode HEVC; a RAW is
   generated as a minimal linear DNG (`dng_bytes`). The board-update test uses Playwright's fake
   clock to reach the 30 s poll; the others run in real time with 3 s pages and 2 s
-  photos (about three minutes for the 48). `test_framed_print.py` opens a photos-only
+  photos (about four minutes for the 70). `test_framed_print.py` opens a photos-only
   profile (the visit starts at once) for each mount style, mount colour and frame
   (each realistic frame too, from its art),
   Random, a resize, and asserts that every request stays on the app; CI keeps every
-  screenshot as the `page-screenshots` artefact.
+  screenshot as the `page-screenshots` artefact. `test_spreads.py` (issue #62) uses
+  portrait and landscape fixtures named so Name A-Z order is known: two-up, three-up,
+  K counting, pairing off, a lone portrait's wider sides, Shuffle's look-ahead,
+  advancing by a whole spread, captions (EXIF dates, never file names) and the slow
+  zoom (only the photo's transform moves).
 - **The sync fixture fakes the httpx TRANSPORT, not `_list_batches`**, so the real
   listing, filtering, dedupe and pagination run in tests. Do not reintroduce a
   hand-written batch-list fake.

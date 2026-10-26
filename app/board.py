@@ -31,6 +31,7 @@ vacant/hidden flags. Reads tolerate files disappearing mid-cycle.
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -571,6 +572,14 @@ def resolve_upcoming(entry: UpcomingEntry, cfg: dict[str, Any],
     }
 
 
+def _file_date(epoch: float) -> str | None:
+    """A sort date (epoch seconds) as an ISO date, or None when there is none."""
+    try:
+        return datetime.fromtimestamp(epoch).date().isoformat() if epoch > 0 else None
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def resolve_album(cfg: dict[str, Any]) -> dict[str, Any] | None:
     """The photo album's part of the board: the visit plan and the ready photos.
 
@@ -594,6 +603,7 @@ def resolve_album(cfg: dict[str, Any]) -> dict[str, Any] | None:
     albums = None if cfg.get("album_all", True) else cfg.get("album_selection") or []
     order = cfg.get("album_order", DEFAULT_CONFIG["album_order"])
     photos = photo_library.ready_photos(albums, order)
+    pair = bool(cfg.get("album_pair_portraits", DEFAULT_CONFIG["album_pair_portraits"]))
     return {
         "every_turns": int(cfg.get("album_every_turns", DEFAULT_CONFIG["album_every_turns"])),
         "photos_per_visit": int(cfg.get("album_photos_per_visit",
@@ -612,13 +622,29 @@ def resolve_album(cfg: dict[str, Any]) -> dict[str, Any] | None:
             "mount_custom": cfg.get("album_mount_custom", DEFAULT_CONFIG["album_mount_custom"]),
             "frame": cfg.get("album_frame", DEFAULT_CONFIG["album_frame"]),
         },
+        # Portraits side by side, captions and the slow zoom (issue #62). The
+        # page lays out and draws them; the server only says which are on.
+        # `three_up` means nothing without `pair_portraits`, so it is sent as
+        # false then and the page need not know the dependency.
+        "pair_portraits": pair,
+        "three_up": pair and bool(cfg.get("album_three_up", DEFAULT_CONFIG["album_three_up"])),
+        "captions": {
+            "date": bool(cfg.get("album_caption_date", DEFAULT_CONFIG["album_caption_date"])),
+            "album": bool(cfg.get("album_caption_album", DEFAULT_CONFIG["album_caption_album"])),
+        },
+        "ken_burns": bool(cfg.get("album_ken_burns", DEFAULT_CONFIG["album_ken_burns"])),
         "photos": [
             {
                 "id": p.photo_id,
                 "url": f"/img/photo/{p.filename}",
                 "aspect": p.aspect,
                 "album": p.album,
-                "taken": p.taken,
+                # What an album caption says: loose files ("Unsorted") have no
+                # album worth naming to a guest.
+                "caption_album": None if p.album == photo_library.UNSORTED else p.album,
+                # The caption's date: when it was taken, else the file's date
+                # (a photo with no EXIF date still has a date to show).
+                "taken": p.taken or _file_date(p.date),
                 # The "From photo" mount colour; null for a copy made before
                 # it was sampled (the page then uses a neutral card colour).
                 "mount": p.mount,

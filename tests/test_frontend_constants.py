@@ -437,7 +437,9 @@ def test_display_js_runs_the_album_it_is_told_and_never_reads_album_settings():
     js = _display_js()
     for raw in ("album_enabled", "album_all", "album_selection", "album_order",
                 "album_every_turns", "album_photos_per_visit", "album_seconds_per_photo",
-                "album_keep_ticker", "album_fade_seconds"):
+                "album_keep_ticker", "album_fade_seconds", "album_pair_portraits",
+                "album_three_up", "album_caption_date", "album_caption_album",
+                "album_ken_burns"):
         assert raw not in js, f"display.js reads the raw Setting {raw}"
     assert "board.album" in js or "albumUpdate(board.album)" in js
     assert "/photos" not in js and "photo_cache" not in js

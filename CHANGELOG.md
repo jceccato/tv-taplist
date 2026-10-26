@@ -26,6 +26,20 @@ Merged to `main` and shipping in the next release.
 
 ### Added
 
+- **Portraits side by side, captions and a slow zoom.** On a wide screen two
+  portrait photos from the same album visit are now shown side by side, each in
+  its own mount and frame, and each counts as a photo towards the visit's total.
+  A screen can allow three at a time, or switch pairing off to always show one
+  photo, which for a lone portrait now has the wider sides a tall photo needs.
+  Captions on the mount's bottom edge can show the date taken (the file's date
+  when the photo has none) and the album name; both are off until you switch
+  them on, per screen, in the Settings tab's Photo album section under
+  **Captions on the mount's bottom edge**. File names are never shown. A slow zoom
+  and pan, off by default, moves the photo inside its mount while the mount and
+  frame stay still. Shuffle looks further along its list for a second portrait;
+  Name and Date orders only pair photos that sit next to each other, so their
+  order holds. A kept ticker sits in a band under the photos when two or three are
+  shown.
 - **Photos as framed prints.** Each photo of an album visit is now shown as a
   framed print, after Samsung's The Frame: a frame at the screen's edges (none,
   thin black, thin white, oak, walnut, gilded or Polaroid with its wide bottom

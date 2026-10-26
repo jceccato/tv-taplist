@@ -1298,43 +1298,106 @@
     return true;
   }
 
+  /* ---- Portraits side by side (issue #62) ----
+
+     A portrait photo is taller than the screen's shape, so alone it gets wide
+     mounts either side. With pairing on, a spread takes up to two (or, with
+     three-up, three) portraits for one page, each in its own mount and frame,
+     and each counts as a photo towards the visit's K. Only a landscape screen
+     pairs: on a portrait screen a lone portrait already fills the height.
+
+     Shuffle looks ahead in the rest of its pass for partners (the order is
+     random anyway; the partners are used up, so no photo comes round twice in
+     a pass). Name and Date orders only pair photos that are neighbours in the
+     list, because their order is the point: a landscape photo between two
+     portraits keeps both of them apart. */
+  const PORTRAIT_MAX = 0.9;       // width / height under this is a portrait
+  const SPREAD_GAP = 0.01;        // the black between two prints, of the short side
+  const isPortrait = (p) => Number(p.aspect) > 0 && Number(p.aspect) < PORTRAIT_MAX;
+
+  function takeSpread(budget) {
+    const first = nextPhoto();
+    if (!first) return [];
+    const plan = album.plan;
+    const room = plan.three_up ? 3 : 2;
+    const most = plan.pair_portraits === true && isPortrait(first) &&
+      albumEl.clientWidth > albumEl.clientHeight ? Math.min(room, budget) : 1;
+    const spread = [first];
+    if (album.cfg && album.cfg.order === "shuffle") {
+      for (let i = 0; i < album.queue.length && spread.length < most;) {
+        const partner = album.photos.find((p) => p.id === album.queue[i]);
+        if (partner && isPortrait(partner)) {
+          album.queue.splice(i, 1);
+          album.passShown.add(partner.id);
+          album.lastId = partner.id;
+          spread.push(partner);
+        } else {
+          i++;
+        }
+      }
+    } else {
+      while (spread.length < most) {
+        const before = { lastId: album.lastId, pos: album.pos };
+        const next = nextPhoto();
+        if (next && isPortrait(next) && !spread.some((p) => p.id === next.id)) {
+          spread.push(next);
+        } else {
+          album.lastId = before.lastId; album.pos = before.pos;   // not a partner: it is next time's
+          break;
+        }
+      }
+    }
+    return spread;
+  }
+
   function showNextPhoto() {
     if (!album.visiting) return;
     clearTimeout(album.timer);
     const plan = album.plan;
     const endless = plan.every_turns === 0;       // photos only
-    if (!albumPlan() ||
-        (!endless && album.shownInVisit >= Math.min(plan.photos_per_visit, album.photos.length))) {
+    const left = Math.min(plan.photos_per_visit, album.photos.length) - album.shownInVisit;
+    if (!albumPlan() || (!endless && left <= 0)) {
       endVisit(true);
       return;
     }
-    const photo = nextPhoto();
-    if (!photo) { endVisit(true); return; }
+    const spread = takeSpread(endless ? 3 : left);
+    if (!spread.length) { endVisit(true); return; }
     const seq = ++album.seq;
     // Preload, so a slow LAN never fades to a half-drawn photo; a photo that
     // will not load is skipped (and the visit gives up if none will).
-    // The look is chosen now, so a realistic frame's art loads with the photo
-    // and never pops in after it.
-    const choice = choosePrint(album.plan.print);
-    if (FRAME_ART[choice.frame]) new Image().src = artUrl(choice.frame);
-    const probe = new Image();
-    probe.onload = () => { if (seq === album.seq) drawPhoto(photo, choice); };
-    probe.onerror = () => {
-      if (seq !== album.seq) return;
-      album.failures++;
-      if (album.failures >= album.photos.length) { album.stalled = true; endVisit(true); }
-      else showNextPhoto();
+    // The look is chosen now, per photo, so a realistic frame's art loads with
+    // the photo and never pops in after it.
+    const choices = spread.map(() => choosePrint(album.plan.print));
+    choices.forEach((c) => { if (FRAME_ART[c.frame]) new Image().src = artUrl(c.frame); });
+    const loaded = spread.map(() => false);
+    let waiting = spread.length;
+    const settle = () => {
+      if (--waiting > 0 || seq !== album.seq) return;
+      const good = spread.map((_, i) => i).filter((i) => loaded[i]);
+      if (!good.length) {
+        album.failures += spread.length;
+        if (album.failures >= album.photos.length) { album.stalled = true; endVisit(true); }
+        else showNextPhoto();
+        return;
+      }
+      album.failures += spread.length - good.length;
+      drawPhoto(good.map((i) => spread[i]), good.map((i) => choices[i]));
     };
-    probe.src = photo.url;
+    spread.forEach((photo, i) => {
+      const probe = new Image();
+      probe.onload = () => { loaded[i] = true; settle(); };
+      probe.onerror = settle;
+      probe.src = photo.url;
+    });
   }
 
-  function drawPhoto(photo, choice) {
+  function drawPhoto(photos, choices) {
     const layers = albumEl.querySelectorAll(".album-layer");
     album.layer = 1 - album.layer;
     const up = layers[album.layer];
     const down = layers[1 - album.layer];
     album.failures = 0;
-    buildPrint(up, photo, choice);
+    buildPrints(up, photos, choices);
     placeTicker(up);
     // The first photo of a visit appears with the layer's own fade-in; later
     // ones cross-fade layer to layer.
@@ -1343,9 +1406,14 @@
     up.classList.add("shown");
     down.classList.remove("shown");
     down.classList.remove("instant");
-    albumEl.dataset.photo = photo.id;
-    album.shownInVisit++;
-    album.timer = setTimeout(showNextPhoto, Math.max(2, Number(album.plan.seconds_per_photo) || 10) * 1000);
+    albumEl.dataset.photo = photos.map((p) => p.id).join(",");
+    album.shownInVisit += photos.length;
+    const seconds = Math.max(2, Number(album.plan.seconds_per_photo) || 10);
+    if (album.plan.ken_burns === true) {
+      const fade = Math.min(Number(album.plan.fade_seconds) || 0, seconds / 2);
+      up._prints.forEach((p) => startDrift(p, seconds + 2 * fade + 1));
+    }
+    album.timer = setTimeout(showNextPhoto, seconds * 1000);
   }
 
   /* ---- The framed print (issue #61) ----
@@ -1396,6 +1464,7 @@
   // as far too much mount on a real TV (the maintainer, 2026-10-26), so ~6 %;
   // Shadow box and Float are a little wider so their shadows have room.
   const MOUNT_WIDTH = { none: 0, flat: 0.06, double: 0.06, shadow: 0.07, float: 0.075 };
+  const CAPTION_FONT = 0.03;      // a caption's text size, of the print's short side
   const DOUBLE_INNER = 0.014;     // the second mat's reveal inside a Double mount
   const BEVEL = 0.004;            // the cut mat's white core, around the window
   // Frame widths: [sides and top, bottom]. Polaroid's bottom edge is the wide one.
@@ -1469,14 +1538,29 @@
 
   function clearPrint(layer) {
     layer.textContent = "";
-    layer._print = null;
-    ["style", "color", "frame", "mount"].forEach((k) => layer.removeAttribute("data-" + k));
+    layer._prints = null;
+    ["style", "color", "frame", "mount", "count"].forEach((k) => layer.removeAttribute("data-" + k));
   }
 
-  // Build one print into a layer. The layout itself is in layoutPrint, so a
-  // resize can lay the same print out again without choosing anew.
-  function buildPrint(layer, photo, choice) {
+  // Build a layer's prints: one photo fills the layer itself; a spread puts each
+  // photo in its own cell, side by side. The layout itself is in layoutPrint, so
+  // a resize can lay the same prints out again without choosing anew.
+  function buildPrints(layer, photos, choices) {
     clearPrint(layer);
+    layer.dataset.count = String(photos.length);
+    layer._prints = photos.map((photo, i) => {
+      let host = layer;
+      if (photos.length > 1) {
+        host = printPart("album-cell");
+        layer.appendChild(host);
+      }
+      return buildPrint(host, photo, choices[i]);
+    });
+    layoutPrint(layer);
+  }
+
+  // One framed print, drawn into `layer` (a layer, or one cell of a spread).
+  function buildPrint(layer, photo, choice) {
     const mount = choice.style === "none" ? null : mountHex(choice, photo);
     layer.dataset.style = choice.style;
     layer.dataset.color = choice.style === "none" ? "none" : choice.color;
@@ -1526,23 +1610,61 @@
         return part;
       });
     }
-    layer._print = { photo, choice, parts };
-    layoutPrint(layer);
+    const caption = mount ? captionText(photo, album.plan && album.plan.captions) : "";
+    if (caption) {
+      parts.caption = printPart("print-caption");
+      parts.caption.textContent = caption;
+      parts.caption.style.color = luminance(mount) > 0.4 ? "rgba(32, 26, 20, 0.74)" : "rgba(244, 238, 226, 0.8)";
+      layer.appendChild(parts.caption);
+    }
+    return { host: layer, photo, choice, parts, mount };
+  }
+
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  // The date taken as "12 Oct 2026", from the board's ISO date: read as written,
+  // never through a time zone, so it is the day on the camera's clock.
+  function captionDate(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+    return m && +m[2] >= 1 && +m[2] <= 12 ? `${+m[3]} ${MONTHS[+m[2] - 1]} ${m[1]}` : "";
+  }
+
+  // What the caption says, from the switches the board sent; never a file name.
+  function captionText(photo, caps) {
+    if (!caps) return "";
+    const bits = [];
+    if (caps.date === true) bits.push(captionDate(photo.taken));
+    if (caps.album === true) bits.push(String(photo.caption_album || ""));
+    return bits.filter(Boolean).join("  \u00b7  ");
   }
 
   function layoutPrint(layer) {
-    const p = layer._print;
-    if (!p) return;
+    const prints = layer._prints;
+    if (!prints) return;
     const W = albumEl.clientWidth || window.innerWidth;
     const H = albumEl.clientHeight || window.innerHeight;
+    const n = prints.length;
+    if (n === 1) { layoutOne(prints[0], W, H, album.ticker ? album.tickerH + album.tickerGap : 0); return; }
+    // A spread: the cells side by side, with a kept ticker in a band of its own
+    // under all of them (one ticker cannot sit inside three frames).
+    const th = album.ticker ? album.tickerH + album.tickerGap : 0;
+    const gap = Math.round(SPREAD_GAP * Math.min(W, H));
+    const cw = Math.floor((W - gap * (n - 1)) / n);
+    prints.forEach((p, i) => {
+      box(p.host, i * (cw + gap), 0, cw, H - th);
+      layoutOne(p, cw, H - th, 0);
+    });
+  }
+
+  // Lay one print out in a w x h cell. `th` is a kept ticker's height inside the frame.
+  function layoutOne(p, W, H, th) {
+    const { choice, photo, parts, host } = p;
     const S = Math.min(W, H);
-    const { choice, photo, parts } = p;
-    layer.style.setProperty("--print-s", S + "px");
+    host.style.setProperty("--print-s", S + "px");
     const e = frameEdges(choice.frame, S);
     // The space inside the frame: the mount, or the photo itself with no mount.
     // A kept ticker sits inside the frame, along its bottom edge, so the mount
     // (or the photo, with no mount) stops above it.
-    const th = album.ticker ? album.tickerH + album.tickerGap : 0;
     const ix = e.l, iy = e.t, iw = Math.max(1, W - e.l - e.r), ih = Math.max(1, H - e.t - e.b - th);
     const m = Math.round(MOUNT_WIDTH[choice.style] * S);
     const inner = choice.style === "double" ? Math.round(DOUBLE_INNER * S) : 0;
@@ -1564,6 +1686,16 @@
     if (parts.art) {
       box(parts.art, 0, 0, W, H);
       parts.art.style.borderWidth = `${e.t}px ${e.r}px ${e.b}px ${e.l}px`;
+    }
+    if (parts.caption) {
+      // In the mount's bottom edge, under the photo, as wide as the photo.
+      const edge = inner + bevel;
+      const top = py + ph + edge, band = Math.max(0, iy + ih - top);
+      const font = Math.max(10, Math.round(CAPTION_FONT * S));
+      box(parts.caption, px - edge, top, pw + 2 * edge, band);
+      parts.caption.style.fontSize = font + "px";
+      parts.caption.style.lineHeight = band + "px";
+      parts.caption.style.display = band >= font * 1.2 ? "" : "none";
     }
     if (parts.sides) {
       // Four mitred sides, so the wood grain runs along each one.
@@ -1600,18 +1732,46 @@
     albumEl.appendChild(album.ticker);
   }
 
-  // Put the ticker copy along the bottom edge inside `layer`'s frame.
+  // Put the ticker copy along the bottom edge inside `layer`'s frame (a lone
+  // photo), or in a band across the bottom under a spread's frames.
   function placeTicker(layer) {
-    const p = layer && layer._print;
-    if (!album.ticker || !p) return;
+    const prints = layer && layer._prints;
+    if (!album.ticker || !prints || !prints.length) return;
     const W = albumEl.clientWidth || window.innerWidth;
     const H = albumEl.clientHeight || window.innerHeight;
-    const S = Math.min(W, H);
-    const e = frameEdges(p.choice.frame, S);
     const h = album.tickerH + album.tickerGap;
-    box(album.ticker, e.l, H - e.b - h, W - e.l - e.r, h);
+    if (prints.length > 1) {
+      box(album.ticker, 0, H - h, W, h);
+    } else {
+      const e = frameEdges(prints[0].choice.frame, Math.min(W, H));
+      box(album.ticker, e.l, H - e.b - h, W - e.l - e.r, h);
+    }
     album.ticker.style.paddingBottom = album.tickerGap + "px";
     album.ticker.style.boxSizing = "border-box";
+  }
+
+  /* The slow zoom and pan (issue #62). Only the photo moves, inside its window
+     (which clips it): the mount, the bevel, the frame and the caption stay put.
+     One slow CSS transition from a start to an end transform per photo, at
+     random: zooming in or out, between a little and about 14 %, panning only as
+     far as keeps the window covered. */
+  const DRIFT_MIN = 1.03;
+  function startDrift(p, seconds) {
+    const img = p.parts.window.querySelector(".album-photo");
+    if (!img) return;
+    const zoomIn = Math.random() < 0.5;
+    const big = DRIFT_MIN + 0.07 + Math.random() * 0.04;
+    const pose = (scale) => {
+      const reach = (scale - 1) / 2 * 100 * 0.8;       // percent of the photo's own size
+      const x = (Math.random() * 2 - 1) * reach, y = (Math.random() * 2 - 1) * reach;
+      return `translate(${x.toFixed(2)}%, ${y.toFixed(2)}%) scale(${scale.toFixed(3)})`;
+    };
+    img.style.transition = "none";
+    img.style.transform = pose(zoomIn ? DRIFT_MIN : big);
+    void img.offsetWidth;                              // the start must settle before the move
+    img.style.transition = `transform ${seconds}s linear`;
+    img.style.transform = pose(zoomIn ? big : DRIFT_MIN);
+    p.parts.window.dataset.drift = "on";
   }
 
   window.addEventListener("resize", () => {

@@ -487,6 +487,10 @@ PROFILE_UNIT_LABELS = {
     "album_mount_style": "Mount style",
     "album_mount_color": "Mount colour",
     "album_frame": "Frame",
+    "album_pair_portraits": "Two portraits side by side",
+    "album_three_up": "Three portraits side by side",
+    "album_captions": "Photo captions",
+    "album_ken_burns": "Slow zoom and pan",
 }
 
 
@@ -877,6 +881,11 @@ class SettingsForm(BaseModel):
     album_mount_color: str = "photo"
     album_mount_custom: str = "#e9e4d8"
     album_frame: str = "thin-black"
+    album_pair_portraits: bool = True
+    album_three_up: bool = False
+    album_caption_date: bool = False
+    album_caption_album: bool = False
+    album_ken_burns: bool = False
 
     @field_validator("album_selection", mode="before")
     @classmethod

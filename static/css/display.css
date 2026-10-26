@@ -562,7 +562,23 @@ html, body {
    Every part is absolutely placed by display.js (layoutPrint) in px; --print-s is
    the screen's short side, so shadows and textures scale with the print. The
    textures are inline SVG noise (data: URIs), never a fetch. */
-.album-layer > * { position: absolute; box-sizing: border-box; }
+.album-layer > *, .album-cell > * { position: absolute; box-sizing: border-box; }
+/* A spread (issue #62): each photo's print is laid out in its own cell, side by
+   side; a lone photo is laid out in the layer itself. */
+.album-cell { overflow: hidden; }
+/* The window clips the slow zoom and pan, so the photo moves inside it and the
+   mount, bevel and frame never do. (Its own shadow is not clipped.) */
+.print-window { overflow: hidden; }
+/* A caption on the mount's bottom edge: one centred line the width of the photo. */
+.print-caption {
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+  letter-spacing: 0.04em;
+}
 .album-photo {
   display: block;
   width: 100%;

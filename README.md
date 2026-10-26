@@ -20,6 +20,18 @@ a screen pointed at it.
 - **Offline-first.** Beers are cached as plain text + images in a folder you map
   from the host, so the board survives reboots and outages and stays inspectable.
 - **Runs anywhere Docker does** - a Raspberry Pi, an Unraid box, a NUC, a VM.
+- **A photo album between the taps.** Upload photos from a phone or a desktop into
+  named albums (or drop folders on the disk), and a screen shows a few of them after
+  every few pages of taps, or all the time as a photo frame. Per screen, in the Admin.
+  - **Framed prints.** Each photo sits in a mount and a frame (drawn or realistic),
+    after Samsung's The Frame.
+  - **Portraits and captions.** Two or three portraits show side by side, and the
+    date taken and album name can be set on the mount's bottom edge (off until you
+    switch them on in the Photo album settings). An optional slow zoom drifts the
+    photo inside its mount.
+  - **Any phone photo.** HEIC, RAW and the usual formats; a compatibility mode serves
+    JPEG to TVs that cannot show WebP. Photos are stripped of location data and kept
+    as untouched originals on disk.
 
 ---
 

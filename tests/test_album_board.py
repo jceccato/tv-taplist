@@ -139,7 +139,7 @@ def test_the_album_block_carries_the_visit_plan_and_the_ordered_ready_photos():
         "fade_seconds": 0.5, "keep_ticker": True, "order": "name"}
     assert [p["album"] for p in album["photos"]] == ["Brew day", "Brew day", "Unsorted"]
     first = album["photos"][0]
-    assert set(first) == {"id", "url", "aspect", "album", "taken", "mount"}
+    assert set(first) == {"id", "url", "aspect", "album", "caption_album", "taken", "mount"}
     assert first["mount"].startswith("#") and len(first["mount"]) == 7
     assert first["url"].startswith("/img/photo/") and first["url"].endswith(".webp")
     assert first["aspect"] == pytest.approx(1.5, abs=0.05)
@@ -416,3 +416,64 @@ def test_the_admin_offers_every_print_choice():
                           ("album_frame", config_store.FRAMES)):
         select = html.split(f'name="{name}"', 1)[1].split("</select>", 1)[0]
         assert [c for c in choices if f'value="{c}"' in select] == list(choices)
+
+
+# ---- portraits, captions and the slow zoom (issue #62) ------------------------------------
+
+SPREAD_KEYS = ("album_pair_portraits", "album_three_up", "album_caption_date",
+               "album_caption_album", "album_ken_burns")
+
+
+def test_the_spread_defaults_pair_portraits_and_switch_the_rest_off():
+    cfg = config_store.load_config()
+    assert [cfg[k] for k in SPREAD_KEYS] == [True, False, False, False, False]
+
+
+def test_every_spread_setting_is_customisable_and_the_two_captions_are_one_unit():
+    assert set(SPREAD_KEYS) <= config_store.CUSTOMISABLE_KEYS
+    assert not set(SPREAD_KEYS) & config_store.NEVER_CUSTOMISABLE
+    assert config_store.CUSTOMISABLE_UNITS["album_captions"] == (
+        "album_caption_date", "album_caption_album")
+
+
+def test_the_album_block_carries_the_spread_choices():
+    _photos("a.jpg")
+    _album_profile(album_three_up=True, album_caption_album=True, album_ken_burns=True)
+    album = _board()["album"]
+    assert (album["pair_portraits"], album["three_up"], album["ken_burns"]) == (True, True, True)
+    assert album["captions"] == {"date": False, "album": True}
+
+
+def test_three_up_is_sent_as_off_when_pairing_is_off():
+    _photos("a.jpg")
+    _album_profile(album_pair_portraits=False, album_three_up=True)
+    album = _board()["album"]
+    assert (album["pair_portraits"], album["three_up"]) == (False, False)
+
+
+def test_a_photo_without_an_exif_date_still_carries_a_caption_date():
+    _photos("Events/a.jpg")
+    taken = _album_profile_board_photo()["taken"]
+    assert taken and len(taken) == 10 and taken[4] == "-"
+
+
+def _album_profile_board_photo():
+    _album_profile()
+    return _board()["album"]["photos"][0]
+
+
+def test_a_default_save_posts_the_spread_settings_and_the_admin_labels_them():
+    c = _admin()
+    r = c.post("/admin/settings", data={
+        **REQUIRED, "album_pair_portraits": "false", "album_three_up": "true",
+        "album_caption_date": "true", "album_caption_album": "true", "album_ken_burns": "true"})
+    assert r.status_code == 200
+    saved = config_store.load_config()
+    assert [saved[k] for k in SPREAD_KEYS] == [False, True, True, True, True]
+    html = c.get("/admin").text
+    for name in SPREAD_KEYS:
+        assert f'name="{name}"' in html
+    from app import main
+    assert set(SPREAD_KEYS) <= set(main.SettingsForm.model_fields)
+    for unit in ("album_pair_portraits", "album_three_up", "album_captions", "album_ken_burns"):
+        assert unit in main.PROFILE_UNIT_LABELS

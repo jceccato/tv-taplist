@@ -193,6 +193,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "album_mount_color": "photo",       # see MOUNT_COLORS
     "album_mount_custom": "#e9e4d8",
     "album_frame": "thin-black",        # see FRAMES
+    # Portraits, captions and the slow zoom (issue #62). Two portraits from one
+    # visit are shown side by side (each photo counts towards the visit's K);
+    # `album_three_up` allows three when `album_pair_portraits` is on. Captions
+    # sit on the mount's bottom edge (never a file name). Ken Burns moves the
+    # photo inside its mount, never the mount.
+    "album_pair_portraits": True,
+    "album_three_up": False,
+    "album_caption_date": False,
+    "album_caption_album": False,
+    "album_ken_burns": False,
     # Display profiles (ADR-0007): name -> {customised key: value}. A profile
     # holds ONLY its Customised settings; everything else follows the Default
     # profile (the rest of this dict). Names are validated and values clamped by
@@ -270,6 +280,10 @@ CUSTOMISABLE_UNITS: dict[str, tuple[str, ...]] = {
     "album_mount_style": ("album_mount_style",),
     "album_mount_color": ("album_mount_color", "album_mount_custom"),
     "album_frame": ("album_frame",),
+    "album_pair_portraits": ("album_pair_portraits",),
+    "album_three_up": ("album_three_up",),
+    "album_captions": ("album_caption_date", "album_caption_album"),
+    "album_ken_burns": ("album_ken_burns",),
 }
 
 CUSTOMISABLE_KEYS: frozenset[str] = frozenset(
@@ -740,7 +754,8 @@ def _coerce(cfg: dict[str, Any]) -> dict[str, Any]:
     merged["paginate"] = bool(merged["paginate"])
 
     # The photo album. Unrecognised order coerces to Shuffle, never rejected.
-    for flag in ("album_enabled", "album_all", "album_keep_ticker"):
+    for flag in ("album_enabled", "album_all", "album_keep_ticker", "album_pair_portraits",
+                 "album_three_up", "album_caption_date", "album_caption_album", "album_ken_burns"):
         merged[flag] = bool(merged[flag])
     order = str(merged["album_order"] or "").strip().lower()
     merged["album_order"] = order if order in ALBUM_ORDERS else ORDER_SHUFFLE
