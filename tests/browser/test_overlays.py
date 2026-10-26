@@ -208,8 +208,11 @@ def test_strength_scales_every_overlay(venue, serve, page):
         _shot(page, f"strength-{name}")
         seen[name] = {**{_kind_of(p["cls"]): p["opacity"] for p in info["parts"]},
                       "crease": info["texOpacity"]}
-    for kind, faint in seen["faint"].items():
-        assert 0 < faint < seen["heavy"][kind], kind
+    # A burnt corner is drawn on about two photos in three, so it is compared
+    # only when both have one; the other kinds are always there.
+    assert {"grain", "leak", "dust", "crease"} <= set(seen["faint"]) & set(seen["heavy"])
+    for kind in set(seen["faint"]) & set(seen["heavy"]):
+        assert 0 < seen["faint"][kind] < seen["heavy"][kind], kind
 
 
 def test_the_slow_zoom_moves_the_photo_under_still_overlays(venue, serve, page):
