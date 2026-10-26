@@ -73,15 +73,14 @@ Merged to `main` and shipping in the next release.
   soft" on the Photos tab, and still shown. A file that cannot be read is listed
   with the reason and never holds up the others. The FAQ has a JPEG fallback for
   a HEIC photo that will not read.
-- **Upload photos from a phone or desktop.** The Photos tab has an upload
-  button: pick photos from the device you are using and they
-  go into the album you choose, with a progress bar and a **Retry** for any file
+- **Upload photos from a phone or desktop.** The Photos tab has an **Add
+  photos** button (or drag and drop): pick photos from the device you are using and
+  they go into the album you are viewing, with a progress bar and a **Retry** for any file
   that fails, so one bad file never stops the rest. Each file may be up to 250 MB,
   and uploads stop while the data directory has less than 1 GB free. A photo that
   is already in that album (the same content, whatever its name) is skipped, and a
   different photo with a name already in use is kept under a suffixed name. The
-  Photos tab also shows how many photos are ready, waiting or failed, and lists
-  the unreadable ones with the reason. Uploads and the Photos tab need the Admin
+  Photos tab also shows how many photos are ready and how many could not be read, with the reason. Uploads and the Photos tab need the Admin
   login.
 - **Compatibility mode and 1080p Display copies.** For an older TV that shows
   photos blank or slowly, the Photos tab's **Display copies** panel sets the
@@ -100,10 +99,10 @@ Merged to `main` and shipping in the next release.
   rename and delete albums, tick many photos and move them to another album or
   remove them. Renaming an album in the Admin updates every screen that shows it
   (a folder renamed by hand still appears as a new, unticked album). A rename is
-  undone if the settings cannot be saved, a Settings Save made from a page opened
-  before the rename cannot bring the old name back, and a rename retags only the
+  undone if the settings cannot be saved, and a Settings Save from a page opened
+  before the rename cannot bring the old name back. A rename retags only the
   Removed photos taken from that folder, never those of an earlier deleted album
-  with the same name (and a failed rename puts back exactly those). When a deleted
+  with the same name, and a failed rename puts back exactly those. When a deleted
   album's folder is kept because it still holds files that are not photos, the
   Photos tab names them. Deleting an
   album, or removing photos, moves them to Removed, which keeps each photo's album:
@@ -117,8 +116,8 @@ Merged to `main` and shipping in the next release.
   it) and a screen whose profile has the album on shows them between its tap
   pages. New and removed files are picked up within a minute, without a restart.
   After every N tap-page turns the screen shows K photos full screen, cross-faded
-  and framed as prints (see Photos as framed prints), with the venue logo, the page dots and (unless you keep it)
-  the ticker hidden; Enter, Space or a click moves to the next photo. Choose how
+  and framed as prints (see Photos as framed prints), with the venue logo, the
+  page dots and (unless you keep it) the ticker hidden; Enter, Space or a click moves to the next photo. Choose how
   many tap pages come between visits (0 = photos only), how many photos, how
   long each stays, the order (Shuffle shows every photo once before any repeats;
   Name A-Z; Date newest first, by the date the photo was taken) and which albums,
