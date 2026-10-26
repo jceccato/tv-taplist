@@ -399,12 +399,12 @@ burns, dust, creases, strength}`, the strength as 0.01-1.
   that ticked the old name are updated by `admin_ops.rename_album`, because config sits
   a layer above this module (config_store imports it). It holds `_PROFILES_LOCK`, moves
   the folder back and raises `AlbumRenameFailed` (a 500 the Admin toasts) if the config
-  write fails, and remembers old to new names; the Default Settings Save
+  write fails, and remembers old to new names; the Settings Save
   (`admin_ops.save_settings`) and profile saves take the same lock and follow those
   names, so a page opened before a rename cannot write the old name back (issue #69).
   Delete moves every photo to Removed, then removes the folders that are empty; a
   non-photo file keeps its folder, and the Photos tab names those files
-  (`non_photo_files`, `non_photo_files` in the status JSON, `kept_files` from delete).
+  (`photo_library.non_photo_files`, returned as `non_photo_files` by the status route and as `kept_files` by delete).
   **Removed** is `photos_removed/<token>.<ext>` plus `<token>.json` `{album, name, ext,
   removed_at, copy_id}`; the record is written before the move. Removing deletes the
   public Display copy at once (unless an identical photo shares it) but keeps the thumbnail,

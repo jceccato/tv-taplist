@@ -929,7 +929,7 @@
           const kept = st.non_photo_files || [];
           keptNote.hidden = kept.length === 0;
           keptNote.textContent = kept.length === 0 ? "" : "This album holds files that are not photos, "
-            + "so deleting it would keep the folder: " + kept.slice(0, 5).join(", ")
+            + "so deleting it leaves the folder in place: " + kept.slice(0, 5).join(", ")
             + (kept.length > 5 ? " and " + (kept.length - 5) + " more" : "")
             + ". Remove them from the folder on disk to let it go.";
           setProgressText(st);

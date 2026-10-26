@@ -1387,8 +1387,9 @@ def non_photo_files(album: str) -> list[str]:
 
     These are the operator's own files (a note, a RAW the library does not read).
     They are why a deleted album's folder can stay: the Photos tab names them so
-    an album that keeps showing is explained. Hidden entries and symlinks are
-    skipped, as the scan skips them. Unsorted and a missing folder give none.
+    an album that keeps showing is explained. Anything the scan would not take
+    as a photo counts, hidden files (a `.DS_Store`) and symlinks included, since
+    they keep the folder just the same. Unsorted and a missing folder give none.
     """
     if album == UNSORTED:
         return []
@@ -1401,11 +1402,10 @@ def non_photo_files(album: str) -> list[str]:
     def visit(directory: Path, prefix: str) -> None:
         with os.scandir(directory) as it:
             for entry in it:
-                if entry.name.startswith(".") or entry.is_symlink():
-                    continue
                 if entry.is_dir(follow_symlinks=False):
                     visit(Path(entry.path), prefix + entry.name + "/")
-                elif not entry.name.lower().endswith(PHOTO_EXTENSIONS):
+                elif (entry.name.startswith(".") or entry.is_symlink()
+                      or not entry.name.lower().endswith(PHOTO_EXTENSIONS)):
                     found.append(prefix + entry.name)
 
     try:

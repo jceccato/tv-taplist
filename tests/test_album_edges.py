@@ -174,13 +174,13 @@ def test_two_renames_in_a_row_are_followed_to_the_end():
 
 # ---- a kept folder says why --------------------------------------------------------
 
-def test_non_photo_files_are_listed_for_an_album_and_hidden_ones_are_not():
+def test_non_photo_files_are_listed_for_an_album_and_hidden_ones_too():
     lib.create_album("Events")
     write_bytes(paths.PHOTOS_DIR / "Events" / "notes.txt", b"n")
     write_bytes(paths.PHOTOS_DIR / "Events" / "sub" / "menu.pdf", b"r")
-    write_bytes(paths.PHOTOS_DIR / "Events" / ".hidden", b"h")
+    write_bytes(paths.PHOTOS_DIR / "Events" / ".DS_Store", b"h")
     write_bytes(paths.PHOTOS_DIR / "Events" / "a.jpg", b"j")
-    assert lib.non_photo_files("Events") == ["notes.txt", "sub/menu.pdf"]
+    assert lib.non_photo_files("Events") == [".DS_Store", "notes.txt", "sub/menu.pdf"]
     assert lib.non_photo_files("Unsorted") == [] and lib.non_photo_files("../x") == []
     assert lib.non_photo_files("Nope") == []
 
