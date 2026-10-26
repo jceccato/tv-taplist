@@ -453,8 +453,16 @@ def test_display_js_draws_exactly_the_print_choices_the_settings_offer():
         m = re.search(rf"const {name} = \[([^\]]*)\]", js)
         assert m, f"{name} not found in display.js"
         assert re.findall(r'"([^"]+)"', m.group(1)) == [c for c in choices if c != "random"]
-    # Every frame has a material in display.css.
-    css = (_DISPLAY_JS.parent.parent / "css" / "display.css").read_text(encoding="utf-8")
-    for frame in FRAMES:
-        if frame not in ("none", "random"):
+    # Every drawn frame has a material in display.css; every realistic one has its
+    # art in static/frames and its side widths in display.js's FRAME_ART.
+    from app.config_store import DRAWN_FRAMES, REALISTIC_FRAMES
+    static = _DISPLAY_JS.parent.parent
+    css = (static / "css" / "display.css").read_text(encoding="utf-8")
+    for frame in DRAWN_FRAMES:
+        if frame != "none":
             assert re.search(rf"\.frame-{frame}(?![\w-])", css), f"no .frame-{frame} in display.css"
+    art = re.search(r"const FRAME_ART = \{([^}]*)\}", js).group(1)
+    assert re.findall(r'"([a-z-]+)": \[', art) == list(REALISTIC_FRAMES)
+    for frame in REALISTIC_FRAMES:
+        assert (static / "frames" / f"{frame}.webp").is_file(), frame
+    assert sorted(p.stem for p in (static / "frames").glob("*.webp")) == sorted(REALISTIC_FRAMES)

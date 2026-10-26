@@ -350,7 +350,10 @@ def test_the_print_defaults_are_a_flat_mount_from_the_photo_in_a_thin_black_fram
     assert config_store.MOUNT_STYLES == ("none", "flat", "double", "shadow", "float", "random")
     assert config_store.MOUNT_COLORS == ("photo", "white", "cream", "black", "custom", "random")
     assert config_store.FRAMES == ("none", "thin-black", "thin-white", "oak", "walnut",
-                                   "gilded", "polaroid", "random")
+                                   "gilded", "polaroid", "real-oak-limed", "real-oak-honey",
+                                   "real-walnut", "real-gilded-baroque", "real-gilded-classic",
+                                   "real-black-ash", "real-white-stepped", "real-barnwood",
+                                   "real-farmhouse", "real-dark-timber", "random")
 
 
 def test_every_print_setting_is_customisable_and_the_custom_colour_goes_with_its_choice():

@@ -634,6 +634,11 @@ html, body {
     0 0 calc(var(--print-s, 1080px) * 0.004) rgba(0, 0, 0, 0.25);
 }
 
+/* A realistic frame: one box whose border is the frame's art (border-image),
+   its width set per side by display.js. The middle is the art's cut-out, so
+   the mount and photo show through. */
+.frame-art { border-style: solid; border-color: transparent; }
+
 /* ---- Frames: four mitred sides, each shaded across its moulding (outer edge
    catching the light, inner edge falling away), the bottom and right a touch
    darker as the light is from the top left. Wood grain runs along each side. */

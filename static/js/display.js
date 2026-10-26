@@ -1312,8 +1312,12 @@
     const seq = ++album.seq;
     // Preload, so a slow LAN never fades to a half-drawn photo; a photo that
     // will not load is skipped (and the visit gives up if none will).
+    // The look is chosen now, so a realistic frame's art loads with the photo
+    // and never pops in after it.
+    const choice = choosePrint(album.plan.print);
+    if (FRAME_ART[choice.frame]) new Image().src = artUrl(choice.frame);
     const probe = new Image();
-    probe.onload = () => { if (seq === album.seq) drawPhoto(photo); };
+    probe.onload = () => { if (seq === album.seq) drawPhoto(photo, choice); };
     probe.onerror = () => {
       if (seq !== album.seq) return;
       album.failures++;
@@ -1323,13 +1327,13 @@
     probe.src = photo.url;
   }
 
-  function drawPhoto(photo) {
+  function drawPhoto(photo, choice) {
     const layers = albumEl.querySelectorAll(".album-layer");
     album.layer = 1 - album.layer;
     const up = layers[album.layer];
     const down = layers[1 - album.layer];
     album.failures = 0;
-    buildPrint(up, photo, choosePrint(album.plan.print));
+    buildPrint(up, photo, choice);
     placeTicker(up);
     // The first photo of a visit appears with the layer's own fade-in; later
     // ones cross-fade layer to layer.
@@ -1360,7 +1364,29 @@
      and FRAMES. */
   const MOUNT_STYLES = ["none", "flat", "double", "shadow", "float"];
   const MOUNT_COLORS = ["photo", "white", "cream", "black", "custom"];
-  const FRAMES = ["none", "thin-black", "thin-white", "oak", "walnut", "gilded", "polaroid"];
+  const FRAMES = ["none", "thin-black", "thin-white", "oak", "walnut", "gilded", "polaroid",
+    "real-oak-limed", "real-oak-honey", "real-walnut", "real-gilded-baroque", "real-gilded-classic",
+    "real-black-ash", "real-white-stepped", "real-barnwood", "real-farmhouse", "real-dark-timber"];
+  // The realistic frames: generated photographs of real frames with their
+  // opening cut out (scripts/frame_cutout.py), served from /static/frames/ and
+  // drawn with CSS border-image, so the corners keep their carving and the sides
+  // stretch to any screen. Each entry is the art's own side widths in px
+  // [top, right, bottom, left] (the art is 1376 px wide); the frame is drawn
+  // ART_FRAME_WIDTH of the short side deep, whatever the art's own thickness.
+  const FRAME_ART = {
+    "real-oak-limed": [159, 164, 160, 163],
+    "real-oak-honey": [148, 154, 148, 154],
+    "real-walnut": [130, 135, 130, 136],
+    "real-gilded-baroque": [170, 184, 169, 185],
+    "real-gilded-classic": [114, 118, 112, 118],
+    "real-black-ash": [139, 144, 138, 145],
+    "real-white-stepped": [180, 190, 178, 190],
+    "real-barnwood": [151, 154, 150, 156],
+    "real-farmhouse": [187, 209, 187, 209],
+    "real-dark-timber": [161, 166, 162, 166]
+  };
+  const ART_FRAME_WIDTH = 0.06;
+  const artUrl = (frame) => `/static/frames/${frame}.webp`;
   const MOUNT_HEX = { white: "#f3f2ee", cream: "#ebe3cf", black: "#1c1c1c" };
   // A copy made before the colour was sampled has none: a neutral card stands in.
   const MOUNT_FALLBACK = "#d9d3c7";
@@ -1375,6 +1401,18 @@
     none: [0, 0], "thin-black": [0.014, 0.014], "thin-white": [0.014, 0.014],
     oak: [0.04, 0.04], walnut: [0.04, 0.04], gilded: [0.046, 0.046], polaroid: [0.045, 0.17],
   };
+
+  // The frame's four edge widths on screen, in px.
+  function frameEdges(frame, S) {
+    const art = FRAME_ART[frame];
+    if (art) {
+      const k = (ART_FRAME_WIDTH * S) / art[0];
+      const [t, r, b, l] = art.map((v) => Math.round(v * k));
+      return { t, r, b, l };
+    }
+    const [s, b] = FRAME_WIDTH[frame].map((f) => Math.round(f * S));
+    return { t: s, r: s, b, l: s };
+  }
 
   function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
 
@@ -1474,7 +1512,12 @@
     img.src = photo.url;
     parts.window.appendChild(img);
     layer.appendChild(parts.window);
-    if (choice.frame !== "none") {
+    if (FRAME_ART[choice.frame]) {
+      const art = FRAME_ART[choice.frame];
+      parts.art = printPart("frame-art");
+      parts.art.style.borderImage = `url("${artUrl(choice.frame)}") ${art.join(" ")} stretch`;
+      layer.appendChild(parts.art);
+    } else if (choice.frame !== "none") {
       parts.sides = ["top", "right", "bottom", "left"].map((side) => {
         const part = printPart(`frame-side frame-${side} frame-${choice.frame}`);
         layer.appendChild(part);
@@ -1493,12 +1536,12 @@
     const S = Math.min(W, H);
     const { choice, photo, parts } = p;
     layer.style.setProperty("--print-s", S + "px");
-    const [fs, fb] = FRAME_WIDTH[choice.frame].map((f) => Math.round(f * S));
+    const e = frameEdges(choice.frame, S);
     // The space inside the frame: the mount, or the photo itself with no mount.
     // A kept ticker sits inside the frame, along its bottom edge, so the mount
     // (or the photo, with no mount) stops above it.
     const th = album.ticker ? album.tickerH : 0;
-    const ix = fs, iy = fs, iw = Math.max(1, W - 2 * fs), ih = Math.max(1, H - fs - fb - th);
+    const ix = e.l, iy = e.t, iw = Math.max(1, W - e.l - e.r), ih = Math.max(1, H - e.t - e.b - th);
     const m = Math.round(MOUNT_WIDTH[choice.style] * S);
     const inner = choice.style === "double" ? Math.round(DOUBLE_INNER * S) : 0;
     const bevel = parts.mount && choice.style !== "shadow" ? Math.max(1, Math.round(BEVEL * S)) : 0;
@@ -1516,9 +1559,14 @@
     if (parts.mat) box(parts.mat, px - inner - bevel, py - inner - bevel, pw + 2 * (inner + bevel), ph + 2 * (inner + bevel));
     box(parts.window, px, py, pw, ph);
     parts.window.style.setProperty("--bevel", bevel + "px");
+    if (parts.art) {
+      box(parts.art, 0, 0, W, H);
+      parts.art.style.borderWidth = `${e.t}px ${e.r}px ${e.b}px ${e.l}px`;
+    }
     if (parts.sides) {
       // Four mitred sides, so the wood grain runs along each one.
       const [top, right, bottom, left] = parts.sides;
+      const fs = e.l, fb = e.b;     // drawn frames: even sides, Polaroid's deeper bottom
       box(top, 0, 0, W, fs);
       top.style.clipPath = `polygon(0 0, ${W}px 0, ${W - fs}px ${fs}px, ${fs}px ${fs}px)`;
       box(bottom, 0, H - fb, W, fb);
@@ -1553,8 +1601,8 @@
     const W = albumEl.clientWidth || window.innerWidth;
     const H = albumEl.clientHeight || window.innerHeight;
     const S = Math.min(W, H);
-    const [fs, fb] = FRAME_WIDTH[p.choice.frame].map((f) => Math.round(f * S));
-    box(album.ticker, fs, H - fb - album.tickerH, W - 2 * fs, album.tickerH);
+    const e = frameEdges(p.choice.frame, S);
+    box(album.ticker, e.l, H - e.b - album.tickerH, W - e.l - e.r, album.tickerH);
   }
 
   window.addEventListener("resize", () => {

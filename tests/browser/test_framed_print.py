@@ -235,6 +235,32 @@ def test_every_frame_renders(venue, serve, page, frame):
         assert all("data:image/svg+xml" in s["bg"] for s in info["sides"])
 
 
+@pytest.mark.parametrize("frame", list(config_store.REALISTIC_FRAMES))
+def test_every_realistic_frame_renders_from_its_art(venue, serve, page, frame):
+    make_prints()
+    _frame_profile(album_frame=frame)
+    base = serve()
+    requests = []
+    page.on("request", lambda r: requests.append(r.url))
+    _open(page, base)
+    info = _settled(page)
+    page.wait_for_function("(u) => performance.getEntriesByName(u).length", arg=f"{base}/static/frames/{frame}.webp")
+    _shot(page, f"frame-{frame}")
+    art = page.evaluate("""() => { const a = document.querySelector('.album-layer.shown .frame-art');
+        const cs = getComputedStyle(a), r = a.getBoundingClientRect();
+        return {src: cs.borderImageSource, top: parseFloat(cs.borderTopWidth),
+                bottom: parseFloat(cs.borderBottomWidth), left: parseFloat(cs.borderLeftWidth),
+                x: r.x, y: r.y, w: r.width, h: r.height}; }""")
+    S = min(info["vw"], info["vh"])
+    assert info["frame"] == frame and info["sides"] == []
+    assert f"/static/frames/{frame}.webp" in art["src"]
+    assert (art["x"], art["y"], art["w"], art["h"]) == (0, 0, info["vw"], info["vh"])
+    assert art["top"] == pytest.approx(0.06 * S, abs=1)       # thin on screen, whatever the art's own
+    # The mount starts where the frame's art ends.
+    assert (info["mountBox"]["x"], info["mountBox"]["y"]) == (art["left"], art["top"])
+    assert all(u.startswith((base, "data:")) for u in requests)
+
+
 def test_random_picks_per_photo_from_the_real_choices(venue, serve, page):
     make_prints()
     _frame_profile(album_mount_style="random", album_mount_color="random", album_frame="random")

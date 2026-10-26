@@ -32,12 +32,17 @@ Merged to `main` and shipping in the next release.
   edge), a mount inside it (none, flat, double, shadow box or float) and the
   photo fitted inside the mount. The mount's colour is taken from the photo's
   own edges by default (muted), or white, cream, black or a colour you pick.
+  Ten realistic frames join the drawn ones (oak, walnut, carved and classic
+  gilt, black ash, white, barn wood, farmhouse and dark timber), made from
+  generated images built into the app, so still nothing is fetched.
   Each can be Random, picked afresh for each photo, and each is set per screen
   in the Settings tab's Photo album section. A photo with no mount fills the
   frame, with a blurred, darkened copy of itself in the edges it leaves. All
   drawn by the screen itself, with nothing fetched from the internet. Every
   photo's screen copy is rebuilt once after the upgrade to pick up its mount
-  colour; photos stay on screen meanwhile.
+  colour; photos stay on screen meanwhile. A kept ticker now sits inside the
+  frame, and swiping or pressing Enter through the taps reaches the photos as
+  the page timer does.
 - **Every phone and camera photo format.** The photo album now reads GIF (the
   first frame), TIFF, BMP, AVIF, iPhone HEIC photos and camera RAW files (CR2,
   CR3, NEF, ARW, RAF, ORF and DNG) as well as JPEG, PNG and WebP, from the Photos

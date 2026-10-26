@@ -636,7 +636,13 @@ def _preset_for_scale(presets: dict[str, float], scale: float) -> str:
 # these tuples.
 MOUNT_STYLES = ("none", "flat", "double", "shadow", "float", "random")
 MOUNT_COLORS = ("photo", "white", "cream", "black", "custom", "random")
-FRAMES = ("none", "thin-black", "thin-white", "oak", "walnut", "gilded", "polaroid", "random")
+# The "real-" frames are generated photographs of real frames (static/frames/,
+# provenance in its README), drawn with CSS border-image; the rest are drawn in CSS.
+DRAWN_FRAMES = ("none", "thin-black", "thin-white", "oak", "walnut", "gilded", "polaroid")
+REALISTIC_FRAMES = ("real-oak-limed", "real-oak-honey", "real-walnut", "real-gilded-baroque",
+                    "real-gilded-classic", "real-black-ash", "real-white-stepped",
+                    "real-barnwood", "real-farmhouse", "real-dark-timber")
+FRAMES = DRAWN_FRAMES + REALISTIC_FRAMES + ("random",)
 
 
 def _coerce_choice(value: Any, allowed: tuple[str, ...], default: str) -> str:

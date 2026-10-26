@@ -248,8 +248,9 @@ ticked list with nothing ticked".
 (`MOUNT_STYLES`: none/flat/double/shadow/float/random, default flat),
 `album_mount_color` with `album_mount_custom` (one unit; `MOUNT_COLORS`:
 photo/white/cream/black/custom/random, default photo; the custom hex goes through
-`parse_hex_color` and falls back to the default) and `album_frame` (`FRAMES`:
-none/thin-black/thin-white/oak/walnut/gilded/polaroid/random, default thin-black).
+`parse_hex_color` and falls back to the default) and `album_frame` (`FRAMES` = `DRAWN_FRAMES`
+none/thin-black/thin-white/oak/walnut/gilded/polaroid, then `REALISTIC_FRAMES` (the ten
+`real-*` generated frames, `static/frames/`), then random; default thin-black).
 Unknown values coerce to the default. The board's `album.print` carries the four
 as chosen; "random" travels as it is and the page picks per photo.
 
@@ -608,6 +609,13 @@ Tokens are stripped from any text shown on the card (`_clean_description`).
   it would). Shadow box has no bevel and heavy inset walls, so it never reads as Flat. With mount style none there is no mount: the photo fills the
   frame and a `.print-fill` behind it shows the same copy blurred and darkened.
   Paper and wood textures are inline SVG `feTurbulence` data URIs (no fetch). The
+  **realistic frames** are generated art in `static/frames/<key>.webp` (provenance and
+  prompts in its README; cut with `scripts/frame_cutout.py`), drawn as one `.frame-art`
+  box with CSS `border-image` sliced at the art's own side widths (`FRAME_ART`) and
+  shown `ART_FRAME_WIDTH` (6 %) of the short side deep; `frameEdges()` gives every frame's
+  four on-screen widths. The look is chosen before the photo's preload, which loads
+  the frame art alongside, so it never pops in late. A guard ties `REALISTIC_FRAMES`,
+  `FRAME_ART` and the files together. The
   resolved choices are on the layer as `data-style`/`data-color`/`data-frame`/
   `data-mount`; "random" is picked per photo by `choosePrint`, from `MOUNT_STYLES`,
   `MOUNT_COLORS` and `FRAMES` in display.js, which a drift guard ties to
@@ -839,7 +847,7 @@ inside it (it would land as a stray file in `/data`).
 ---
 
 ## Testing - IMPORTANT interpreter gotcha
-- 1038 tests, 31 files (the 36 page tests skip without a browser, and the HEIC
+- 1049 tests, 31 files (the 0 page tests skip without a browser, and the HEIC
   tests without pillow-heif):
   **the photo library** (`test_photo_library.py`: albums as folders, scan pickup,
   the pipeline on generated JPEG/PNG/WebP fixtures with EXIF orientation and GPS and a
@@ -907,8 +915,9 @@ inside it (it would land as a stray file in `/data`).
   provenance in `photo_fixtures.py`), since nothing in CI can encode HEVC; a RAW is
   generated as a minimal linear DNG (`dng_bytes`). The board-update test uses Playwright's fake
   clock to reach the 30 s poll; the others run in real time with 3 s pages and 2 s
-  photos (about two minutes for the 36). `test_framed_print.py` opens a photos-only
-  profile (the visit starts at once) for each mount style, mount colour and frame,
+  photos (about three minutes for the 0). `test_framed_print.py` opens a photos-only
+  profile (the visit starts at once) for each mount style, mount colour and frame
+  (each realistic frame too, from its art),
   Random, a resize, and asserts that every request stays on the app; CI keeps every
   screenshot as the `page-screenshots` artefact.
 - **The sync fixture fakes the httpx TRANSPORT, not `_list_batches`**, so the real

@@ -607,8 +607,12 @@ min="{{ bounds[field].min }}"{% if bounds[field].max is not none %} max="{{ boun
             {% call unit('album_frame') %}
             <label for="album_frame">Frame</label>
             <select id="album_frame" name="album_frame">
-              {% for value, label in [('none', 'None'), ('thin-black', 'Thin black'), ('thin-white', 'Thin white'), ('oak', 'Oak'), ('walnut', 'Walnut'), ('gilded', 'Gilded'), ('polaroid', 'Polaroid (wide bottom edge)'), ('random', 'Random (a different one for each photo)')] %}
+              {% for group, options in [('Drawn', [('none', 'None'), ('thin-black', 'Thin black'), ('thin-white', 'Thin white'), ('oak', 'Oak'), ('walnut', 'Walnut'), ('gilded', 'Gilded'), ('polaroid', 'Polaroid (wide bottom edge)')]), ('Realistic', [('real-oak-limed', 'Oak, limed gallery'), ('real-oak-honey', 'Oak, honey'), ('real-walnut', 'Walnut'), ('real-gilded-baroque', 'Gilded, carved baroque'), ('real-gilded-classic', 'Gilded, classic'), ('real-black-ash', 'Black ash'), ('real-white-stepped', 'White, stepped'), ('real-barnwood', 'Reclaimed barn wood'), ('real-farmhouse', 'Distressed farmhouse'), ('real-dark-timber', 'Rough-sawn dark timber')]), ('', [('random', 'Random (a different one for each photo, from both groups)')])] %}
+              {% if group %}<optgroup label="{{ group }}">{% endif %}
+              {% for value, label in options %}
               <option value="{{ value }}" {{ 'selected' if cfg.album_frame == value else '' }}>{{ label }}</option>
+              {% endfor %}
+              {% if group %}</optgroup>{% endif %}
               {% endfor %}
             </select>
             {% endcall %}
