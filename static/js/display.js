@@ -1823,17 +1823,19 @@
       for (let i = 0, n = Math.random() < 0.5 ? 1 : 2; i < n; i++) {
         const side = Math.floor(Math.random() * 4);
         const along = rand(-10, 110);
-        const [x, y] = [[along, rand(-25, 5)], [rand(95, 125), along], [along, rand(95, 125)],
-          [rand(-25, 5), along]][side];
-        leaks.push(`radial-gradient(ellipse ${rand(35, 75).toFixed(1)}% ${rand(45, 90).toFixed(1)}% at ` +
+        // Centred just inside an edge, so the glow plainly reaches into the photo
+        // (centred outside it, a low strength left only a smudge on the rim).
+        const [x, y] = [[along, rand(-8, 12)], [rand(88, 108), along], [along, rand(88, 108)],
+          [rand(-8, 12), along]][side];
+        leaks.push(`radial-gradient(ellipse ${rand(40, 75).toFixed(1)}% ${rand(55, 95).toFixed(1)}% at ` +
           `${x.toFixed(1)}% ${y.toFixed(1)}%, rgba(${pick(LEAK_COLORS)}, ${rand(0.55, 0.85).toFixed(2)}), ` +
           `rgba(${pick(LEAK_COLORS)}, 0.18) 45%, transparent 75%)`);
       }
       const burn = Math.random() < 0.65 ? (() => {
-        const cx = Math.random() < 0.5 ? rand(-15, 10) : rand(90, 115);
-        const cy = Math.random() < 0.5 ? rand(-15, 10) : rand(90, 115);
-        return `radial-gradient(circle at ${cx.toFixed(1)}% ${cy.toFixed(1)}%, rgba(70, 32, 8, 0.85), ` +
-          `rgba(120, 66, 24, 0.35) ${rand(14, 24).toFixed(1)}%, transparent ${rand(30, 48).toFixed(1)}%)`;
+        const cx = Math.random() < 0.5 ? rand(-8, 6) : rand(94, 108);
+        const cy = Math.random() < 0.5 ? rand(-8, 6) : rand(94, 108);
+        return `radial-gradient(circle at ${cx.toFixed(1)}% ${cy.toFixed(1)}%, rgba(70, 32, 8, 0.9), ` +
+          `rgba(120, 66, 24, 0.45) ${rand(20, 30).toFixed(1)}%, transparent ${rand(42, 60).toFixed(1)}%)`;
       })() : null;
       o.burns = { leaks: leaks.join(", "), burn };
     }
@@ -1899,8 +1901,9 @@
       kinds.push("grain");
     }
     if (o.burns) {
-      inWindow("overlay-leak", 1).style.backgroundImage = o.burns.leaks;
-      if (o.burns.burn) inWindow("overlay-burn", 1).style.backgroundImage = o.burns.burn;
+      // Stronger than the rest at a low strength: a quiet leak is invisible.
+      inWindow("overlay-leak", 1.6).style.backgroundImage = o.burns.leaks;
+      if (o.burns.burn) inWindow("overlay-burn", 1.5).style.backgroundImage = o.burns.burn;
       kinds.push("burns");
     }
     if (o.dust) {
